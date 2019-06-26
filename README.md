@@ -42,6 +42,12 @@ Install bootimage:
 cargo install bootimage
 ```
 
+Install rust-src component:
+
+```
+rustup component add rust-src
+```
+
 3. Change into the directory where you cloned this repository and build:
 
 ```cargo xbuild```
