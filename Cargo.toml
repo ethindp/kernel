@@ -1,0 +1,32 @@
+[package]
+name = "kernel"
+version = "0.1.0"
+authors = ["Ethin Probst <harlydavidsen@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+x86_64 = "*"
+bootloader = {version="*", features=["map_physical_memory"]}
+uart_16550 = "*"
+volatile = "*"
+spin = "*"
+pic8259_simple = "*"
+pc-keyboard = "*"
+raw-cpuid = "*"
+cpuio = "*"
+bit_field = "*"
+libm = "*"
+slab_allocator = "*"
+
+[dependencies.lazy_static]
+version = "*"
+features = ["spin_no_std"]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+
+[package.metadata.bootimage]
+run-args = ["-serial", "stdio", "-s", "-m", "16G", "-soundhw", "all", "-machine", "q35"]
