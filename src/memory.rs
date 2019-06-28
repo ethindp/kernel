@@ -3,10 +3,12 @@ use bootloader::bootinfo::*;
 use x86_64::registers::control::*;
 use x86_64::{
     structures::paging::{
-        FrameAllocator, MappedPageTable, MapperAllSizes, PageTable, PhysFrame, Size4KiB,
+        FrameAllocator, MappedPageTable, MapperAllSizes, PageTable, PhysFrame, Size4KiB, Page, PageTableFlags, Mapper
     },
     PhysAddr, VirtAddr,
 };
+use x86_64::structures::paging::mapper::MapToError;
+
 pub unsafe fn init(physical_memory_offset: u64) -> impl MapperAllSizes {
     let (level_4_table, _) = get_active_l4_table(physical_memory_offset);
     let phys_to_virt = move |frame: PhysFrame| -> *mut PageTable {
@@ -15,6 +17,25 @@ pub unsafe fn init(physical_memory_offset: u64) -> impl MapperAllSizes {
         virt.as_mut_ptr()
     };
     MappedPageTable::new(level_4_table, phys_to_virt)
+}
+
+pub fn init_heap(heap_start: u64, heap_size: u64, mapper: &mut impl Mapper<Size4KiB>, frame_allocator: &mut impl FrameAllocator<Size4KiB>)->Result<(), MapToError> {
+let page_range = {
+let heap_start = VirtAddr::new(heap_start as u64);
+let heap_end = heap_start + heap_size - 1u64;
+let heap_start_page = Page::containing_address(heap_start);
+let heap_end_page = Page::containing_address(heap_end);
+Page::range_inclusive(heap_start_page, heap_end_page)
+};
+for page in page_range {
+let frame = match frame_allocator.allocate_frame() {
+Some(f) => f,
+None => panic!("Can't allocate frame!")
+};
+let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
+unsafe { mapper.map_to(page, frame, flags, frame_allocator)?.flush() };
+}
+Ok(())
 }
 
 unsafe fn get_active_l4_table(physical_memory_offset: u64) -> (&'static mut PageTable, Cr3Flags) {

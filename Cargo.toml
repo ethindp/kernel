@@ -29,4 +29,4 @@ panic = "abort"
 panic = "abort"
 
 [package.metadata.bootimage]
-run-args = ["-serial", "stdio", "-s", "-m", "16G", "-soundhw", "all", "-machine", "q35"]
+run-args = ["-serial", "stdio", "-s", "-soundhw", "all", "-machine", "q35"]

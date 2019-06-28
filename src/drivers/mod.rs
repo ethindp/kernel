@@ -10,5 +10,7 @@ pub mod sound;
 pub mod storage;
 /// The video module contains drivers for video controls.
 pub mod video;
-/// The virtual module contains drivers for VirtIO usage.
+/// The virtio module contains drivers for VirtIO usage.
 pub mod virtio;
+/// The fs module contains drivers for accessing file systems either in RAM or on-disk
+pub mod fs;

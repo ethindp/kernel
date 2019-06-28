@@ -58,8 +58,9 @@ pub fn init() {
     });
     // Now, probe the PCI bus.
     pci::init();
-    // Request the keyboard driver to run initialization.
+    // Request other drivers to initialize
     drivers::hid::keyboard::init();
+drivers::sound::hda::init();
 }
 
 /// This function is designed as a failsafe against memory corruption if we panic.
