@@ -1,2 +1,2 @@
-pub mod pcspeaker;
 pub mod hda;
+pub mod pcspeaker;

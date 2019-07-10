@@ -3,9 +3,8 @@ name = "kernel"
 version = "0.1.0"
 authors = ["Ethin Probst <harlydavidsen@gmail.com>"]
 edition = "2018"
-
 [dependencies]
-x86_64 = "*"
+x86_64 = "0.7.2-beta.0"
 bootloader = {version="*", features=["map_physical_memory"]}
 uart_16550 = "*"
 volatile = "*"
@@ -29,4 +28,4 @@ panic = "abort"
 panic = "abort"
 
 [package.metadata.bootimage]
-run-args = ["-serial", "stdio", "-s", "-soundhw", "all", "-machine", "q35"]
+run-args = ["-serial", "stdio", "-s", "-soundhw", "all"]

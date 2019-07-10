@@ -7,6 +7,10 @@ use cpuio::*;
 use lazy_static::lazy_static;
 use spin::Mutex;
 
+const MAX_FUNCTION: u16 = 8;
+const MAX_DEVICE: u16 = 32;
+const MAX_BUS: u16 = 256;
+
 // These statics are internally tracked by the kernel -- do not modify!
 lazy_static! {
 // Vector to hold a list of all recognized PCI devices.
@@ -14,7 +18,7 @@ lazy_static! {
 }
 
 /// Contains PCI device properties.
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct PCIDevice {
     /// Public vendor ID of device
     pub vendor: u32,
@@ -53,7 +57,7 @@ pub struct PCIDevice {
 }
 
 /// This table is applicable if the Header Type is 00h.
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct GeneralDeviceTable {
     // Address of all six BARs.
     pub bar0: u32,
@@ -80,7 +84,7 @@ pub struct GeneralDeviceTable {
 }
 
 /// This table is applicable if the Header Type is 01h (PCI-to-PCI bridge)
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct PCIToPCIBridgeTable {
     pub bar0: u32,
     pub bar1: u32,
@@ -107,7 +111,7 @@ pub struct PCIToPCIBridgeTable {
 }
 
 /// This table is applicable if the Header Type is 02h (PCI-to-CardBus bridge)
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct PCIToCardBusBridgeTable {
     pub exca_base_addr: u32,
     pub sec_status: u32,
@@ -139,22 +143,13 @@ fn add_device(device: PCIDevice) {
 
 /// Reads a word from a PCI bus, device and function using the given offset and returns it.
 pub fn read_word(bus: u16, slot: u16, func: u16, offset: u16) -> u32 {
-    let mut address = 0u32;
     let lbus = bus as u32;
     let lslot = slot as u32;
     let lfunc = func as u32;
-    let mut tmp: u32 = 0;
-    address = (((lbus << 16) as u32)
-        | ((lslot << 11) as u32)
-        | ((lfunc << 8) as u32)
-        | ((offset as u32) & 0xfc)
-        | (0x80000000)) as u32;
     unsafe {
-        outl(address, 0xCF8);
-        tmp = inl(0xCFC);
-        tmp = tmp >> ((offset & 2) * 8) & 0xFFFF;
+        outl((((lbus << 16) as u32) | ((lslot << 11) as u32) | ((lfunc << 8) as u32) | ((offset as u32) & 0xfc) | (0x80000000)) as u32, 0xCF8);
+        inl(0xCFC) >> ((offset & 2) * 8) & 0xFFFF
     }
-    tmp
 }
 
 // Here there be internals.
@@ -196,9 +191,9 @@ fn get_rev(bus: u16, device: u16, function: u16) -> u32 {
 }
 
 pub fn probe() {
-    for bus in 0..256 {
-        for slot in 0..32 {
-            for function in 0..8 {
+    for bus in 0..MAX_BUS {
+        for slot in 0..MAX_DEVICE {
+            for function in 0..MAX_FUNCTION {
                 // Get vendor, device, class and subclass codes.
                 let vendor = get_vendor_id(bus, slot, function);
                 if vendor == 0xFFFF {
@@ -213,6 +208,7 @@ pub fn probe() {
                     get_device_string(device),
                     get_subclass_string(class, subclass)
                 );
+                printkln!("PCI: probe: codes: vendor = {:X}h, device = {:X}h, class = {:X}h, subclass = {:X}h, prog if={:X}h, rev={:X}h, status={:X}h, command={:X}h, bus = {:X}h, slot = {:X}h, function = {:X}h", vendor, device, class, subclass, get_prog_if(bus, slot, function), get_rev(bus, slot, function), get_status(bus, slot, function), get_command(bus, slot, function), bus, slot, function);
                 // This part is the longest part of this function thus far. Here we construct the PCI device structure and its linked structures, if applicable.
                 // Construction happens in this order:
                 // 1. Initialize static (easily calculable/readable) data.
@@ -238,27 +234,23 @@ pub fn probe() {
                     // Conditional initialization.
                     gen_dev_tbl: if read_word(bus, slot, function, 0x0C).get_bits(16..23) == 0x00 {
                         Some(GeneralDeviceTable {
-                            bar0: read_word(bus, slot, function, 0x10).get_bits(24..31),
-                            bar1: read_word(bus, slot, function, 0x14).get_bits(24..31),
-                            bar2: read_word(bus, slot, function, 0x18).get_bits(24..31),
-                            bar3: read_word(bus, slot, function, 0x1C).get_bits(24..31),
-                            bar4: read_word(bus, slot, function, 0x20).get_bits(24..31),
-                            bar5: read_word(bus, slot, function, 0x24).get_bits(24..31),
+                            bar0: (read_word(bus, slot, function, 0x10) >> 24),
+                            bar1: (read_word(bus, slot, function, 0x14) >> 24),
+                            bar2: (read_word(bus, slot, function, 0x18) >> 24),
+                            bar3: (read_word(bus, slot, function, 0x1C) >> 24),
+                            bar4: (read_word(bus, slot, function, 0x20) >> 24),
+                            bar5: (read_word(bus, slot, function, 0x24) >> 24),
                             cis_ptr: read_word(bus, slot, function, 0x28).get_bits(24..31),
-                            subsystem_id: read_word(bus, slot, function, 0x2C)
-                                .get_bits(24..31),
+                            subsystem_id: read_word(bus, slot, function, 0x2C).get_bits(24..31),
                             subsystem_vendor_id: read_word(bus, slot, function, 0x2C)
                                 .get_bits(16..23),
                             expansion_rom_addr: read_word(bus, slot, function, 0x30)
                                 .get_bits(24..31),
                             caps_ptr: read_word(bus, slot, function, 0x34).get_bits(16..23),
-                            max_latency: read_word(bus, slot, function, 0x3C)
-                                .get_bits(24..31),
+                            max_latency: read_word(bus, slot, function, 0x3C).get_bits(24..31),
                             min_grant: read_word(bus, slot, function, 0x3C).get_bits(16..23),
-                            interrupt_pin: read_word(bus, slot, function, 0x3C)
-                                .get_bits(8..15),
-                            interrupt_line: read_word(bus, slot, function, 0x3C)
-                                .get_bits(0..7),
+                            interrupt_pin: read_word(bus, slot, function, 0x3C).get_bits(8..15),
+                            interrupt_line: read_word(bus, slot, function, 0x3C).get_bits(0..7),
                         })
                     } else {
                         None
@@ -274,8 +266,7 @@ pub fn probe() {
                             sub_bus: read_word(bus, slot, function, 0x18).get_bits(16..23),
                             sec_bus: read_word(bus, slot, function, 0x18).get_bits(8..15),
                             prim_bus: read_word(bus, slot, function, 0x18).get_bits(0..7),
-                            sec_status: read_word(bus, slot, function, 0x1C)
-                                .get_bits(24..31),
+                            sec_status: read_word(bus, slot, function, 0x1C).get_bits(24..31),
                             io_limit: read_word(bus, slot, function, 0x1C).get_bits(16..23),
                             io_base: read_word(bus, slot, function, 0x1C).get_bits(8..15),
                             mem_limit: read_word(bus, slot, function, 0x20).get_bits(24..31),
@@ -288,19 +279,14 @@ pub fn probe() {
                                 .get_bits(24..31),
                             prefetch_limit_upper32: read_word(bus, slot, function, 0x2C)
                                 .get_bits(24..31),
-                            io_limit_upper16: read_word(bus, slot, function, 0x30)
-                                .get_bits(24..31),
-                            io_base_upper16: read_word(bus, slot, function, 0x30)
-                                .get_bits(16..23),
+                            io_limit_upper16: read_word(bus, slot, function, 0x30).get_bits(24..31),
+                            io_base_upper16: read_word(bus, slot, function, 0x30).get_bits(16..23),
                             caps_ptr: read_word(bus, slot, function, 0x34).get_bits(16..23),
                             expansion_rom_addr: read_word(bus, slot, function, 0x38)
                                 .get_bits(24..31),
-                            bridge_control: read_word(bus, slot, function, 0x3C)
-                                .get_bits(24..31),
-                            interrupt_pin: read_word(bus, slot, function, 0x3C)
-                                .get_bits(16..23),
-                            interrupt_line: read_word(bus, slot, function, 0x3C)
-                                .get_bits(8..15),
+                            bridge_control: read_word(bus, slot, function, 0x3C).get_bits(24..31),
+                            interrupt_pin: read_word(bus, slot, function, 0x3C).get_bits(16..23),
+                            interrupt_line: read_word(bus, slot, function, 0x3C).get_bits(8..15),
                         })
                     } else {
                         None
@@ -310,46 +296,30 @@ pub fn probe() {
                         == 0x02
                     {
                         Some(PCIToCardBusBridgeTable {
-                            exca_base_addr: read_word(bus, slot, function, 0x10)
-                                .get_bits(24..31),
-                            sec_status: read_word(bus, slot, function, 0x14)
-                                .get_bits(24..31),
-                            caps_lst_offset: read_word(bus, slot, function, 0x14)
-                                .get_bits(8..15),
+                            exca_base_addr: read_word(bus, slot, function, 0x10).get_bits(24..31),
+                            sec_status: read_word(bus, slot, function, 0x14).get_bits(24..31),
+                            caps_lst_offset: read_word(bus, slot, function, 0x14).get_bits(8..15),
                             card_bus_latency_timer: read_word(bus, slot, function, 0x18)
                                 .get_bits(24..31),
                             sub_bus: read_word(bus, slot, function, 0x18).get_bits(16..23),
-                            card_bus_bus: read_word(bus, slot, function, 0x18)
-                                .get_bits(8..15),
+                            card_bus_bus: read_word(bus, slot, function, 0x18).get_bits(8..15),
                             pci_bus: read_word(bus, slot, function, 0x18).get_bits(0..7),
-                            mem_base_addr0: read_word(bus, slot, function, 0x1C)
-                                .get_bits(24..31),
-                            mem_limit0: read_word(bus, slot, function, 0x20)
-                                .get_bits(24..31),
-                            mem_base_addr1: read_word(bus, slot, function, 0x24)
-                                .get_bits(24..31),
-                            mem_limit1: read_word(bus, slot, function, 0x28)
-                                .get_bits(24..31),
-                            io_base_addr0: read_word(bus, slot, function, 0x2C)
-                                .get_bits(24..31),
-                            io_base_limit0: read_word(bus, slot, function, 0x30)
-                                .get_bits(24..31),
-                            io_base_addr1: read_word(bus, slot, function, 0x34)
-                                .get_bits(24..31),
-                            io_base_limit1: read_word(bus, slot, function, 0x38)
-                                .get_bits(24..31),
-                            bridge_control: read_word(bus, slot, function, 0x3C)
-                                .get_bits(24..31),
-                            interrupt_pin: read_word(bus, slot, function, 0x3C)
-                                .get_bits(16..23),
-                            interrupt_line: read_word(bus, slot, function, 0x3C)
-                                .get_bits(8..15),
+                            mem_base_addr0: read_word(bus, slot, function, 0x1C).get_bits(24..31),
+                            mem_limit0: read_word(bus, slot, function, 0x20).get_bits(24..31),
+                            mem_base_addr1: read_word(bus, slot, function, 0x24).get_bits(24..31),
+                            mem_limit1: read_word(bus, slot, function, 0x28).get_bits(24..31),
+                            io_base_addr0: read_word(bus, slot, function, 0x2C).get_bits(24..31),
+                            io_base_limit0: read_word(bus, slot, function, 0x30).get_bits(24..31),
+                            io_base_addr1: read_word(bus, slot, function, 0x34).get_bits(24..31),
+                            io_base_limit1: read_word(bus, slot, function, 0x38).get_bits(24..31),
+                            bridge_control: read_word(bus, slot, function, 0x3C).get_bits(24..31),
+                            interrupt_pin: read_word(bus, slot, function, 0x3C).get_bits(16..23),
+                            interrupt_line: read_word(bus, slot, function, 0x3C).get_bits(8..15),
                             subsystem_vendor_id: read_word(bus, slot, function, 0x40)
                                 .get_bits(24..31),
                             subsystem_device_id: read_word(bus, slot, function, 0x40)
                                 .get_bits(16..23),
-                            legacy_base_addr: read_word(bus, slot, function, 0x44)
-                                .get_bits(24..31),
+                            legacy_base_addr: read_word(bus, slot, function, 0x44).get_bits(24..31),
                         })
                     } else {
                         None
@@ -365,11 +335,10 @@ pub fn init() {
     probe();
 }
 
-pub fn get_devices()->Vec<PCIDevice> {
-let mut devices: Vec<PCIDevice> = Vec::new();
-for device in PCI_DEVICES.lock().iter() {
-devices.push(*device);
+pub fn get_devices() -> Vec<PCIDevice> {
+    let mut devices: Vec<PCIDevice> = Vec::new();
+    for device in PCI_DEVICES.lock().iter() {
+        devices.push(*device);
+    }
+    devices
 }
-devices
-}
-

@@ -19,6 +19,8 @@ pub mod pci;
 pub mod pcidb;
 /// The vga module contains functions for interacting with the VGA buffer.
 pub mod vga;
+/// The tasking module contains multitasking-related functions
+pub mod tasking;
 use cpuio::{inb, outb};
 
 /// Initializes the kernel and sets up required functionality.
@@ -60,7 +62,7 @@ pub fn init() {
     pci::init();
     // Request other drivers to initialize
     drivers::hid::keyboard::init();
-drivers::sound::hda::init();
+    drivers::sound::hda::init();
 }
 
 /// This function is designed as a failsafe against memory corruption if we panic.
