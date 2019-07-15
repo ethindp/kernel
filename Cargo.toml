@@ -3,8 +3,9 @@ name = "kernel"
 version = "0.1.0"
 authors = ["Ethin Probst <harlydavidsen@gmail.com>"]
 edition = "2018"
+
 [dependencies]
-x86_64 = "0.7.2-beta.0"
+x86_64 = "=0.7.2-beta.0"
 bootloader = {version="*", features=["map_physical_memory"]}
 uart_16550 = "*"
 volatile = "*"
@@ -16,6 +17,7 @@ cpuio = "*"
 bit_field = "*"
 libm = "*"
 slab_allocator = "*"
+rusty-asm = {version="*", features=["proc-macro"]}
 
 [dependencies.lazy_static]
 version = "*"
@@ -28,4 +30,4 @@ panic = "abort"
 panic = "abort"
 
 [package.metadata.bootimage]
-run-args = ["-serial", "stdio", "-s", "-soundhw", "all"]
+run-args = ["-serial", "stdio", "-s", "-soundhw", "all", "-S"]
