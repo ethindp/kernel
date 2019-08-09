@@ -30,4 +30,4 @@ panic = "abort"
 panic = "abort"
 
 [package.metadata.bootimage]
-run-args = ["-serial", "stdio", "-s", "-soundhw", "all", "-S"]
+run-args = ["-serial", "stdio", "-s", "-soundhw", "all"]

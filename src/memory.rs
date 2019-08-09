@@ -7,12 +7,10 @@ use x86_64::structures::paging::mapper::MapToError;
 use x86_64::structures::paging::OffsetPageTable;
 use x86_64::{
     structures::paging::{
-        FrameAllocator, Mapper, Page, PageTable, PageTableFlags, PhysFrame,
-        Size4KiB,
+        FrameAllocator, Mapper, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB,
     },
     PhysAddr, VirtAddr,
 };
-
 
 lazy_static! {
 /// The page table mapper (PTM) used by the kernel global memory allocator.
@@ -148,12 +146,7 @@ pub fn init(physical_memory_offset: u64, memory_map: &'static MemoryMap) {
     let end_addr = start_addr + 1 * 1048576;
     // We cannot call allocate_paged_heap here since we hold the spinlock, which would result in an endless lock acquisition attempt loop. Instead we call the function directly here.
     match (mapper.as_mut(), allocator.as_mut()) {
-        (Some(m), Some(a)) => match allocate_paged_heap(
-            start_addr,
-            end_addr - start_addr,
-            m,
-            a,
-        ) {
+        (Some(m), Some(a)) => match allocate_paged_heap(start_addr, end_addr - start_addr, m, a) {
             Ok(()) => (),
             Err(e) => panic!("Cannot allocate primary heap: {:?}", e),
         },

@@ -18,34 +18,35 @@ const MAX_OPEN_FILES: usize = u16::max_value() as usize;
 #[repr(u8)]
 #[derive(Eq, PartialEq)]
 pub enum ProcessState {
-Alive,
-Zombie,
-Dead,
+    Alive,
+    Zombie,
+    Dead,
 }
-
 
 #[repr(C)]
 pub struct Process {
-pub name: &'static str,
-pub pid: u32,
-pub tid: u32,
-pub ppid: u64,
-pub rsp: u64,
-pub stack_top: u64,
-pub rip: u64,
-pub cr3: u64,
-pub state: ProcessState,
-pub num_open_files: u16,
-pub open_files: [Option<&'static str>; MAX_OPEN_FILES],
+    pub name: &'static str,
+    pub pid: u32,
+    pub tid: u32,
+    pub ppid: u64,
+    pub rsp: u64,
+    pub stack_top: u64,
+    pub rip: u64,
+    pub cr3: u64,
+    pub state: ProcessState,
+    pub num_open_files: u16,
+    pub open_files: [Option<&'static str>; MAX_OPEN_FILES],
 }
 
 #[no_mangle]
-pub extern "C" fn create_ppid(pid: u32, tid: u32)->u64 {
-((pid as u64) << 32 | (tid as u64))
+pub extern "C" fn create_ppid(pid: u32, tid: u32) -> u64 {
+    ((pid as u64) << 32 | (tid as u64))
 }
 
 #[no_mangle]
-pub extern "C" fn unpack_ppid(ppid: u64)->(u32, u32) {
-((((ppid & 0xFFFFFFFF00000000) >> 32) as u32), ((ppid & 0xFFFFFFFF) as u32))
+pub extern "C" fn unpack_ppid(ppid: u64) -> (u32, u32) {
+    (
+        (((ppid & 0xFFFFFFFF00000000) >> 32) as u32),
+        ((ppid & 0xFFFFFFFF) as u32),
+    )
 }
-
