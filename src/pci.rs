@@ -147,7 +147,14 @@ pub fn read_word(bus: u16, slot: u16, func: u16, offset: u16) -> u32 {
     let lslot = slot as u32;
     let lfunc = func as u32;
     unsafe {
-        outl((((lbus << 16) as u32) | ((lslot << 11) as u32) | ((lfunc << 8) as u32) | ((offset as u32) & 0xfc) | (0x80000000)) as u32, 0xCF8);
+        outl(
+            (((lbus << 16) as u32)
+                | ((lslot << 11) as u32)
+                | ((lfunc << 8) as u32)
+                | ((offset as u32) & 0xfc)
+                | (0x80000000)) as u32,
+            0xCF8,
+        );
         inl(0xCFC) >> ((offset & 2) * 8) & 0xFFFF
     }
 }

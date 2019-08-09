@@ -17,10 +17,10 @@ pub mod pci;
 /// The pcidb module contains auto-generated as well as manually-written functions, used for utilizing the built-in PCI ID database.
 /// This module is a hackish way of doing things, and certainly isn't ideal (since it increases build times by a lot), but for now it is the only way of getting human-readable device and manufacturer names, as well as class and subclass strings.
 pub mod pcidb;
-/// The vga module contains functions for interacting with the VGA buffer.
-pub mod vga;
 /// The tasking module contains multitasking-related functions
 pub mod tasking;
+/// The vga module contains functions for interacting with the VGA buffer.
+pub mod vga;
 use cpuio::{inb, outb};
 
 /// Initializes the kernel and sets up required functionality.
