@@ -1,4 +1,5 @@
 use crate::memory::*;
+use crate::pci;
 use crate::printkln;
 use bit_field::BitField;
 use core::ptr::*;
@@ -52,6 +53,22 @@ pub enum HDARegister {
 }
 
 pub fn init() {
+    for dev in pci::get_devices() {
+        if dev.device == 0x2668 {
+            if dev.header_type == 0 {
+                let tbl = dev.gen_dev_tbl.unwrap();
+                if tbl.bar0.get_bit(0) {
+                    if tbl.bar0.get_bits(1..2) == 0x00 {
+                        printkln!("HDA: BARs: {:x}", (tbl.bar0.get_bits(0..16) & 0xFFFFFFF0));
+                    }
+                }
+            } else if dev.header_type == 1 {
+                let tbl = dev.pci_to_pci_bridge_tbl.unwrap();
+                printkln!("HDA: BARs: {:x}, {:x}", tbl.bar0, tbl.bar1);
+            }
+            break;
+        }
+    }
     allocate_phys_range(0xFEBF0000, 0xFEBF0000 + 0x9C);
     let gcap = read_memory(0xFEBF0000);
     printkln!(

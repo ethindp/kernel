@@ -1,15 +1,15 @@
 extern crate alloc;
 use crate::pcidb::*;
-use crate::printkln;
+use crate::{printk, printkln};
 use alloc::vec::Vec;
 use bit_field::BitField;
 use cpuio::*;
 use lazy_static::lazy_static;
 use spin::Mutex;
 
-const MAX_FUNCTION: u16 = 8;
-const MAX_DEVICE: u16 = 32;
-const MAX_BUS: u16 = 256;
+const MAX_FUNCTION: u8 = 8;
+const MAX_DEVICE: u8 = 32;
+const MAX_BUS: u8 = 255;
 
 // These statics are internally tracked by the kernel -- do not modify!
 lazy_static! {
@@ -142,58 +142,58 @@ fn add_device(device: PCIDevice) {
 }
 
 /// Reads a word from a PCI bus, device and function using the given offset and returns it.
-pub fn read_word(bus: u16, slot: u16, func: u16, offset: u16) -> u32 {
+pub fn read_word(bus: u8, slot: u8, func: u8, offset: u8) -> u32 {
     let lbus = bus as u32;
     let lslot = slot as u32;
     let lfunc = func as u32;
     unsafe {
         outl(
-            (((lbus << 16) as u32)
-                | ((lslot << 11) as u32)
-                | ((lfunc << 8) as u32)
+            ((((lbus as u32) << 16) as u32)
+                | (((lslot as u32) << 11) as u32)
+                | (((lfunc as u32) << 8) as u32)
                 | ((offset as u32) & 0xfc)
                 | (0x80000000)) as u32,
             0xCF8,
         );
-        inl(0xCFC) >> ((offset & 2) * 8) & 0xFFFF
+        inl(0xCFC)
     }
 }
 
 // Here there be internals.
 
-fn get_vendor_id(bus: u16, device: u16, function: u16) -> u32 {
-    read_word(bus, device, function, 0)
+fn get_vendor_id(bus: u8, device: u8, function: u8) -> u32 {
+    read_word(bus, device, function, 0).get_bits(0..16)
 }
 
-fn get_device_id(bus: u16, device: u16, function: u16) -> u32 {
-    read_word(bus, device, function, 2)
+fn get_device_id(bus: u8, device: u8, function: u8) -> u32 {
+    read_word(bus, device, function, 0).get_bits(16..31)
 }
 
-fn get_class_id(bus: u16, device: u16, function: u16) -> u32 {
-    (read_word(bus, device, function, 0xA) & !0x00FF) >> 8
+fn get_class_id(bus: u8, device: u8, function: u8) -> u32 {
+    read_word(bus, device, function, 0x08).get_bits(24..31)
 }
 
-fn get_prog_if(bus: u16, device: u16, function: u16) -> u32 {
-    read_word(bus, device, function, 0x8).get_bits(8..15)
+fn get_prog_if(bus: u8, device: u8, function: u8) -> u32 {
+    read_word(bus, device, function, 0x08).get_bits(8..15)
 }
 
-fn get_header_type(bus: u16, device: u16, function: u16) -> u32 {
+fn get_header_type(bus: u8, device: u8, function: u8) -> u32 {
     read_word(bus, device, function, 0x0C).get_bits(16..23)
 }
 
-fn get_subclass_id(bus: u16, device: u16, function: u16) -> u32 {
-    (read_word(bus, device, function, 0x08) & !0xFF00)
+fn get_subclass_id(bus: u8, device: u8, function: u8) -> u32 {
+    read_word(bus, device, function, 0x08).get_bits(16..23)
 }
 
-fn get_status(bus: u16, device: u16, function: u16) -> u32 {
+fn get_status(bus: u8, device: u8, function: u8) -> u32 {
     read_word(bus, device, function, 0x04).get_bits(24..31)
 }
 
-fn get_command(bus: u16, device: u16, function: u16) -> u32 {
-    read_word(bus, device, function, 0x04).get_bits(16..23)
+fn get_command(bus: u8, device: u8, function: u8) -> u32 {
+    read_word(bus, device, function, 0x04).get_bits(8..15)
 }
 
-fn get_rev(bus: u16, device: u16, function: u16) -> u32 {
+fn get_rev(bus: u8, device: u8, function: u8) -> u32 {
     read_word(bus, device, function, 0x08).get_bits(0..7)
 }
 
@@ -207,6 +207,9 @@ pub fn probe() {
                     continue;
                 }
                 let device = get_device_id(bus, slot, function);
+                if device == 0xFFFF {
+                    continue;
+                }
                 let class = get_class_id(bus, slot, function);
                 let subclass = get_subclass_id(bus, slot, function);
                 printkln!(
@@ -233,7 +236,7 @@ pub fn probe() {
                     subclass: subclass,
                     prog_if: get_prog_if(bus, slot, function),
                     revision_id: get_rev(bus, slot, function),
-                    bist: read_word(bus, slot, function, 0xF).get_bits(24..31),
+                    bist: read_word(bus, slot, function, 0x0C).get_bits(24..31),
                     header_type: get_header_type(bus, slot, function),
                     latency_timer: read_word(bus, slot, function, 0x0C).get_bits(8..15),
                     cache_line_size: read_word(bus, slot, function, 0x0C).get_bits(0..7),
@@ -241,12 +244,12 @@ pub fn probe() {
                     // Conditional initialization.
                     gen_dev_tbl: if read_word(bus, slot, function, 0x0C).get_bits(16..23) == 0x00 {
                         Some(GeneralDeviceTable {
-                            bar0: (read_word(bus, slot, function, 0x10) >> 24),
-                            bar1: (read_word(bus, slot, function, 0x14) >> 24),
-                            bar2: (read_word(bus, slot, function, 0x18) >> 24),
-                            bar3: (read_word(bus, slot, function, 0x1C) >> 24),
-                            bar4: (read_word(bus, slot, function, 0x20) >> 24),
-                            bar5: (read_word(bus, slot, function, 0x24) >> 24),
+                            bar0: read_word(bus, slot, function, 0x10),
+                            bar1: read_word(bus, slot, function, 0x14),
+                            bar2: read_word(bus, slot, function, 0x18),
+                            bar3: read_word(bus, slot, function, 0x1C),
+                            bar4: read_word(bus, slot, function, 0x20),
+                            bar5: read_word(bus, slot, function, 0x24),
                             cis_ptr: read_word(bus, slot, function, 0x28).get_bits(24..31),
                             subsystem_id: read_word(bus, slot, function, 0x2C).get_bits(24..31),
                             subsystem_vendor_id: read_word(bus, slot, function, 0x2C)
@@ -262,12 +265,12 @@ pub fn probe() {
                     } else {
                         None
                     },
-                    pci_to_pci_bridge_tbl: if read_word(bus, slot, function, 0xF).get_bits(16..23)
+                    pci_to_pci_bridge_tbl: if read_word(bus, slot, function, 0x0C).get_bits(16..23)
                         == 0x01
                     {
                         Some(PCIToPCIBridgeTable {
-                            bar0: read_word(bus, slot, function, 0x10).get_bits(24..31),
-                            bar1: read_word(bus, slot, function, 0x14).get_bits(24..31),
+                            bar0: read_word(bus, slot, function, 0x10),
+                            bar1: read_word(bus, slot, function, 0x14),
                             sec_latency_timer: read_word(bus, slot, function, 0x18)
                                 .get_bits(24..31),
                             sub_bus: read_word(bus, slot, function, 0x18).get_bits(16..23),
@@ -283,11 +286,11 @@ pub fn probe() {
                             prefetch_mem_base: read_word(bus, slot, function, 0x24)
                                 .get_bits(16..23),
                             prefetch_base_upper32: read_word(bus, slot, function, 0x28)
-                                .get_bits(24..31),
+                                .get_bits(0..31),
                             prefetch_limit_upper32: read_word(bus, slot, function, 0x2C)
-                                .get_bits(24..31),
-                            io_limit_upper16: read_word(bus, slot, function, 0x30).get_bits(24..31),
-                            io_base_upper16: read_word(bus, slot, function, 0x30).get_bits(16..23),
+                                .get_bits(0..31),
+                            io_limit_upper16: read_word(bus, slot, function, 0x30).get_bits(16..31),
+                            io_base_upper16: read_word(bus, slot, function, 0x30).get_bits(0..15),
                             caps_ptr: read_word(bus, slot, function, 0x34).get_bits(16..23),
                             expansion_rom_addr: read_word(bus, slot, function, 0x38)
                                 .get_bits(24..31),
@@ -298,7 +301,7 @@ pub fn probe() {
                     } else {
                         None
                     },
-                    pci_to_card_bus_bridge_tbl: if read_word(bus, slot, function, 0xF)
+                    pci_to_card_bus_bridge_tbl: if read_word(bus, slot, function, 0x0C)
                         .get_bits(16..23)
                         == 0x02
                     {
@@ -332,6 +335,24 @@ pub fn probe() {
                         None
                     },
                 };
+                printk!("PCI: probe: BARs (header == {:X}h): ", pcidev.header_type);
+                if pcidev.header_type == 0x00 {
+                    let tbl = pcidev.gen_dev_tbl.unwrap();
+                    printkln!(
+                        "0: {:X}h, 1: {:X}h, 2: {:X}h, 3: {:X}h, 4: {:X}h, 5: {:X}h",
+                        tbl.bar0,
+                        tbl.bar1,
+                        tbl.bar2,
+                        tbl.bar3,
+                        tbl.bar4,
+                        tbl.bar5
+                    );
+                } else if pcidev.header_type == 0x01 {
+                    let tbl = pcidev.pci_to_pci_bridge_tbl.unwrap();
+                    printkln!("0: {:X}h, 1: {:X}h", tbl.bar0, tbl.bar1);
+                } else {
+                    printkln!("unknown");
+                }
                 add_device(pcidev);
             }
         }
