@@ -1,6 +1,6 @@
 extern crate alloc;
 use crate::pcidb::*;
-use crate::{printkln, printk};
+use crate::{printk, printkln};
 use alloc::vec::Vec;
 use bit_field::BitField;
 use cpuio::*;
@@ -162,35 +162,35 @@ pub fn read_word(bus: u8, slot: u8, func: u8, offset: u8) -> u32 {
 // Here there be internals.
 
 fn get_vendor_id(bus: u8, device: u8, function: u8) -> u32 {
-    read_word(bus, device, function, 0).get_bits(0 .. 16)
+    read_word(bus, device, function, 0).get_bits(0..16)
 }
 
 fn get_device_id(bus: u8, device: u8, function: u8) -> u32 {
-    read_word(bus, device, function, 0).get_bits(16 .. 31)
+    read_word(bus, device, function, 0).get_bits(16..31)
 }
 
 fn get_class_id(bus: u8, device: u8, function: u8) -> u32 {
-    read_word(bus, device, function, 0x08).get_bits(24 .. 31)
+    read_word(bus, device, function, 0x08).get_bits(24..31)
 }
 
 fn get_prog_if(bus: u8, device: u8, function: u8) -> u32 {
-    read_word(bus, device, function, 0x08).get_bits(8 .. 15)
+    read_word(bus, device, function, 0x08).get_bits(8..15)
 }
 
 fn get_header_type(bus: u8, device: u8, function: u8) -> u32 {
-    read_word(bus, device, function, 0x0C).get_bits(16 .. 23)
+    read_word(bus, device, function, 0x0C).get_bits(16..23)
 }
 
 fn get_subclass_id(bus: u8, device: u8, function: u8) -> u32 {
-    read_word(bus, device, function, 0x08).get_bits(16 .. 23)
+    read_word(bus, device, function, 0x08).get_bits(16..23)
 }
 
 fn get_status(bus: u8, device: u8, function: u8) -> u32 {
-    read_word(bus, device, function, 0x04).get_bits(24 .. 31)
+    read_word(bus, device, function, 0x04).get_bits(24..31)
 }
 
 fn get_command(bus: u8, device: u8, function: u8) -> u32 {
-    read_word(bus, device, function, 0x04).get_bits(8 .. 15)
+    read_word(bus, device, function, 0x04).get_bits(8..15)
 }
 
 fn get_rev(bus: u8, device: u8, function: u8) -> u32 {
@@ -236,7 +236,7 @@ pub fn probe() {
                     subclass: subclass,
                     prog_if: get_prog_if(bus, slot, function),
                     revision_id: get_rev(bus, slot, function),
-                    bist: read_word(bus, slot, function, 0x0C).get_bits(24 .. 31),
+                    bist: read_word(bus, slot, function, 0x0C).get_bits(24..31),
                     header_type: get_header_type(bus, slot, function),
                     latency_timer: read_word(bus, slot, function, 0x0C).get_bits(8..15),
                     cache_line_size: read_word(bus, slot, function, 0x0C).get_bits(0..7),
@@ -335,16 +335,24 @@ pub fn probe() {
                         None
                     },
                 };
-printk!("PCI: probe: BARs (header == {:X}h): ", pcidev.header_type);
-if pcidev.header_type == 0x00 {
-let tbl = pcidev.gen_dev_tbl.unwrap();
-printkln!("0: {:X}h, 1: {:X}h, 2: {:X}h, 3: {:X}h, 4: {:X}h, 5: {:X}h", tbl.bar0, tbl.bar1, tbl.bar2, tbl.bar3, tbl.bar4, tbl.bar5);
-} else if pcidev.header_type == 0x01 {
-let tbl = pcidev.pci_to_pci_bridge_tbl.unwrap();
-printkln!("0: {:X}h, 1: {:X}h", tbl.bar0, tbl.bar1);
-} else {
-printkln!("unknown");
-}
+                printk!("PCI: probe: BARs (header == {:X}h): ", pcidev.header_type);
+                if pcidev.header_type == 0x00 {
+                    let tbl = pcidev.gen_dev_tbl.unwrap();
+                    printkln!(
+                        "0: {:X}h, 1: {:X}h, 2: {:X}h, 3: {:X}h, 4: {:X}h, 5: {:X}h",
+                        tbl.bar0,
+                        tbl.bar1,
+                        tbl.bar2,
+                        tbl.bar3,
+                        tbl.bar4,
+                        tbl.bar5
+                    );
+                } else if pcidev.header_type == 0x01 {
+                    let tbl = pcidev.pci_to_pci_bridge_tbl.unwrap();
+                    printkln!("0: {:X}h, 1: {:X}h", tbl.bar0, tbl.bar1);
+                } else {
+                    printkln!("unknown");
+                }
                 add_device(pcidev);
             }
         }
