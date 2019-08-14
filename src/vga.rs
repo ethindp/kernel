@@ -157,10 +157,12 @@ macro_rules! sprintln {
 
 #[macro_export]
 macro_rules! printk {
-($($arg:tt)*) => (
+($($arg:tt)*) => {
+{
 $crate::vga::_print(format_args!($($arg)*));
 $crate::vga::_sprint(format_args!($($arg)*));
-);
+}
+}
 }
 
 #[macro_export]
