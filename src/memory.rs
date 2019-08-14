@@ -259,7 +259,7 @@ pub fn allocate_phys_range(start: u64, end: u64) {
                     match m.identity_map(frame, flags, a) {
                         Ok(r) => r.flush(),
                         Err(e) => panic!(
-                            "Cannot map memory page range {:X}h-{:X}h: {:#?}",
+                            "Cannot map physical memory address range {:X}h-{:X}h: {:#?}",
                             start, end, e
                         ),
                     }

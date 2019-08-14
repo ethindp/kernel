@@ -53,35 +53,50 @@ pub enum HDARegister {
 }
 
 pub fn init() {
+    let mut memaddr: u64 = 0;
     for dev in pci::get_devices() {
-        if dev.device == 0x2668 {
+        if dev.device == 0x2668 && dev.vendor == 0x8086 {
             if dev.header_type == 0 {
                 let tbl = dev.gen_dev_tbl.unwrap();
-                if tbl.bar0.get_bit(0) {
-                    if tbl.bar0.get_bits(1..2) == 0x00 {
-                        printkln!("HDA: BARs: {:x}", (tbl.bar0.get_bits(0..16) & 0xFFFFFFF0));
-                    }
+                if tbl.bars[0] != 0 {
+                    memaddr = tbl.bars[0];
+                } else if tbl.bars[1] != 0 {
+                    memaddr = tbl.bars[1];
+                } else if tbl.bars[2] != 0 {
+                    memaddr = tbl.bars[2];
+                } else if tbl.bars[3] != 0 {
+                    memaddr = tbl.bars[3];
+                } else if tbl.bars[4] != 0 {
+                    memaddr = tbl.bars[4];
+                } else if tbl.bars[5] != 0 {
+                    memaddr = tbl.bars[5];
                 }
             } else if dev.header_type == 1 {
                 let tbl = dev.pci_to_pci_bridge_tbl.unwrap();
-                printkln!("HDA: BARs: {:x}, {:x}", tbl.bar0, tbl.bar1);
+                if tbl.bars[0] != 0 {
+                    memaddr = tbl.bars[0];
+                } else if tbl.bars[1] != 0 {
+                    memaddr = tbl.bars[1];
+                }
             }
             break;
         }
     }
-    allocate_phys_range(0xFEBF0000, 0xFEBF0000 + 0x9C);
-    let gcap = read_memory(0xFEBF0000);
-    printkln!(
-        "HDA: OSS: {}, ISS: {}, BSS: {}, NSDO: {}",
-        gcap.get_bits(12..15),
-        gcap.get_bits(8..11),
-        gcap.get_bits(3..7),
-        gcap.get_bits(1..2)
-    );
-    if gcap.get_bit(0) {
-        printkln!("HDA: 64-bit addresses are supported for this device.");
-    } else {
-        printkln!("HDA: warning: 64-bit addresses are not supported by this device.");
+    if memaddr != 0 {
+        allocate_phys_range(memaddr, memaddr + 0x9C);
+        let gcap = read_memory(memaddr);
+        printkln!(
+            "HDA: OSS: {}, ISS: {}, BSS: {}, NSDO: {}",
+            gcap.get_bits(12..=15),
+            gcap.get_bits(8..=11),
+            gcap.get_bits(3..=7),
+            gcap.get_bits(1..=2)
+        );
+        if gcap.get_bit(0) {
+            printkln!("HDA: 64-bit addresses are supported for this device.");
+        } else {
+            printkln!("HDA: warning: 64-bit addresses are not supported by this device.");
+        }
     }
 }
 
