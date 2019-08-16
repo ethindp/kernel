@@ -63,6 +63,7 @@ pub fn init() {
     // Request other drivers to initialize
     drivers::hid::keyboard::init();
     drivers::sound::hda::init();
+    drivers::storage::ahci::init();
 }
 
 /// This function is designed as a failsafe against memory corruption if we panic.

@@ -1,252 +1,169 @@
-	use volatile::Volatile;
+use crate::memory::*;
+use crate::pci;
+use crate::{printk, printkln};
+use bit_field::BitField;
+use lazy_static::lazy_static;
+use spin::Mutex;
+use x86_64::instructions::hlt;
 
-#[repr(u64)]
-#[derive(Eq, PartialEq)]
-enum GHC {
-AE = 1 << 31,
-IE = 1<<1,
-HR = 1,
+lazy_static! {
+// AHCISUP: AHCI supported. Set to true to allow AHCI functionality (must be detected on PCI bus). Set to false to disable.
+static ref AHCISUPP: Mutex<bool> = Mutex::new(false);
+// BARIDX: BAR index for MMIO operations. Set to usize::max_value() to indicate unset/unknown.
+static ref BARIDX: Mutex<usize> = Mutex::new(usize::max_value());
+// PCIDEV: PCI device for internal use.
+static ref PCIDEV: Mutex<pci::PCIDevice> = Mutex::new(pci::PCIDevice::default());
 }
 
-#[repr(u32)]
-#[derive(Eq, PartialEq)]
-enum Command {
-St = 1,
-Clo = 1 << 3,
-Fre = 1 << 4,
-Fr = 1 << 14,
-Cr = 1 << 15,
+// Generic HBA registers
+
+// HBA Capabilities: This register indicates basic capabilities of the HBA to driver software.
+const CAP: u64 = 0x00;
+// Global HBA Control: This register controls various global actions of the HBA.
+const GHC: u64 = 0x04;
+// Interrupt Status Register: This register indicates which of the ports within the controller have an interrupt pending and require service.
+const IS: u64 = 0x08;
+// Ports Implemented: This register indicates which ports are exposed by the HBA. It is loaded by the BIOS. It indicates which
+// ports that the HBA supports are available for software to use. For example, on an HBA that supports 6
+// ports as indicated in CAP.NP, only ports 1 and 3 could be available, with ports 0, 2, 4, and 5 being
+// unavailable.
+// Software must not read or write to registers within unavailable ports.
+// The intent of this register is to allow system vendors to build platforms that support less than the full
+// number of ports implemented on the HBA silicon.
+const PI: u64 = 0x0C;
+// Version: This register indicates the major and minor version of the AHCI specification that the HBA implementation
+// supports. The upper two bytes represent the major version number, and the lower two bytes represent
+// the minor version number. Example: Version 3.12 would be represented as 00030102h. Three versions
+// of the specification are valid: 0.95, 1.0, 1.1, 1.2, 1.3, and 1.3.1.
+// VS Value for 0.95 Compliant HBAs: 0000905h
+// VS Value for 1.0 Compliant HBAs: 00010000h
+// VS Value for 1.1 Compliant HBAs: 00010100h
+// VS Value for 1.2 Compliant HBAs: 00010200h
+// VS Value for 1.3 Compliant HBAs: 00010300h
+// VS Value for 1.3.1 Compliant HBAs: 00010301h
+const VS: u64 = 0x10;
+// command completion coalescing control register: The command completion coalescing control register is used to configure the command completion
+// coalescing feature for the entire HBA.
+// Implementation Note: HBA state variables (examples include hCccComplete and hCccTimer) are used
+// to describe the required externally visible behavior. Implementations are not required to have internal
+// state values that directly correspond to these variables.
+const CCC_CTL: u64 = 0x14;
+// command completion coalescing ports: The command completion coalescing ports register is used to specify the ports that are coalesced as part
+// of the CCC feature when CCC_CTL.EN = '1'.
+const CCC_PORTS: u64 = 0x18;
+// Enclosure Management Location: The enclosure management location register identifies the location and size of the enclosure
+// management message buffer.
+const EM_LOC: u64 = 0x1C;
+// Enclosure Management Control: This register is used to control and obtain status for the enclosure management interface. The register
+// includes information on the attributes of the implementation, enclosure management messages
+// supported, the status of the interface, whether any messages are pending, and is used to initiate sending
+// messages.
+const EM_CTL: u64 = 0x20;
+// HBA Capabilities Extended: This register indicates capabilities of the HBA to driver software.
+const CAP2: u64 = 0x24;
+// BIOS/OS Handoff Control and Status: This register controls various global actions of the HBA. This register is not affected by an HBA reset.
+const BOHC: u64 = 0x28;
+
+// Port x Command List Base Address
+const PXCLB: u64 = 0x00;
+// Port x Command List Base Address Upper 32-bits
+const PXCLBU: u64 = 0x04;
+// Port x FIS Base Address
+const PXFB: u64 = 0x08;
+// Port x FIS Base Address Upper 32-Bits
+const PXFBU: u64 = 0x0C;
+// Port x Interrupt Status
+const PXIS: u64 = 0x10;
+// Port x Interrupt Enable
+const PXIE: u64 = 0x14;
+// Port x Command and Status
+const PXCMD: u64 = 0x18;
+// Port x Task File Data
+const PXTFD: u64 = 0x20;
+// Port x Signature
+const PXSIG: u64 = 0x24;
+// Port x Serial ATA Status (SCR0: SStatus)
+const PXSSTS: u64 = 0x28;
+// Port x Serial ATA Control (SCR2: SControl)
+const PXSCTL: u64 = 0x2C;
+// Port x Serial ATA Error (SCR1: SError)
+const PXSERR: u64 = 0x30;
+// Port x Serial ATA Active (SCR3: SActive)
+const PXSACT: u64 = 0x34;
+// Port x Command Issue
+const PXCI: u64 = 0x38;
+// Port x Serial ATA Notification (SCR4: SNotification)
+const PXSNTF: u64 = 0x3C;
+// Port x FIS-based Switching Control
+const PXFBS: u64 = 0x40;
+// Port x Device Sleep
+const PXDEVSLP: u64 = 0x44;
+
+const SIGSATA: u64 = 0x00000101; // SATA drive
+const SIGATAPI: u64 = 0xEB140101; // SATAPI drive
+const SIGSEM: u64 = 0xC33C0101; // Enclosure management bridge
+const SIGPM: u64 = 0x96690101; // Port multiplier
+
+pub fn init() {
+    for dev in pci::get_devices() {
+        if dev.class == 0x01 && dev.subclass == 0x06 && dev.prog_if == 0x01 {
+            printkln!(
+                "AHCI: found AHCI-capable device with vendor {:X} and device {:X}",
+                dev.vendor,
+                dev.device
+            );
+            {
+                let mut pcdev = PCIDEV.lock();
+                *pcdev = dev;
+            }
+            let bars = match dev.header_type {
+                0x00 => dev.gen_dev_tbl.unwrap().bars,
+                0x01 => [
+                    dev.pci_to_pci_bridge_tbl.unwrap().bars[0],
+                    dev.pci_to_pci_bridge_tbl.unwrap().bars[1],
+                    0,
+                    0,
+                    0,
+                    0,
+                ],
+                e => panic!("Header type {} is not supported for AHCI", e),
+            };
+            // Figure out our MMIO BAR address
+            for idx in 0..=bars.len() {
+                if bars[idx] != 0 && !bars[idx].get_bit(0) {
+                    if bars[idx].get_bits(1..=2) == 1 {
+                        panic!("AHCI: AHCI driver has 16-bit BAR address.");
+                    }
+                    printkln!(
+                        "AHCI: detected base address for AHCI driver: {:X}",
+                        bars[idx]
+                    );
+                    {
+                        let mut bidx = BARIDX.lock();
+                        let mut ahcisupp = AHCISUPP.lock();
+                        *bidx = idx;
+                        *ahcisupp = true;
+                    }
+                    let mut command: u64 = 0;
+                    command.set_bit(31, true);
+                    write_memory(bars[idx] + GHC, command);
+                    let pi = read_memory(bars[idx] + PI);
+                    for port in 0..=read_memory(bars[idx] + CAP).get_bits(0..=4) {
+                        if pi.get_bit(port as usize) {
+                            printkln!("AHCI: detected AHCI port {}; activating", port);
+                            let portaddr: u64 = bars[idx] + 0x100 + (port * 0x80);
+                            let mut command: u64 = 0;
+                            command.set_bits(28..=31, 1);
+                            write_memory(portaddr + PXCMD, command);
+                            while read_memory(portaddr + PXCMD).get_bits(28..=31) == command {
+                                hlt();
+                                continue;
+                            }
+                        }
+                    }
+                    return;
+                }
+            }
+        }
+    }
 }
-
-const HBA_PxIS_TFES: u32 = 1 << 30;
-
-#[repr(u64)]
-#[derive(Eq, PartialEq)]
-enum AhciDeviceType {
-// Serial ATA (SATA) device
-Sata = 0x00000101,
-// Serial ATA Packet Interface (SATAPI) device
-Satapi = 0xEB140101,
-// Serial ATA Enclosure Management Bridge (SEMB) device
-Semb = 0xC33C0101,
-// Port multiplier
-Pm = 0x96690101,
-}
-
-#[repr(u8)]
-#[derive(Eq, PartialEq)]
-enum AtaStatus {
-Error = 0x01,
-Drq = 0x08,
-Srv = 0x10,
-Df = 0x20,
-Rdy = 0x40,
-Bsy = 0x80,
-}
-
-const CMD_FIS_DEV_LBA: u8 = 1 << 6;
-const MAX_CMD_SLOT_CNT: u8 = 32;
-const MAX_PORT_CNT: u8 = 32;
-
-#[repr(u16)]
-#[derive(Eq, PartialEq)]
-enum FisType {
-RegH2d = 0x27,
-RegD2h = 0x34,
-DmaAct = 0x39,
-DmaSetup = 0x41,
-Data = 0x46,
-Bist = 0x58,
-PioSetup = 0x5F,
-DevBits = 0xA1,
-}
-
-
-#[repr(packed)]
-pub struct RegH2D {
-pub fis_type: &'static FisType,
-pub pm_port: u8,
-pub rsv0: u8,
-pub c: u8,
-pub command: u8,
-pub featurel: u8,
-pub lba0: u8,
-pub lba1: u8,
-pub lba2: u8,
-pub device: u8,
-pub lba3: u8,
-pub lba4: u8,
-pub lba5: u8,
-pub featureh: u8,
-pub count: u16,
-pub icc: u8,
-pub control: u8,
-pub aux: u16,
-pub rsv1: [u8; 2],
-}
-
-#[repr(packed)]
-pub struct RegD2H {
-pub fis_type: &'static FisType,
-pub pm_port: u8,
-pub rsv0: u8,
-pub i: u8,
-pub rsv1: u8,
-pub status: u8,
-pub error: u8,
-pub lba0: u8,
-pub lba1: u8,
-pub lba2: u8,
-pub device: u8,
-pub lba3: u8,
-pub lba4: u8,
-pub lba5: u8,
-pub rsv2: u8,
-pub count: u16,
-pub rsv3: [u8; 2],
-pub rsv4: [u8; 4],
-}
-
-#[repr(packed)]
-pub struct DevBits {
-pub fis_type: &'static FisType,
-pub pm_port: u8,
-pub rsv0: u8,
-pub i: u8,
-pub n: u8,
-pub statusl: u8,
-pub rsvp1: u8,
-pub statush: u8,
-pub rsv2: u8,
-pub error: u8,
-pub protocol: u32,
-}
-
-#[repr(packed)]
-pub struct DmaSetup {
-pub fis_type: &'static FisType,
-pub pm_port: u8,
-pub rsv0: u8,
-pub d: u8,
-pub i: u8,
-pub a: u8,
-pub rsved: [u8; 2],
-pub buf_id: u64,
-pub rsv1: u32,
-pub buf_offset: u32,
-pub trans_count: u32,
-pub rsv2: u32,
-}
-
-#[repr(packed)]
-pub struct PioSetup {
-pub fis_type: &'static FisType,
-pub pm_port: u8,
-pub rsv0: u8,
-pub rsv1: [u8; 2],
-pub data: [u32; 1],
-}
-
-#[repr(packed)]
-pub struct PRDTEntry {
-pub dba: u64,
-pub rsv0: u32,
-pub dbc: u32,
-pub rsv1: u16,
-pub i: u8,
-}
-
-#[repr(packed)]
-#[repr(align(128))]
-pub struct HbaCommandTable {
-pub cfis: [u8; 64],
-pub acmd: [u8; 16],
-pub rsv: [u8; 48],
-pub prdt_entry: &'static PRDTEntry,
-}
-
-#[repr(packed)]
-pub struct HbaHeader {
-pub cfl: u8,
-pub a: u8,
-pub w: u8,
-pub p: u8,
-pub r: u8,
-pub b: u8,
-pub c: u8,
-pub rsv0: u8,
-pub pmp: u8,
-pub prdtl: u16,
-pub prdbc: Volatile<u32>,
-pub ctba: u64,
-pub rsv1: [u32; 4],
-}
-
-#[repr(packed)]
-#[repr(align(256))]
-pub struct HbaFis {
-pub dsfis: &'static DmaSetup,
-pub pad0: [u8; 4],
-pub psfis: &'static PioSetup,
-pub pad1: [u8; 12],
-pub rfis: &'static RegD2H,
-pub pad2: [u8; 4],
-pub sdbfis: &'static DevBits,
-pub ufis: [u8; 64],
-pub rsv: [u8; 96],
-}
-
-#[repr(packed)]
-#[repr(align(1024))]
-pub struct HbaCommandList {
-pub headers: [&'static HbaCommandHeader; MAX_CMD_SLOT_CNT],
-}
-
-#[repr(packed)]
-pub struct HbaPort {
-pub clb: u64,
-pub fb: u64,
-pub is_rwc: u32,
-pub ie: u32,
-pub cmd: u32,
-pub rsv0: u32,
-pub tfd: u32,
-pub sig: u32,
-pub ssts: u32,
-pub sctl: u32,
-pub serr_rwc: u32,
-pub sact: u32,
-pub ci: u32,
-pub sntf_rwc: u32,
-pub fbs: u32,
-pub rsv1: [u32; 11],
-pub vendor: [u32; 4],
-}
-
-#[repr(packed)]
-pub struct HbaMem {
-pub cap: u32,
-pub ghc: u32,
-pub is_rwc: u32,
-pub pi: u32,
-pub vs: u32,
-pub ccc_ctl: u32,
-pub ccc_pts: u32,
-pub em_loc: u32,
-pub em_ctl: u32,
-pub cap2: u32,
-pub bohc: u32,
-pub rsv: [u8; 0xA0 - 0x2C],
-pub vendor: [u8; 0x100 - 0xA0],
-pub ports: [&'static HbaPort; MAX_PORT_CNT],
-}
-
-#[repr(packed)]
-pub struct FisData {
-pub fis_type: &'static FisType,
-pub pm_port: u8,
-pub rsv0: u8,
-pub rsv1: [u8; 2],
-pub data: [u32; 1],
-}
-
