@@ -1,1 +1,1 @@
-pub mod ata;
+pub mod ahci;
