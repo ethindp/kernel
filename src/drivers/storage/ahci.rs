@@ -1,6 +1,6 @@
 use crate::memory::*;
 use crate::pci;
-use crate::{printkln, printk};
+use crate::{printk, printkln};
 use bit_field::BitField;
 use lazy_static::lazy_static;
 use spin::Mutex;
@@ -62,7 +62,7 @@ const EM_CTL: u64 = 0x20;
 // HBA Capabilities Extended: This register indicates capabilities of the HBA to driver software.
 const CAP2: u64 = 0x24;
 // BIOS/OS Handoff Control and Status: This register controls various global actions of the HBA. This register is not affected by an HBA reset.
-const BOHC: u64  = 0x28;
+const BOHC: u64 = 0x28;
 
 // Port x Command List Base Address
 const PXCLB: u64 = 0x00;
@@ -105,52 +105,65 @@ const SIGSEM: u64 = 0xC33C0101; // Enclosure management bridge
 const SIGPM: u64 = 0x96690101; // Port multiplier
 
 pub fn init() {
-for dev in pci::get_devices() {
-if dev.class == 0x01 && dev.subclass == 0x06 && dev.prog_if == 0x01 {
-printkln!("AHCI: found AHCI-capable device with vendor {:X} and device {:X}", dev.vendor, dev.device);
-{
-let mut pcdev = PCIDEV.lock();
-*pcdev = dev;
+    for dev in pci::get_devices() {
+        if dev.class == 0x01 && dev.subclass == 0x06 && dev.prog_if == 0x01 {
+            printkln!(
+                "AHCI: found AHCI-capable device with vendor {:X} and device {:X}",
+                dev.vendor,
+                dev.device
+            );
+            {
+                let mut pcdev = PCIDEV.lock();
+                *pcdev = dev;
+            }
+            let bars = match dev.header_type {
+                0x00 => dev.gen_dev_tbl.unwrap().bars,
+                0x01 => [
+                    dev.pci_to_pci_bridge_tbl.unwrap().bars[0],
+                    dev.pci_to_pci_bridge_tbl.unwrap().bars[1],
+                    0,
+                    0,
+                    0,
+                    0,
+                ],
+                e => panic!("Header type {} is not supported for AHCI", e),
+            };
+            // Figure out our MMIO BAR address
+            for idx in 0..=bars.len() {
+                if bars[idx] != 0 && !bars[idx].get_bit(0) {
+                    if bars[idx].get_bits(1..=2) == 1 {
+                        panic!("AHCI: AHCI driver has 16-bit BAR address.");
+                    }
+                    printkln!(
+                        "AHCI: detected base address for AHCI driver: {:X}",
+                        bars[idx]
+                    );
+                    {
+                        let mut bidx = BARIDX.lock();
+                        let mut ahcisupp = AHCISUPP.lock();
+                        *bidx = idx;
+                        *ahcisupp = true;
+                    }
+                    let mut command: u64 = 0;
+                    command.set_bit(31, true);
+                    write_memory(bars[idx] + GHC, command);
+                    let pi = read_memory(bars[idx] + PI);
+                    for port in 0..=read_memory(bars[idx] + CAP).get_bits(0..=4) {
+                        if pi.get_bit(port as usize) {
+                            printkln!("AHCI: detected AHCI port {}; activating", port);
+                            let portaddr: u64 = bars[idx] + 0x100 + (port * 0x80);
+                            let mut command: u64 = 0;
+                            command.set_bits(28..=31, 1);
+                            write_memory(portaddr + PXCMD, command);
+                            while read_memory(portaddr + PXCMD).get_bits(28..=31) == command {
+                                hlt();
+                                continue;
+                            }
+                        }
+                    }
+                    return;
+                }
+            }
+        }
+    }
 }
-let bars = match dev.header_type {
-0x00 => dev.gen_dev_tbl.unwrap().bars,
-0x01 => [dev.pci_to_pci_bridge_tbl.unwrap().bars[0], dev.pci_to_pci_bridge_tbl.unwrap().bars[1], 0, 0, 0, 0],
-e => panic!("Header type {} is not supported for AHCI", e)
-};
-// Figure out our MMIO BAR address
-for idx in 0 ..= bars.len() {
-if bars[idx] != 0 && !bars[idx].get_bit(0) {
-if bars[idx].get_bits(1 ..= 2) == 1 {
-panic!("AHCI: AHCI driver has 16-bit BAR address.");
-}
-printkln!("AHCI: detected base address for AHCI driver: {:X}", bars[idx]);
-{
-let mut bidx = BARIDX.lock();
-let mut ahcisupp = AHCISUPP.lock();
-*bidx = idx;
-*ahcisupp = true;
-}
-let mut command: u64 = 0;
-command.set_bit(31, true);
-write_memory(bars[idx] + GHC, command);
-let pi = read_memory(bars[idx] + PI);
-for port in 0 ..= read_memory(bars[idx] + CAP).get_bits(0 ..= 4) {
-if pi.get_bit(port as usize) {
-printkln!("AHCI: detected AHCI port {}; activating", port);
-let portaddr: u64 = bars[idx] + 0x100 + (port * 0x80);
-let mut command: u64 = 0;
-command.set_bits(28 ..= 31, 1);
-write_memory(portaddr + PXCMD, command);
-while read_memory(portaddr + PXCMD).get_bits(28 ..= 31) == command {
-hlt();
-continue;
-}
-}
-}
-return;
-}
-}
-}
-}
-}
-
