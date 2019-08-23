@@ -26,8 +26,8 @@ static ref FRAME_ALLOCATOR: Mutex<Option<GlobalFrameAllocator>> = Mutex::new(Non
 unsafe fn init_mapper(physical_memory_offset: u64) -> OffsetPageTable<'static> {
     // Get active L4 table
     let (level_4_table, _) = get_active_l4_table(physical_memory_offset);
-    // Initailize the mapper
-    OffsetPageTable::new(level_4_table, physical_memory_offset)
+    // initialize the mapper
+    OffsetPageTable::new(level_4_table, VirtAddr::new(physical_memory_offset))
 }
 
 /// Allocates a paged heap.
