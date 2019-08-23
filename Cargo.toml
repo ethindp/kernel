@@ -5,7 +5,7 @@ authors = ["Ethin Probst <harlydavidsen@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-x86_64 = "=0.7.2-beta.0"
+x86_64 = "*"
 bootloader = {version="*", features=["map_physical_memory"]}
 uart_16550 = "*"
 volatile = "*"
