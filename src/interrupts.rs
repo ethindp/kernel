@@ -176,14 +176,14 @@ extern "x86-interrupt" fn handle_pf(
     error_code: PageFaultErrorCode,
 ) {
     use crate::idle_forever;
-    use crate::{printk, printkln};
+    use crate::printkln;
     use x86_64::registers::control::Cr2;
     let addr = Cr2::read();
     printkln!("Page fault: {:?}", error_code);
     if (error_code.bits() & PageFaultErrorCode::CAUSED_BY_WRITE.bits()) > 0 {
-        printk!("Caused by write to memory address {:?}", addr);
+        printkln!("Caused by write to memory address {:?}", addr);
     } else {
-        printk!("Caused by read from memory address {:?}", addr);
+        printkln!("Caused by read from memory address {:?}", addr);
     }
     printkln!("Stack frame: {:#?}", stack_frame);
     idle_forever();

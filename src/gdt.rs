@@ -7,6 +7,9 @@ use x86_64::structures::tss::TaskStateSegment;
 use x86_64::VirtAddr;
 
 pub const DF_IST_IDX: u16 = 0;
+pub const BP_IST_IDX: u16 = 1;
+pub const PF_IST_IDX: u16 = 2;
+pub const OF_IST_IDX: u16 = 3;
 
 lazy_static! {
     static ref TSS: TaskStateSegment = {

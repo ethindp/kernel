@@ -10,13 +10,10 @@ extern crate x86_64;
 mod memory;
 mod ui;
 mod vga;
-use bit_field::BitField;
 use bootloader::bootinfo::*;
 use bootloader::*;
 use core::panic::PanicInfo;
-use raw_cpuid::*;
 use slab_allocator::LockedHeap;
-use x86_64::registers::control::*;
 
 entry_point!(kmain);
 #[global_allocator]
