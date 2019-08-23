@@ -1,5 +1,8 @@
+#[allow(dead_code)]
 // This code was almost directly written from Writing an OS in Rust by Phil-op on github. We need to improve it though and get the kernel to fully use paging. (It wasn't written by phil-op, but by me, with a few modifications to fit the kernel.)
+use crate::printkln;
 use bootloader::bootinfo::*;
+use core::ptr::*;
 use lazy_static::lazy_static;
 use spin::Mutex;
 use x86_64::registers::control::*;
@@ -23,8 +26,8 @@ static ref FRAME_ALLOCATOR: Mutex<Option<GlobalFrameAllocator>> = Mutex::new(Non
 unsafe fn init_mapper(physical_memory_offset: u64) -> OffsetPageTable<'static> {
     // Get active L4 table
     let (level_4_table, _) = get_active_l4_table(physical_memory_offset);
-    // Initailize the mapper
-    OffsetPageTable::new(level_4_table, physical_memory_offset)
+    // initialize the mapper
+    OffsetPageTable::new(level_4_table, VirtAddr::new(physical_memory_offset))
 }
 
 /// Allocates a paged heap.
@@ -197,9 +200,11 @@ pub fn allocate_page_range(start: u64, end: u64) {
                 unsafe {
                     match m.map_to(page, frame, flags, a) {
                         Ok(r) => r.flush(),
-                        Err(e) => panic!(
-                            "Cannot map memory page range {:X}h-{:X}h: {:#?}",
-                            start, end, e
+                        Err(e) => printkln!(
+                            "Kernel: Warning: Cannot map memory page range {:X}h-{:X}h: {:#?}",
+                            start,
+                            end,
+                            e
                         ),
                     }
                 }
@@ -229,8 +234,8 @@ pub fn allocate_page_range_with_perms(start: u64, end: u64, permissions: PageTab
                 unsafe {
                     match m.map_to(page, frame, permissions, a) {
                         Ok(r) => r.flush(),
-                        Err(e) => panic!(
-                            "Cannot map memory page range {:X}h-{:X}h with perms {:#?}: {:#?}",
+                        Err(e) => printkln!(
+                            "Kernel: warning: Cannot map memory page range {:X}h-{:X}h with perms {:#?}: {:#?}",
                             start, end, permissions, e
                         ),
                     }
@@ -258,8 +263,8 @@ pub fn allocate_phys_range(start: u64, end: u64) {
                 unsafe {
                     match m.identity_map(frame, flags, a) {
                         Ok(r) => r.flush(),
-                        Err(e) => panic!(
-                            "Cannot map physical memory address range {:X}h-{:X}h: {:#?}",
+                        Err(e) => printkln!(
+                            "Kernel: warning: Cannot map physical memory address range {:X}h-{:X}h: {:#?}",
                             start, end, e
                         ),
                     }
@@ -267,5 +272,17 @@ pub fn allocate_phys_range(start: u64, end: u64) {
             }
         }
         _ => panic!("Memory allocator or frame allocator are not set"),
+    }
+}
+
+pub fn read_memory(address: u64) -> u64 {
+    let addr: *const u64 = address as *const u64;
+    unsafe { read_volatile(addr) }
+}
+
+pub fn write_memory(address: u64, value: u64) {
+    let addr: *mut u64 = address as *mut u64;
+    unsafe {
+        write_volatile(addr, value);
     }
 }

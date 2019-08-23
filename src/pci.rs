@@ -1,6 +1,5 @@
 extern crate alloc;
-use crate::pcidb::*;
-use crate::{printk, printkln};
+use crate::printkln;
 use alloc::vec::Vec;
 use bit_field::BitField;
 use cpuio::*;
@@ -18,7 +17,8 @@ lazy_static! {
 }
 
 /// Contains PCI device properties.
-#[derive(Debug, Copy, Clone)]
+#[repr(packed)]
+#[derive(Debug, Copy, Clone, Default)]
 pub struct PCIDevice {
     /// Public vendor ID of device
     pub vendor: u32,
@@ -57,6 +57,7 @@ pub struct PCIDevice {
 }
 
 /// This table is applicable if the Header Type is 00h.
+#[repr(packed)]
 #[derive(Debug, Copy, Clone)]
 pub struct GeneralDeviceTable {
     // Address of all six BARs.
@@ -79,6 +80,7 @@ pub struct GeneralDeviceTable {
 }
 
 /// This table is applicable if the Header Type is 01h (PCI-to-PCI bridge)
+#[repr(packed)]
 #[derive(Debug, Copy, Clone)]
 pub struct PCIToPCIBridgeTable {
     pub bars: [u64; 2],
@@ -105,6 +107,7 @@ pub struct PCIToPCIBridgeTable {
 }
 
 /// This table is applicable if the Header Type is 02h (PCI-to-CardBus bridge)
+#[repr(packed)]
 #[derive(Debug, Copy, Clone)]
 pub struct PCIToCardBusBridgeTable {
     pub exca_base_addr: u32,
@@ -153,6 +156,24 @@ pub fn read_word(bus: u8, slot: u8, func: u8, offset: u8) -> u32 {
     }
 }
 
+// Writes a word to the PCI bus
+pub fn write_word(bus: u8, slot: u8, func: u8, offset: u8, data: u32) {
+    let lbus = bus as u32;
+    let lslot = slot as u32;
+    let lfunc = func as u32;
+    unsafe {
+        outl(
+            ((((lbus as u32) << 16) as u32)
+                | (((lslot as u32) << 11) as u32)
+                | (((lfunc as u32) << 8) as u32)
+                | ((offset as u32) & 0xfc)
+                | (0x80000000)) as u32,
+            0xCF8,
+        );
+        outl(data, 0xCFC);
+    }
+}
+
 // Here there be internals.
 
 fn get_vendor_id(bus: u8, device: u8, function: u8) -> u32 {
@@ -192,6 +213,7 @@ fn get_rev(bus: u8, device: u8, function: u8) -> u32 {
 }
 
 pub fn probe() {
+    printkln!("Starting PCI scan");
     for bus in 0..MAX_BUS {
         for slot in 0..MAX_DEVICE {
             for function in 0..MAX_FUNCTION {
@@ -206,13 +228,6 @@ pub fn probe() {
                 }
                 let class = get_class_id(bus, slot, function);
                 let subclass = get_subclass_id(bus, slot, function);
-                printkln!(
-                    "PCI: probe: found {} {} ({})",
-                    get_vendor_string(vendor),
-                    get_device_string(device),
-                    get_subclass_string(class, subclass)
-                );
-                printkln!("PCI: probe: codes: vendor = {:X}h, device = {:X}h, class = {:X}h, subclass = {:X}h, prog if={:X}h, rev={:X}h, status={:X}h, command={:X}h, bus = {:X}h, slot = {:X}h, function = {:X}h", vendor, device, class, subclass, get_prog_if(bus, slot, function), get_rev(bus, slot, function), get_status(bus, slot, function), get_command(bus, slot, function), bus, slot, function);
                 // This part is the longest part of this function thus far. Here we construct the PCI device structure and its linked structures, if applicable.
                 // Construction happens in this order:
                 // 1. Initialize static (easily calculable/readable) data.
@@ -358,6 +373,7 @@ pub fn probe() {
             }
         }
     }
+    printkln!("Done");
 }
 
 pub fn init() {
@@ -378,7 +394,7 @@ fn calculate_bar_addr(bar1: u32, bar2: u32) -> u64 {
             0 => ((bar1 as u64) & 0xFFFFFFF0),
             1 => ((bar1 as u64) & 0xFFF0),
             2 => (((bar1 as u64) & 0xFFFFFFF0) + (((bar2 as u64) & 0xFFFFFFFF) << 32)),
-            e => bar1 as u64,
+            _ => bar1 as u64,
         }
     } else {
         ((bar1 as u64) & 0xFFFFFFFC)

@@ -2,7 +2,6 @@ use crate::memory::*;
 use crate::pci;
 use crate::printkln;
 use bit_field::BitField;
-use core::ptr::*;
 
 #[repr(u16)]
 #[derive(Eq, PartialEq)]
@@ -97,17 +96,5 @@ pub fn init() {
         } else {
             printkln!("HDA: warning: 64-bit addresses are not supported by this device.");
         }
-    }
-}
-
-fn read_memory(address: u64) -> u64 {
-    let addr: *const u64 = address as *const u64;
-    unsafe { read_volatile(addr) }
-}
-
-fn write_memory(address: u64, value: u64) {
-    let addr: *mut u64 = address as *mut u64;
-    unsafe {
-        write_volatile(addr, value);
     }
 }

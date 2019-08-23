@@ -14,9 +14,6 @@ pub mod memory;
 /// The pci module contains functions for reading from PCI devices and enumerating PCI buses via the "brute-force" method.
 /// As we add drivers that require the PCI buss in, the ::probe() function of this module will be extended to load those drivers when the probe is in progress. This will then create a "brute-force and configure" method.
 pub mod pci;
-/// The pcidb module contains auto-generated as well as manually-written functions, used for utilizing the built-in PCI ID database.
-/// This module is a hackish way of doing things, and certainly isn't ideal (since it increases build times by a lot), but for now it is the only way of getting human-readable device and manufacturer names, as well as class and subclass strings.
-pub mod pcidb;
 /// The tasking module contains multitasking-related functions
 pub mod tasking;
 /// The vga module contains functions for interacting with the VGA buffer.
@@ -33,6 +30,7 @@ pub fn init() {
     unsafe { interrupts::PICS.lock().initialize() };
     printkln!("Enabling interrupts");
     x86_64::instructions::interrupts::enable();
+    printkln!("Configuring RTC");
     // There's a very high chance we'll immediately get interrupts fired. We turn them off here to prevent crashes while we set up the RTC.
     x86_64::instructions::interrupts::without_interrupts(|| {
         // Enable the real time clock
