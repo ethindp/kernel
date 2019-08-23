@@ -213,7 +213,7 @@ fn get_rev(bus: u8, device: u8, function: u8) -> u32 {
 }
 
 pub fn probe() {
-printkln!("Starting PCI scan");
+    printkln!("Starting PCI scan");
     for bus in 0..MAX_BUS {
         for slot in 0..MAX_DEVICE {
             for function in 0..MAX_FUNCTION {
@@ -373,7 +373,7 @@ printkln!("Starting PCI scan");
             }
         }
     }
-printkln!("Done");
+    printkln!("Done");
 }
 
 pub fn init() {

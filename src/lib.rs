@@ -30,7 +30,7 @@ pub fn init() {
     unsafe { interrupts::PICS.lock().initialize() };
     printkln!("Enabling interrupts");
     x86_64::instructions::interrupts::enable();
-printkln!("Configuring RTC");
+    printkln!("Configuring RTC");
     // There's a very high chance we'll immediately get interrupts fired. We turn them off here to prevent crashes while we set up the RTC.
     x86_64::instructions::interrupts::without_interrupts(|| {
         // Enable the real time clock
