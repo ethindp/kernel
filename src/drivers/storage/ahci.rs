@@ -1,6 +1,5 @@
 mod internal;
 extern crate alloc;
-extern crate volatile;
 use crate::memory::*;
 use crate::pci;
 use crate::printkln;
@@ -10,7 +9,6 @@ use core::mem::{size_of, transmute, zeroed};
 use core::ptr::write_bytes;
 use lazy_static::lazy_static;
 use spin::Mutex;
-use volatile::Volatile;
 
 lazy_static! {
 // HBADB: An array of up to 64 Host bus adapters (HBAs)
