@@ -1,5 +1,6 @@
 use crate::drivers::hid::keyboard::*;
 use crate::gdt;
+use crate::registers;
 use cpuio::{inb, outb};
 use lazy_static::lazy_static;
 use pc_keyboard::{layouts, DecodedKey, HandleControl, Keyboard, ScancodeSet1};
@@ -90,8 +91,10 @@ extern "x86-interrupt" fn handle_bp(stack_frame: &mut InterruptStackFrame) {
 
 extern "x86-interrupt" fn handle_df(stack_frame: &mut InterruptStackFrame, error_code: u64) {
     panic!(
-        "EXCEPTION: DOUBLE FAULT({})\n{:#?}",
-        error_code, stack_frame
+        "EXCEPTION: DOUBLE FAULT({})\n{:#?}\n{}",
+        error_code,
+        stack_frame,
+        registers::CPURegs::read()
     );
 }
 
@@ -186,6 +189,7 @@ extern "x86-interrupt" fn handle_pf(
         printkln!("Caused by read from memory address {:?}", addr);
     }
     printkln!("Stack frame: {:#?}", stack_frame);
+    printkln!("{}", registers::CPURegs::read());
     idle_forever();
 }
 
@@ -195,20 +199,36 @@ extern "x86-interrupt" fn handle_of(_: &mut InterruptStackFrame) {
 }
 
 extern "x86-interrupt" fn handle_br(stack: &mut InterruptStackFrame) {
-    panic!("Cannot continue: bounds range exceeded. {:?}", stack);
+    panic!(
+        "Cannot continue: bounds range exceeded.\nStack:\n{:?}\n{}",
+        stack,
+        registers::CPURegs::read()
+    );
 }
 
 extern "x86-interrupt" fn handle_ud(stack: &mut InterruptStackFrame) {
-    panic!("Cannot continue: invalid opcode. {:?}", stack);
+    panic!(
+        "Cannot continue: invalid opcode!\nStack:\n{:?}\n{}",
+        stack,
+        registers::CPURegs::read()
+    );
 }
 
 extern "x86-interrupt" fn handle_nm(stack: &mut InterruptStackFrame) {
-    panic!("Can't continue: device unavailable. {:?}", stack);
+    panic!(
+        "Can't continue: device unavailable!\nStack:\n{:?}\n{}",
+        stack,
+        registers::CPURegs::read()
+    );
 }
 
 extern "x86-interrupt" fn handle_gp(_: &mut InterruptStackFrame, ec: u64) {
     use crate::printkln;
-    printkln!("Cannot continue: protection violation, error code {}", ec);
+    printkln!(
+        "Cannot continue: protection violation, error code {}\n{}",
+        ec,
+        registers::CPURegs::read()
+    );
 }
 
 /// Gets the tick count that has passed since we started counting (since the RTC was set up).

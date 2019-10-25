@@ -1,250 +1,959 @@
+mod internal;
 extern crate alloc;
+extern crate volatile;
 use crate::memory::*;
 use crate::pci;
 use crate::printkln;
 use alloc::vec::Vec;
 use bit_field::BitField;
+use core::mem::{size_of, transmute, zeroed};
+use core::ptr::write_bytes;
 use lazy_static::lazy_static;
 use spin::Mutex;
 use volatile::Volatile;
-use x86_64::instructions::hlt;
 
 lazy_static! {
-// AHCISUP: AHCI supported. Set to true to allow AHCI functionality (must be detected on PCI bus). Set to false to disable.
-static ref AHCISUPP: Mutex<bool> = Mutex::new(false);
-// BARIDX: BAR index for MMIO operations. Set to usize::max_value() to indicate unset/unknown.
-static ref BAR: Mutex<u64> = Mutex::new(u64::max_value());
-// PCIDEV: PCI device for internal use.
-static ref PCIDEV: Mutex<pci::PCIDevice> = Mutex::new(pci::PCIDevice::default());
-// HBAMEM: holds the HBA memory structures
-static ref HBAMEM: Mutex<Vec<HBAMemory>> = Mutex::new(Vec::new());
+// HBADB: An array of up to 64 Host bus adapters (HBAs)
+// Allows for up to 2,048 HBA ports
+static ref HBADB: Mutex<[AhciDevice; 64]> = Mutex::new([AhciDevice {
+bar: 0,
+device: pci::PCIDevice::default(),
+idx: 0,
+}; 64]);
 }
 
-// Generic HBA registers
-
-// HBA Capabilities: This register indicates basic capabilities of the HBA to driver software.
-const CAP: u64 = 0x00;
-// Global HBA Control: This register controls various global actions of the HBA.
-const GHC: u64 = 0x04;
-// Interrupt Status Register: This register indicates which of the ports within the controller have an interrupt pending and require service.
-const IS: u64 = 0x08;
-// Ports Implemented: This register indicates which ports are exposed by the HBA. It is loaded by the BIOS. It indicates which
-// ports that the HBA supports are available for software to use. For example, on an HBA that supports 6
-// ports as indicated in CAP.NP, only ports 1 and 3 could be available, with ports 0, 2, 4, and 5 being
-// unavailable.
-// Software must not read or write to registers within unavailable ports.
-// The intent of this register is to allow system vendors to build platforms that support less than the full
-// number of ports implemented on the HBA silicon.
-const PI: u64 = 0x0C;
-// Version: This register indicates the major and minor version of the AHCI specification that the HBA implementation
-// supports. The upper two bytes represent the major version number, and the lower two bytes represent
-// the minor version number. Example: Version 3.12 would be represented as 00030102h. Three versions
-// of the specification are valid: 0.95, 1.0, 1.1, 1.2, 1.3, and 1.3.1.
-// VS Value for 0.95 Compliant HBAs: 0000905h
-// VS Value for 1.0 Compliant HBAs: 00010000h
-// VS Value for 1.1 Compliant HBAs: 00010100h
-// VS Value for 1.2 Compliant HBAs: 00010200h
-// VS Value for 1.3 Compliant HBAs: 00010300h
-// VS Value for 1.3.1 Compliant HBAs: 00010301h
-const VS: u64 = 0x10;
-// command completion coalescing control register: The command completion coalescing control register is used to configure the command completion
-// coalescing feature for the entire HBA.
-// Implementation Note: HBA state variables (examples include hCccComplete and hCccTimer) are used
-// to describe the required externally visible behavior. Implementations are not required to have internal
-// state values that directly correspond to these variables.
-const CCC_CTL: u64 = 0x14;
-// command completion coalescing ports: The command completion coalescing ports register is used to specify the ports that are coalesced as part
-// of the CCC feature when CCC_CTL.EN = '1'.
-const CCC_PORTS: u64 = 0x18;
-// Enclosure Management Location: The enclosure management location register identifies the location and size of the enclosure
-// management message buffer.
-const EM_LOC: u64 = 0x1C;
-// Enclosure Management Control: This register is used to control and obtain status for the enclosure management interface. The register
-// includes information on the attributes of the implementation, enclosure management messages
-// supported, the status of the interface, whether any messages are pending, and is used to initiate sending
-// messages.
-const EM_CTL: u64 = 0x20;
-// HBA Capabilities Extended: This register indicates capabilities of the HBA to driver software.
-const CAP2: u64 = 0x24;
-// BIOS/OS Handoff Control and Status: This register controls various global actions of the HBA. This register is not affected by an HBA reset.
-const BOHC: u64 = 0x28;
-
-// Port x Command List Base Address
-const PXCLB: u64 = 0x00;
-// Port x Command List Base Address Upper 32-bits
-const PXCLBU: u64 = 0x04;
-// Port x FIS Base Address
-const PXFB: u64 = 0x08;
-// Port x FIS Base Address Upper 32-Bits
-const PXFBU: u64 = 0x0C;
-// Port x Interrupt Status
-const PXIS: u64 = 0x10;
-// Port x Interrupt Enable
-const PXIE: u64 = 0x14;
-// Port x Command and Status
-const PXCMD: u64 = 0x18;
-// Port x Task File Data
-const PXTFD: u64 = 0x20;
-// Port x Signature
-const PXSIG: u64 = 0x24;
-// Port x Serial ATA Status (SCR0: SStatus)
-const PXSSTS: u64 = 0x28;
-// Port x Serial ATA Control (SCR2: SControl)
-const PXSCTL: u64 = 0x2C;
-// Port x Serial ATA Error (SCR1: SError)
-const PXSERR: u64 = 0x30;
-// Port x Serial ATA Active (SCR3: SActive)
-const PXSACT: u64 = 0x34;
-// Port x Command Issue
-const PXCI: u64 = 0x38;
-// Port x Serial ATA Notification (SCR4: SNotification)
-const PXSNTF: u64 = 0x3C;
-// Port x FIS-based Switching Control
-const PXFBS: u64 = 0x40;
-// Port x Device Sleep
-const PXDEVSLP: u64 = 0x44;
+#[derive(Clone, Debug, Copy)]
+pub struct AhciDevice {
+    pub idx: usize,
+    pub bar: u64,
+    pub device: pci::PCIDevice,
+}
 
 // SATA/ATA signatures
-const SIGSATA: u64 = 0x00000101; // SATA drive
-const SIGATAPI: u64 = 0xEB140101; // SATAPI drive
-const SIGSEM: u64 = 0xC33C0101; // Enclosure management bridge
-const SIGPM: u64 = 0x96690101; // Port multiplier
+const SIG_SATA: u64 = 0x00000101; // SATA drive
+const SIG_ATAPI: u64 = 0xEB140101; // SATAPI drive
+const SIG_SEM: u64 = 0xC33C0101; // Enclosure management bridge
+const SIG_PM: u64 = 0x96690101; // Port multiplier
 
-#[repr(packed)]
-#[derive(Copy, Clone)]
-pub struct HBAMemory {
-    pub cap: u32,
-    pub ghc: u32,
-    pub is: u32,
-    pub pi: u32,
-    pub vs: u32,
-    pub ccc_ctl: u32,
-    pub ccc_pts: u32,
-    pub em_loc: u32,
-    pub em_ctl: u32,
-    pub cap2: u32,
-    pub bohc: u32,
-    rsv: [u8; 0xA0 - 0x2C],
-    pub vendor: [u8; 0x100 - 0xA0],
-    pub ports: [HBAPort; 32],
+// Base address, 4M
+const AHCI_BASE: u64 = 0x400000;
+
+#[repr(u8)]
+pub enum AhciDeviceType {
+    Null = 0,
+    Sata,
+    Sem,
+    Pm,
+    Satapi,
 }
 
-impl Default for HBAMemory {
-    fn default() -> Self {
-        HBAMemory {
-            cap: 0,
-            ghc: 0,
-            is: 0,
-            pi: 0,
-            vs: 0,
-            ccc_ctl: 0,
-            ccc_pts: 0,
-            em_loc: 0,
-            em_ctl: 0,
-            cap2: 0,
-            bohc: 0,
-            rsv: [0; 0xA0 - 0x2C],
-            vendor: [0; 0x100 - 0xA0],
-            ports: [HBAPort {
-                clb: 0,
-                clbu: 0,
-                fb: 0,
-                fbu: 0,
-                is: 0,
-                ie: 0,
-                cmd: 0,
-                rsv0: 0,
-                tfd: 0,
-                sig: 0,
-                ssts: 0,
-                sctl: 0,
-                serr: 0,
-                sact: 0,
-                ci: 0,
-                sntf: 0,
-                fbs: 0,
-                rsv1: [0; 11],
-                vendor: [0; 4],
-            }; 32],
+#[repr(u8)]
+pub enum HBAPortStatus {
+    DetPresent = 3,
+    IpmActive = 1,
+}
+
+#[repr(u16)]
+pub enum PortCommand {
+    Cr = 1 << 15,
+    Fr = 1 << 14,
+    Fre = 1 << 4,
+    Sud = 1 << 1,
+    St = 1 << 0,
+}
+
+#[repr(u8)]
+pub enum AtaStatus {
+    Busy = 0x80,
+    Drq = 0x08,
+}
+
+#[repr(u32)]
+pub enum AhciCommand {
+    CfaEraseSectors = 0xC0,
+    CfaRequestExtendedErrorCode = 0x03,
+    CfaTranslateSector = 0x87,
+    CfaWriteMultipleWithoutErase = 0xCD,
+    CfaWriteSectorsWithoutErase = 0x38,
+    CheckMediaCardType = 0xD1,
+    CheckPowerMode = 0xE5,
+    ConfigureStream = 0x51,
+    DeviceConfigure = 0xB1,
+    DeviceReset = 0x08,
+    DownloadMicrocode = 0x92,
+    ExecuteDeviceDiagnostic = 0x90,
+    FlushCache = 0xE7,
+    FlushCacheExt = 0xEA,
+    IdentifyDevice = 0xEC,
+    IdentifyPacketDevice = 0xA1,
+    Idle = 0xE3,
+    IdleImmediate = 0xE1,
+    Nop = 0x00,
+    NvCache = 0xB6,
+    Packet = 0xA0,
+    ReadBuffer = 0xE4,
+    ReadDma = 0xC8,
+    ReadDmaExt = 0x25,
+    ReadDmaQueued = 0xC7,
+    ReadDmaQueuedExt = 0x26,
+    ReadFpdmaQueued = 0x60,
+    ReadLogExt = 0x2F,
+    ReadLogDmaExt = 0x47,
+    ReadMultiple = 0xC4,
+    ReadMultipleExt = 0x29,
+    ReadNativeMaxAddress = 0xF8,
+    ReadNativeMaxAddressExt = 0x27,
+    ReadSectors = 0x20,
+    ReadSectorsExt = 0x24,
+    ReadStreamDmaExt = 0x2A,
+    ReadStreamExt = 0x2B,
+    ReadVerifySectors = 0x40,
+    ReadVerifySectorsExt = 0x42,
+    SecurityDisablePassword = 0xF6,
+    SecurityErasePrepare = 0xF3,
+    SecurityEraseUnit = 0xF4,
+    SecurityFrezeLock = 0xF5,
+    SecuritySetPassword = 0xF1,
+    SecurityUnlock = 0xF2,
+    Service = 0xA2,
+    SetFeatures = 0xEF,
+    SetMax = 0xF9,
+    SetMaxAddressExt = 0x37,
+    SetMultipleMode = 0xC6,
+    Sleep = 0xE6,
+    Smart = 0xB0,
+    Standby = 0xE2,
+    StandbyImmediate = 0xE0,
+    TrustedNonData = 0x5B,
+    TrustedReceive = 0x5C,
+    TrustedReceiveDma = 0x5D,
+    TrustedSend = 0x5E,
+    TrustedSendDma = 0x5F,
+    WriteBuffer = 0xE8,
+    WriteDma = 0xCA,
+    WriteDmaExt = 0x35,
+    WriteDmaFuaExt = 0x3D,
+    WriteDmaQueued = 0xCC,
+    WriteDmaQueuedExt = 0x36,
+    WriteDmaQueuedFuaExt = 0x3E,
+    WriteFpdmaQueued = 0x61,
+    WriteLogExt = 0x3F,
+    WriteLogDmaExt = 0x57,
+    WriteMultiple = 0xC5,
+    WriteMultipleExt = 0x39,
+    WriteMultipleFuaExt = 0xCE,
+    WriteSectors = 0x30,
+    WriteSectorsExt = 0x34,
+    WriteStreamDmaExt = 0x3A,
+    WriteStreamExt = 0x3B,
+    WriteUncorrectableExt = 0x45,
+}
+
+#[repr(u32)]
+pub enum DCOSubcommand {
+    DeviceConfigurationFreezeLock = 0xC1,
+    DeviceConfigurationIdentify = 0xC2,
+    DeviceConfigurationRestore = 0xC0,
+    DeviceConfigurationSet = 0xC3,
+}
+
+#[repr(u32)]
+pub enum NvCacheSubcommand {
+    AddLbasToPinnedSet = 0x10,
+    Flush = 0x14,
+    Disable = 0x16,
+    Enable = 0x15,
+    QueryMisses = 0x13,
+    QueryPinnedSet = 0x12,
+    RemoveLbasFromPinnedSet = 0x11,
+    ReturnFromPowerMode = 0x01,
+    SetPowerMode = 0x00,
+}
+
+#[repr(u8)]
+pub enum FisType {
+    RegH2D = 0x27,
+    RegD2H = 0x34,
+    DmaAct = 0x39,
+    DmaSetup = 0x41,
+    Data = 0x46,
+    Bist = 0x58,
+    PioSetup = 0x5F,
+    DevBits = 0xA1,
+}
+
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, Hash, PartialOrd, Ord, PartialEq, Eq)]
+pub struct FisRegH2D {
+    pub fis_type: cty::c_uchar,
+    _bitfield_1: internal::bitfield<[u8; 1usize], u8>,
+    pub command: cty::c_uchar,
+    pub feature_lo: cty::c_uchar,
+    pub lba0: cty::c_uchar,
+    pub lba1: cty::c_uchar,
+    pub lba2: cty::c_uchar,
+    pub device: cty::c_uchar,
+    pub lba3: cty::c_uchar,
+    pub lba4: cty::c_uchar,
+    pub lba5: cty::c_uchar,
+    pub feature_hi: cty::c_uchar,
+    pub count_lo: cty::c_uchar,
+    pub count_hi: cty::c_uchar,
+    pub icc: cty::c_uchar,
+    pub control: cty::c_uchar,
+    rsv1: [cty::c_uchar; 4usize],
+}
+
+impl FisRegH2D {
+    #[inline]
+    pub fn pmport(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(0usize, 4u8) as u8) }
+    }
+
+    #[inline]
+    pub fn set_pmport(&mut self, val: cty::c_uchar) {
+        unsafe {
+            let val: u8 = transmute(val);
+            self._bitfield_1.set(0usize, 4u8, val as u64)
         }
+    }
+
+    #[inline]
+    pub fn c(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(7usize, 1u8) as u8) }
+    }
+
+    #[inline]
+    pub fn set_c(&mut self, val: cty::c_uchar) {
+        unsafe {
+            let val: u8 = transmute(val);
+            self._bitfield_1.set(7usize, 1u8, val as u64)
+        }
+    }
+
+    #[inline]
+    pub fn new_bitfield_1(
+        pmport: cty::c_uchar,
+        rsv0: cty::c_uchar,
+        c: cty::c_uchar,
+    ) -> internal::bitfield<[u8; 1usize], u8> {
+        let mut bitfield: internal::bitfield<[u8; 1usize], u8> = Default::default();
+        bitfield.set(0usize, 4u8, {
+            let pmport: u8 = unsafe { transmute(pmport) };
+            pmport as u64
+        });
+        bitfield.set(4usize, 3u8, {
+            let rsv0: u8 = unsafe { transmute(rsv0) };
+            rsv0 as u64
+        });
+        bitfield.set(7usize, 1u8, {
+            let c: u8 = unsafe { transmute(c) };
+            c as u64
+        });
+        bitfield
     }
 }
 
-#[repr(packed)]
-#[derive(Copy, Clone, Default)]
-pub struct HBAPort {
-    pub clb: u32,
-    pub clbu: u32,
-    pub fb: u32,
-    pub fbu: u32,
-    pub is: u32,
-    pub ie: u32,
-    pub cmd: u32,
-    rsv0: u32,
-    pub tfd: u32,
-    pub sig: u32,
-    pub ssts: u32,
-    pub sctl: u32,
-    pub serr: u32,
-    pub sact: u32,
-    pub ci: u32,
-    pub sntf: u32,
-    pub fbs: u32,
-    rsv1: [u32; 11],
-    pub vendor: [u32; 4],
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, Hash, PartialOrd, Ord, PartialEq, Eq)]
+pub struct FisRegD2H {
+    pub fis_type: cty::c_uchar,
+    _bitfield_1: internal::bitfield<[u8; 1usize], u8>,
+    pub status: cty::c_uchar,
+    pub error: cty::c_uchar,
+    pub lba0: cty::c_uchar,
+    pub lba1: cty::c_uchar,
+    pub lba2: cty::c_uchar,
+    pub device: cty::c_uchar,
+    pub lba3: cty::c_uchar,
+    pub lba4: cty::c_uchar,
+    pub lba5: cty::c_uchar,
+    pub rsv2: cty::c_uchar,
+    pub count_lo: cty::c_uchar,
+    pub count_hi: cty::c_uchar,
+    pub rsv3: [cty::c_uchar; 2usize],
+    pub rsv4: [cty::c_uchar; 4usize],
 }
 
-#[repr(packed)]
+impl FisRegD2H {
+    #[inline]
+    pub fn pmport(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(0usize, 4u8) as u8) }
+    }
+
+    #[inline]
+    pub fn set_pmport(&mut self, val: cty::c_uchar) {
+        unsafe {
+            let val: u8 = transmute(val);
+            self._bitfield_1.set(0usize, 4u8, val as u64)
+        }
+    }
+
+    #[inline]
+    pub fn rsv0(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(4usize, 2u8) as u8) }
+    }
+
+    #[inline]
+    pub fn i(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(6usize, 1u8) as u8) }
+    }
+
+    #[inline]
+    pub fn set_i(&mut self, val: cty::c_uchar) {
+        unsafe {
+            let val: u8 = transmute(val);
+            self._bitfield_1.set(6usize, 1u8, val as u64)
+        }
+    }
+
+    #[inline]
+    pub fn rsv1(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(7usize, 1u8) as u8) }
+    }
+
+    #[inline]
+    pub fn new_bitfield_1(
+        pmport: cty::c_uchar,
+        rsv0: cty::c_uchar,
+        i: cty::c_uchar,
+        rsv1: cty::c_uchar,
+    ) -> internal::bitfield<[u8; 1usize], u8> {
+        let mut bitfield: internal::bitfield<[u8; 1usize], u8> = Default::default();
+        bitfield.set(0usize, 4u8, {
+            let pmport: u8 = unsafe { transmute(pmport) };
+            pmport as u64
+        });
+        bitfield.set(4usize, 2u8, {
+            let rsv0: u8 = unsafe { transmute(rsv0) };
+            rsv0 as u64
+        });
+        bitfield.set(6usize, 1u8, {
+            let i: u8 = unsafe { transmute(i) };
+            i as u64
+        });
+        bitfield.set(7usize, 1u8, {
+            let rsv1: u8 = unsafe { transmute(rsv1) };
+            rsv1 as u64
+        });
+        bitfield
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, Hash, PartialOrd, Ord, PartialEq, Eq)]
+pub struct FisData {
+    pub fis_type: cty::c_uchar,
+    _bitfield_1: internal::bitfield<[u8; 1usize], u8>,
+    pub rsv1: [cty::c_uchar; 2usize],
+    pub data: [cty::c_ulong; 1usize],
+}
+
+impl FisData {
+    #[inline]
+    pub fn pmport(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(0usize, 4u8) as u8) }
+    }
+
+    #[inline]
+    pub fn set_pmport(&mut self, val: cty::c_uchar) {
+        unsafe {
+            let val: u8 = transmute(val);
+            self._bitfield_1.set(0usize, 4u8, val as u64)
+        }
+    }
+
+    #[inline]
+    pub fn rsv0(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(4usize, 4u8) as u8) }
+    }
+
+    #[inline]
+    pub fn new_bitfield_1(
+        pmport: cty::c_uchar,
+        rsv0: cty::c_uchar,
+    ) -> internal::bitfield<[u8; 1usize], u8> {
+        let mut bitfield: internal::bitfield<[u8; 1usize], u8> = Default::default();
+        bitfield.set(0usize, 4u8, {
+            let pmport: u8 = unsafe { transmute(pmport) };
+            pmport as u64
+        });
+        bitfield.set(4usize, 4u8, {
+            let rsv0: u8 = unsafe { transmute(rsv0) };
+            rsv0 as u64
+        });
+        bitfield
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, Hash, PartialOrd, Ord, PartialEq, Eq)]
+pub struct FisPioSetup {
+    pub fis_type: cty::c_uchar,
+    _bitfield_1: internal::bitfield<[u8; 1usize], u8>,
+    pub status: cty::c_uchar,
+    pub error: cty::c_uchar,
+    pub lba0: cty::c_uchar,
+    pub lba1: cty::c_uchar,
+    pub lba2: cty::c_uchar,
+    pub device: cty::c_uchar,
+    pub lba3: cty::c_uchar,
+    pub lba4: cty::c_uchar,
+    pub lba5: cty::c_uchar,
+    pub rsv2: cty::c_uchar,
+    pub count_lo: cty::c_uchar,
+    pub count_hi: cty::c_uchar,
+    pub rsv3: cty::c_uchar,
+    pub e_status: cty::c_uchar,
+    pub tc: cty::c_ushort,
+    pub rsv4: [cty::c_uchar; 2usize],
+}
+
+impl FisPioSetup {
+    #[inline]
+    pub fn pmport(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(0usize, 4u8) as u8) }
+    }
+
+    #[inline]
+    pub fn set_pmport(&mut self, val: cty::c_uchar) {
+        unsafe {
+            let val: u8 = transmute(val);
+            self._bitfield_1.set(0usize, 4u8, val as u64)
+        }
+    }
+
+    #[inline]
+    pub fn d(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(5usize, 1u8) as u8) }
+    }
+
+    #[inline]
+    pub fn set_d(&mut self, val: cty::c_uchar) {
+        unsafe {
+            let val: u8 = transmute(val);
+            self._bitfield_1.set(5usize, 1u8, val as u64)
+        }
+    }
+
+    #[inline]
+    pub fn i(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(6usize, 1u8) as u8) }
+    }
+
+    #[inline]
+    pub fn set_i(&mut self, val: cty::c_uchar) {
+        unsafe {
+            let val: u8 = transmute(val);
+            self._bitfield_1.set(6usize, 1u8, val as u64)
+        }
+    }
+
+    #[inline]
+    pub fn new_bitfield_1(
+        pmport: cty::c_uchar,
+        rsv0: cty::c_uchar,
+        d: cty::c_uchar,
+        i: cty::c_uchar,
+        rsv1: cty::c_uchar,
+    ) -> internal::bitfield<[u8; 1usize], u8> {
+        let mut bitfield: internal::bitfield<[u8; 1usize], u8> = Default::default();
+        bitfield.set(0usize, 4u8, {
+            let pmport: u8 = unsafe { transmute(pmport) };
+            pmport as u64
+        });
+        bitfield.set(4usize, 1u8, {
+            let rsv0: u8 = unsafe { transmute(rsv0) };
+            rsv0 as u64
+        });
+        bitfield.set(5usize, 1u8, {
+            let d: u8 = unsafe { transmute(d) };
+            d as u64
+        });
+        bitfield.set(6usize, 1u8, {
+            let i: u8 = unsafe { transmute(i) };
+            i as u64
+        });
+        bitfield.set(7usize, 1u8, {
+            let rsv1: u8 = unsafe { transmute(rsv1) };
+            rsv1 as u64
+        });
+        bitfield
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, Hash, PartialOrd, Ord, PartialEq, Eq)]
+pub struct FisDmaSetup {
+    pub fis_type: cty::c_uchar,
+    _bitfield_1: internal::bitfield<[u8; 1usize], u8>,
+    rsved: [cty::c_uchar; 2usize],
+    pub dma_buf_id: cty::c_ushort,
+    pub dma_buf_id2: cty::c_ushort,
+    rsvd: cty::c_ulong,
+    pub dma_buf_offset: cty::c_ulong,
+    pub transfer_count: cty::c_ulong,
+    resvd: cty::c_ulong,
+}
+
+impl FisDmaSetup {
+    #[inline]
+    pub fn pmport(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(0usize, 4u8) as u8) }
+    }
+
+    #[inline]
+    pub fn set_pmport(&mut self, val: cty::c_uchar) {
+        unsafe {
+            let val: u8 = transmute(val);
+            self._bitfield_1.set(0usize, 4u8, val as u64)
+        }
+    }
+
+    #[inline]
+    pub fn d(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(5usize, 1u8) as u8) }
+    }
+
+    #[inline]
+    pub fn set_d(&mut self, val: cty::c_uchar) {
+        unsafe {
+            let val: u8 = transmute(val);
+            self._bitfield_1.set(5usize, 1u8, val as u64)
+        }
+    }
+
+    #[inline]
+    pub fn i(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(6usize, 1u8) as u8) }
+    }
+
+    #[inline]
+    pub fn set_i(&mut self, val: cty::c_uchar) {
+        unsafe {
+            let val: u8 = transmute(val);
+            self._bitfield_1.set(6usize, 1u8, val as u64)
+        }
+    }
+
+    #[inline]
+    pub fn a(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(7usize, 1u8) as u8) }
+    }
+
+    #[inline]
+    pub fn set_a(&mut self, val: cty::c_uchar) {
+        unsafe {
+            let val: u8 = transmute(val);
+            self._bitfield_1.set(7usize, 1u8, val as u64)
+        }
+    }
+
+    #[inline]
+    pub fn new_bitfield_1(
+        pmport: cty::c_uchar,
+        rsv0: cty::c_uchar,
+        d: cty::c_uchar,
+        i: cty::c_uchar,
+        a: cty::c_uchar,
+    ) -> internal::bitfield<[u8; 1usize], u8> {
+        let mut bitfield: internal::bitfield<[u8; 1usize], u8> = Default::default();
+        bitfield.set(0usize, 4u8, {
+            let pmport: u8 = unsafe { transmute(pmport) };
+            pmport as u64
+        });
+        bitfield.set(4usize, 1u8, {
+            let rsv0: u8 = unsafe { transmute(rsv0) };
+            rsv0 as u64
+        });
+        bitfield.set(5usize, 1u8, {
+            let d: u8 = unsafe { transmute(d) };
+            d as u64
+        });
+        bitfield.set(6usize, 1u8, {
+            let i: u8 = unsafe { transmute(i) };
+            i as u64
+        });
+        bitfield.set(7usize, 1u8, {
+            let a: u8 = unsafe { transmute(a) };
+            a as u64
+        });
+        bitfield
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct HbaFis {
+    pub dsfis: FisDmaSetup,
+    pad0: [cty::c_uchar; 4usize],
+    pub psfis: FisPioSetup,
+    pad1: [cty::c_uchar; 12usize],
+    pub rfis: FisRegD2H,
+    pad2: [cty::c_uchar; 4usize],
+    pub sdbfis: cty::c_ushort,
+    pub ufis: [cty::c_uchar; 64usize],
+    rsv: [cty::c_uchar; 96usize],
+}
+
+impl Default for HbaFis {
+    fn default() -> Self {
+        unsafe { zeroed() }
+    }
+}
+
+impl ::core::fmt::Debug for HbaFis {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write!(
+            f,
+            "HbaFis{{ dsfis: {:?}, psfis: {:?}, rfis: {:?}, sdbfis: {:?}, ufis: [...]}}",
+            self.dsfis, self.psfis, self.rfis, self.sdbfis
+        )
+    }
+}
+
+impl ::core::cmp::PartialEq for HbaFis {
+    fn eq(&self, other: &HbaFis) -> bool {
+        self.dsfis == other.dsfis
+            && self.psfis == other.psfis
+            && self.rfis == other.rfis
+            && self.sdbfis == other.sdbfis
+            && &self.ufis[..] == &other.ufis[..]
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, Hash, PartialOrd, Ord, PartialEq, Eq)]
+pub struct HbaCmdHeader {
+    _bitfield_1: internal::bitfield<[u8; 2usize], u8>,
+    pub prdtl: cty::c_ushort,
+    pub prdbc: cty::c_ulong,
+    pub ctba: cty::c_ulong,
+    pub ctbau: cty::c_ulong,
+    rsv1: [cty::c_ulong; 4usize],
+}
+
+impl HbaCmdHeader {
+    #[inline]
+    pub fn cfl(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(0usize, 5u8) as u8) }
+    }
+
+    #[inline]
+    pub fn set_cfl(&mut self, val: cty::c_uchar) {
+        unsafe {
+            let val: u8 = transmute(val);
+            self._bitfield_1.set(0usize, 5u8, val as u64)
+        }
+    }
+
+    #[inline]
+    pub fn a(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(5usize, 1u8) as u8) }
+    }
+
+    #[inline]
+    pub fn set_a(&mut self, val: cty::c_uchar) {
+        unsafe {
+            let val: u8 = transmute(val);
+            self._bitfield_1.set(5usize, 1u8, val as u64)
+        }
+    }
+
+    #[inline]
+    pub fn w(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(6usize, 1u8) as u8) }
+    }
+
+    #[inline]
+    pub fn set_w(&mut self, val: cty::c_uchar) {
+        unsafe {
+            let val: u8 = transmute(val);
+            self._bitfield_1.set(6usize, 1u8, val as u64)
+        }
+    }
+
+    #[inline]
+    pub fn p(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(7usize, 1u8) as u8) }
+    }
+
+    #[inline]
+    pub fn set_p(&mut self, val: cty::c_uchar) {
+        unsafe {
+            let val: u8 = transmute(val);
+            self._bitfield_1.set(7usize, 1u8, val as u64)
+        }
+    }
+
+    #[inline]
+    pub fn r(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(8usize, 1u8) as u8) }
+    }
+
+    #[inline]
+    pub fn set_r(&mut self, val: cty::c_uchar) {
+        unsafe {
+            let val: u8 = transmute(val);
+            self._bitfield_1.set(8usize, 1u8, val as u64)
+        }
+    }
+
+    #[inline]
+    pub fn b(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(9usize, 1u8) as u8) }
+    }
+
+    #[inline]
+    pub fn set_b(&mut self, val: cty::c_uchar) {
+        unsafe {
+            let val: u8 = transmute(val);
+            self._bitfield_1.set(9usize, 1u8, val as u64)
+        }
+    }
+
+    #[inline]
+    pub fn c(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(10usize, 1u8) as u8) }
+    }
+
+    #[inline]
+    pub fn set_c(&mut self, val: cty::c_uchar) {
+        unsafe {
+            let val: u8 = transmute(val);
+            self._bitfield_1.set(10usize, 1u8, val as u64)
+        }
+    }
+
+    #[inline]
+    pub fn pmp(&self) -> cty::c_uchar {
+        unsafe { transmute(self._bitfield_1.get(12usize, 4u8) as u8) }
+    }
+
+    #[inline]
+    pub fn set_pmp(&mut self, val: cty::c_uchar) {
+        unsafe {
+            let val: u8 = transmute(val);
+            self._bitfield_1.set(12usize, 4u8, val as u64)
+        }
+    }
+
+    #[inline]
+    pub fn new_bitfield_1(
+        cfl: cty::c_uchar,
+        a: cty::c_uchar,
+        w: cty::c_uchar,
+        p: cty::c_uchar,
+        r: cty::c_uchar,
+        b: cty::c_uchar,
+        c: cty::c_uchar,
+        rsv0: cty::c_uchar,
+        pmp: cty::c_uchar,
+    ) -> internal::bitfield<[u8; 2usize], u8> {
+        let mut bitfield: internal::bitfield<[u8; 2usize], u8> = Default::default();
+        bitfield.set(0usize, 5u8, {
+            let cfl: u8 = unsafe { transmute(cfl) };
+            cfl as u64
+        });
+        bitfield.set(5usize, 1u8, {
+            let a: u8 = unsafe { transmute(a) };
+            a as u64
+        });
+        bitfield.set(6usize, 1u8, {
+            let w: u8 = unsafe { transmute(w) };
+            w as u64
+        });
+        bitfield.set(7usize, 1u8, {
+            let p: u8 = unsafe { transmute(p) };
+            p as u64
+        });
+        bitfield.set(8usize, 1u8, {
+            let r: u8 = unsafe { transmute(r) };
+            r as u64
+        });
+        bitfield.set(9usize, 1u8, {
+            let b: u8 = unsafe { transmute(b) };
+            b as u64
+        });
+        bitfield.set(10usize, 1u8, {
+            let c: u8 = unsafe { transmute(c) };
+            c as u64
+        });
+        bitfield.set(11usize, 1u8, {
+            let rsv0: u8 = unsafe { transmute(rsv0) };
+            rsv0 as u64
+        });
+        bitfield.set(12usize, 4u8, {
+            let pmp: u8 = unsafe { transmute(pmp) };
+            pmp as u64
+        });
+        bitfield
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, Hash, PartialOrd, Ord, PartialEq, Eq)]
+pub struct HbaPrdtEntry {
+    pub dba: cty::c_ulong,
+    pub dbau: cty::c_ulong,
+    rsv0: cty::c_ulong,
+    _bitfield_1: internal::bitfield<[u8; 4usize], u32>,
+}
+
+impl HbaPrdtEntry {
+    #[inline]
+    pub fn dbc(&self) -> cty::c_ulong {
+        unsafe { transmute(self._bitfield_1.get(0usize, 22u8) as cty::c_ulong) }
+    }
+
+    #[inline]
+    pub fn set_dbc(&mut self, val: cty::c_ulong) {
+        unsafe {
+            let val: cty::c_ulong = transmute(val);
+            self._bitfield_1.set(0usize, 22u8, val as u64)
+        }
+    }
+
+    #[inline]
+    pub fn i(&self) -> cty::c_ulong {
+        unsafe { transmute(self._bitfield_1.get(31usize, 1u8) as cty::c_ulong) }
+    }
+
+    #[inline]
+    pub fn set_i(&mut self, val: cty::c_ulong) {
+        unsafe {
+            let val: cty::c_ulong = transmute(val);
+            self._bitfield_1.set(31usize, 1u8, val as u64)
+        }
+    }
+
+    #[inline]
+    pub fn new_bitfield_1(
+        dbc: cty::c_ulong,
+        rsv1: cty::c_ulong,
+        i: cty::c_ulong,
+    ) -> internal::bitfield<[u8; 4usize], u32> {
+        let mut bitfield: internal::bitfield<[u8; 4usize], u32> = Default::default();
+        bitfield.set(0usize, 22u8, {
+            let dbc: cty::c_ulong = unsafe { transmute(dbc) };
+            dbc as u64
+        });
+        bitfield.set(22usize, 9u8, {
+            let rsv1: cty::c_ulong = unsafe { transmute(rsv1) };
+            rsv1 as u64
+        });
+        bitfield.set(31usize, 1u8, {
+            let i: cty::c_ulong = unsafe { transmute(i) };
+            i as u64
+        });
+        bitfield
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct HbaCmdTbl {
+    pub cfis: [cty::c_uchar; 64usize],
+    pub acmd: [cty::c_uchar; 16usize],
+    rsv: [cty::c_uchar; 48usize],
+    pub prdt_entry: [HbaPrdtEntry; 65535usize],
+}
+
+impl Default for HbaCmdTbl {
+    fn default() -> Self {
+        unsafe { zeroed() }
+    }
+}
+
+impl ::core::fmt::Debug for HbaCmdTbl {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write!(
+            f,
+            "HbaCmdTbl{{ cfis: [...], acmd: {:?}, prdt_entry: [...] }}",
+            self.acmd
+        )
+    }
+}
+
+impl ::core::cmp::PartialEq for HbaCmdTbl {
+    fn eq(&self, other: &HbaCmdTbl) -> bool {
+        &self.cfis[..] == &other.cfis[..]
+            && self.acmd == other.acmd
+            && &self.prdt_entry[..] == &other.prdt_entry[..]
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, Hash, PartialOrd, Ord, PartialEq, Eq)]
+pub struct HbaPort {
+    pub clb: cty::c_ulong,
+    pub clbu: cty::c_ulong,
+    pub fb: cty::c_ulong,
+    pub fbu: cty::c_ulong,
+    pub is: cty::c_ulong,
+    pub ie: cty::c_ulong,
+    pub cmd: cty::c_ulong,
+    rsv0: cty::c_ulong,
+    pub tfd: cty::c_ulong,
+    pub sig: cty::c_ulong,
+    pub ssts: cty::c_ulong,
+    pub sctl: cty::c_ulong,
+    pub serr: cty::c_ulong,
+    pub sact: cty::c_ulong,
+    pub ci: cty::c_ulong,
+    pub sntf: cty::c_ulong,
+    pub fbs: cty::c_ulong,
+    rsv1: [cty::c_ulong; 11usize],
+    pub vendor: [cty::c_ulong; 4usize],
+}
+
+#[repr(C)]
 #[derive(Clone, Copy)]
-pub struct HBAFIS {
-    pub dsfis: [u8; 0x1C],
-    res1: [u8; 0x04],
-    pub psfis: [u8; 0x14],
-    res2: [u8; 0x0C],
-    pub rfis: [u8; 0x14],
-    res3: [u8; 0x04],
-    pub sdbfis: [u8; 0x08],
-    pub ufis: [u8; 0x40],
-    res4: [u8; 0x60],
+pub struct HbaMem {
+    pub cap: cty::c_ulong,
+    pub ghc: cty::c_ulong,
+    pub is: cty::c_ulong,
+    pub pi: cty::c_ulong,
+    pub vs: cty::c_ulong,
+    pub ccc_ctl: cty::c_ulong,
+    pub ccc_pts: cty::c_ulong,
+    pub em_loc: cty::c_ulong,
+    pub em_ctl: cty::c_ulong,
+    pub cap2: cty::c_ulong,
+    pub bohc: cty::c_ulong,
+    rsv: [cty::c_uchar; 116],
+    pub vendor: [cty::c_uchar; 96],
+    pub ports: [HbaPort; 32],
 }
 
-#[repr(packed)]
-pub struct CommandHeader {
-    pub cfl: u16,
-    pub a: u8,
-    pub w: u8,
-    pub p: u8,
-    pub r: u8,
-    pub b: u8,
-    pub c: u8,
-    rsv0: u8,
-    pub pmp: u16,
-    pub prdtl: u16,
-    pub prdbc: Volatile<u32>,
-    pub ctba: u32,
-    pub ctbau: u32,
-    rsv1: [u32; 4],
+impl Default for HbaMem {
+    fn default() -> Self {
+        unsafe { zeroed() }
+    }
 }
 
-#[repr(packed)]
-#[derive(Clone, Copy)]
-pub struct HBACommandTable {
-    pub cfis: [u8; 64],
-    pub acmd: [u8; 16],
-    rsv: [u8; 48],
-    pub prdt_entry: [PRDTEntry; 65535],
-    pub prdt_entry_cnt: u16,
+impl ::core::fmt::Debug for HbaMem {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write!(f, "HbaMem {{cap: {:X}, ghc: {:X}, is: {:X}, pi: {:X}, vs: {:X}, ccc_ctl: {:X}, ccc_pts: {:X}, em_loc: {:X}, em_ctl: {:X}, cap2: {:X}, bohc: {:X}}}", self.cap, self.ghc, self.is, self.pi, self.vs, self.ccc_ctl, self.ccc_pts, self.em_loc, self.em_ctl, self.cap2, self.bohc)
+    }
 }
 
-#[repr(packed)]
-#[derive(Clone, Copy)]
-pub struct PRDTEntry {
-    pub dba: u32,
-    pub dbau: u32,
-    rsv0: u32,
-    pub dbc: u32,
-    rsv1: u32,
-    pub i: u32,
+impl ::core::cmp::PartialEq for HbaMem {
+    fn eq(&self, other: &HbaMem) -> bool {
+        self.cap == other.cap
+            && self.ghc == other.ghc
+            && self.is == other.is
+            && self.pi == other.pi
+            && self.vs == other.vs
+            && self.ccc_ctl == other.ccc_ctl
+            && self.ccc_pts == other.ccc_pts
+            && self.em_loc == other.em_loc
+            && self.em_ctl == other.em_ctl
+            && self.cap2 == other.cap2
+            && self.bohc == other.bohc
+            && &self.vendor[..] == &other.vendor[..]
+            && &self.ports[..] == &other.ports[..]
+    }
 }
 
 pub fn init() {
@@ -255,10 +964,7 @@ pub fn init() {
                 dev.vendor,
                 dev.device
             );
-            {
-                let mut pcdev = PCIDEV.lock();
-                *pcdev = dev;
-            }
+            let mut hbadb = HBADB.lock();
             let bars = match dev.header_type {
                 0x00 => dev.gen_dev_tbl.unwrap().bars,
                 0x01 => [
@@ -274,102 +980,207 @@ pub fn init() {
             // Figure out our MMIO BAR address
             if bars[5] != 0 && !bars[5].get_bit(0) {
                 if bars[5].get_bits(1..=2) == 1 {
-                    panic!("AHCI: AHCI driver has 16-bit BAR address.");
+                    printkln!("AHCI: skipping AHCI device {:X}:{:X}: AHCI device has 16-bit BAR address {:X}", dev.vendor, dev.device, bars[5]);
+                    continue;
                 }
-                allocate_phys_range(bars[5], bars[5] + BOHC);
+                allocate_phys_range(bars[5], bars[5] + 0x28);
                 printkln!("AHCI: detected base address for AHCI driver: {:X}", bars[5]);
-                {
-                    let mut bar = BAR.lock();
-                    let mut ahcisupp = AHCISUPP.lock();
-                    *bar = bars[5];
-                    *ahcisupp = true;
-                }
-                let mut mem = HBAMEM.lock();
-                mem.push(HBAMemory {
-                    cap: read_memory(bars[5] + CAP) as u32,
-                    ghc: read_memory(bars[5] + GHC) as u32,
-                    is: read_memory(bars[5] + IS) as u32,
-                    pi: read_memory(bars[5] + PI) as u32,
-                    vs: read_memory(bars[5] + VS) as u32,
-                    ccc_ctl: read_memory(bars[5] + CCC_CTL) as u32,
-                    ccc_pts: read_memory(bars[5] + CCC_PORTS) as u32,
-                    em_loc: read_memory(bars[5] + EM_LOC) as u32,
-                    em_ctl: read_memory(bars[5] + EM_CTL) as u32,
-                    cap2: read_memory(bars[5] + CAP2) as u32,
-                    bohc: read_memory(bars[5] + BOHC) as u32,
-                    ports: [HBAPort {
-                        clb: 0,
-                        clbu: 0,
-                        fb: 0,
-                        fbu: 0,
-                        is: 0,
-                        ie: 0,
-                        cmd: 0,
-                        rsv0: 0,
-                        tfd: 0,
-                        sig: 0,
-                        ssts: 0,
-                        sctl: 0,
-                        serr: 0,
-                        sact: 0,
-                        ci: 0,
-                        sntf: 0,
-                        fbs: 0,
-                        rsv1: [0; 11],
-                        vendor: [0; 4],
-                    }; 32],
-                    rsv: [0; 0xA0 - 0x2C],
-                    vendor: [0; 0x100 - 0xA0],
-                });
-                let cap = read_memory(bars[5]);
-                let cap2 = read_memory(bars[5] + CAP2);
-                let pi = read_memory(bars[5] + PI);
-                for port in 0..=read_memory(bars[5] + CAP).get_bits(0..=4) {
-                    if pi.get_bit(port as usize) {
-                        printkln!("AHCI: detected AHCI port {}; activating", port);
-                        let portaddr: u64 = bars[5] + 0x100 + (port * 0x80);
-                        let mut command: u64 = 0;
-                        command.set_bits(28..=31, 1);
-                        if cap.get_bit(26) {
-                            command.set_bit(27, true);
-                            command.set_bit(26, true);
-                        }
-                        command.set_bit(25, false);
-                        command.set_bit(24, false);
-                        if cap2.get_bit(2) {
-                            command.set_bit(23, true);
-                        }
-                        write_memory(portaddr + PXCMD, command);
-                        while read_memory(portaddr + PXCMD).get_bits(28..=31) == command {
-                            hlt();
-                            continue;
-                        }
-                        let length = mem.len();
-                        mem[length - 1].ports[port as usize] = HBAPort {
-                            clb: read_memory(portaddr + PXCLB) as u32,
-                            clbu: read_memory(portaddr + PXCLBU) as u32,
-                            fb: read_memory(portaddr + PXFB) as u32,
-                            fbu: read_memory(portaddr + PXFBU) as u32,
-                            is: read_memory(portaddr + PXIS) as u32,
-                            ie: read_memory(portaddr + PXIE) as u32,
-                            cmd: read_memory(portaddr + PXCMD) as u32,
-                            tfd: read_memory(portaddr + PXTFD) as u32,
-                            sig: read_memory(portaddr + PXSIG) as u32,
-                            ssts: read_memory(portaddr + PXSSTS) as u32,
-                            sctl: read_memory(portaddr + PXSCTL) as u32,
-                            serr: read_memory(portaddr + PXSERR) as u32,
-                            sact: read_memory(portaddr + PXSACT) as u32,
-                            ci: read_memory(portaddr + PXCI) as u32,
-                            sntf: read_memory(portaddr + PXSNTF) as u32,
-                            fbs: read_memory(portaddr + PXFBS) as u32,
-                            rsv0: 0,
-                            rsv1: [0; 11],
-                            vendor: [0; 4],
-                        };
+                let mut pos = usize::max_value();
+                for (i, hba) in hbadb.iter().enumerate() {
+                    if hba.bar == 0 && hba.idx == 0 {
+                        pos = i;
+                        printkln!("AHCI: Inserting device at position {}", i);
+                        break;
                     }
                 }
-                return;
+                if pos != usize::max_value() {
+                    hbadb[pos].bar = bars[5];
+                    hbadb[pos].idx = pos;
+                    hbadb[pos].device = dev;
+                    let mem = unsafe { &mut *(hbadb[pos].bar as *mut HbaMem) };
+                    printkln!("AHCI: Device scan: dbg: {:?}", mem);
+                    let pi = mem.pi;
+                    for i in 0..32 {
+                        if pi.get_bit(i) {
+                            let mut port = mem.ports[i];
+                            let ssts = port.ssts;
+                            let ipm = (ssts >> 8) & 0x0F;
+                            let det = ipm & 0x0F;
+                            if det != HBAPortStatus::DetPresent as u64
+                                && ipm != HBAPortStatus::IpmActive as u64
+                            {
+                                printkln!("AHCI: warning: not initializing port {} because DET and IPM are not valid", i);
+                            } else if port.sig == SIG_ATAPI {
+                                printkln!("AHCI: Port {}: ATAPI device found, but ATAPI devices are not supported. Skipping", i);
+                            } else if port.sig == SIG_SATA {
+                                printkln!("AHCI: Port {}: SATA device found", i);
+                                rebase_port(&mut port, i as u64);
+                                let mut buffer: u16 = 0x1000;
+                                ata_read(&mut port, 0, 0, 1, &mut buffer);
+                                let mut data: Vec<u8> = Vec::new();
+                                for j in 0..512 {
+                                    data.push(read_memory((buffer as u64) + j) as u8);
+                                }
+                                if data[510] == 0x55 && data[511] == 0xAA {
+                                    printkln!("AHCI: port {}: device is bootable", i);
+                                }
+                                let mut base = 0x01BE;
+                                for i in 0..4 {
+                                    printkln!(
+                                        "AHCI: Port {}: MBR = {:X}, active = {:X}, FS = {:X}",
+                                        i,
+                                        i,
+                                        data[base],
+                                        data[base + 4]
+                                    );
+                                    base += 16;
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    printkln!("AHCI: error: Cannot add HBA {:X}:{:X} to the internal HBA list: HBA maximum reached.", dev.vendor, dev.device);
+                    continue;
+                }
             }
         }
     }
+}
+
+pub fn start_command_engine(port: &mut HbaPort) {
+    loop {
+        if !port.cmd.get_bit(PortCommand::Cr as usize) {
+            break;
+        }
+    }
+    port.cmd |= PortCommand::Fre as u64;
+    port.cmd |= PortCommand::St as u64;
+}
+
+pub fn stop_command_engine(port: &mut HbaPort) {
+    port.cmd &= !(PortCommand::St as u64);
+    loop {
+        if port.cmd.get_bit(PortCommand::Fr as usize) {
+            continue;
+        }
+        if port.cmd.get_bit(PortCommand::Cr as usize) {
+            continue;
+        }
+        break;
+    }
+    port.cmd &= !(PortCommand::Fre as u64);
+}
+
+pub fn rebase_port(port: &mut HbaPort, new_port: u64) {
+    stop_command_engine(port);
+    port.clb = AHCI_BASE + (new_port << 10);
+    port.clbu = 0;
+    unsafe {
+        write_bytes(port.clb as *mut u64, 0, 1024);
+    }
+    port.fb = AHCI_BASE + (32 << 10) + (new_port << 8);
+    port.fbu = 0;
+    unsafe {
+        write_bytes(port.fb as *mut u64, 0, 256);
+    }
+    unsafe {
+        let raw_header = port.clb as *mut HbaCmdHeader;
+        for i in 0..32 {
+            let header = raw_header.offset(i).as_mut().unwrap() as &mut HbaCmdHeader;
+            header.prdtl = 8;
+            header.ctba = AHCI_BASE + (40 << 10) + (new_port << 13) + (i << 8) as u64;
+            header.ctbau = 0;
+            write_bytes(header.ctba as *mut u64, 0, 256);
+        }
+    }
+    start_command_engine(port);
+}
+
+pub fn find_cmd_slot(port: &mut HbaPort) -> i32 {
+    let mut slots = port.sact | port.ci;
+    for i in 0..32 {
+        if (slots & 1) == 0 {
+            return i;
+        }
+        slots >>= 1;
+    }
+    printkln!("AHCI: fatal: cannot find free command slot");
+    return -1;
+}
+
+pub fn ata_read(
+    port: &mut HbaPort,
+    start_lo: u64,
+    start_hi: u64,
+    count: u64,
+    buf: &mut u16,
+) -> bool {
+    port.is = 0;
+    let mut cnt = count.clone();
+    let mut spin = 0;
+    let slot = find_cmd_slot(port);
+    if slot == -1 {
+        return false;
+    }
+    let header = unsafe {
+        let raw_ptr = port.clb as *mut HbaCmdHeader;
+        raw_ptr.offset(slot as isize).as_mut().unwrap() as &mut HbaCmdHeader
+    };
+    header.set_cfl((size_of::<FisRegH2D>() / size_of::<cty::c_ulong>()) as u8);
+    header.set_w(0);
+    header.prdtl = (((count - 1) >> 4) + 1) as u16;
+    let cmdtbl = unsafe {
+        let raw_ptr = header.ctba as *mut HbaCmdTbl;
+        raw_ptr.as_mut().unwrap() as &mut HbaCmdTbl
+    };
+    unsafe {
+        let size: u16 = (size_of::<HbaCmdTbl>() as u16)
+            + ((header.prdtl - 1) as u16) * (size_of::<HbaPrdtEntry>() as u16);
+        write_bytes(cmdtbl, 0, size as usize);
+    }
+    let mut i: usize = 0;
+    while i < (header.prdtl as usize) - 1 {
+        cmdtbl.prdt_entry[i].dba = *buf as cty::c_ulong;
+        cmdtbl.prdt_entry[i].set_dbc(0x1FFF);
+        cmdtbl.prdt_entry[i].set_i(1);
+        *buf += 0x1000;
+        cnt -= 16;
+        i += 1;
+    }
+    cmdtbl.prdt_entry[i].dba = *buf as cty::c_ulong;
+    cmdtbl.prdt_entry[i].set_dbc((cnt << 9) - 1);
+    cmdtbl.prdt_entry[i].set_i(1);
+    let ptr = &mut cmdtbl.cfis;
+    let cmdfis = unsafe { &mut *(ptr as *mut [u8; 64] as *mut FisRegH2D) };
+    cmdfis.fis_type = FisType::RegH2D as cty::c_uchar;
+    cmdfis.set_c(1);
+    cmdfis.command = AhciCommand::ReadDmaExt as cty::c_uchar;
+    cmdfis.lba0 = start_lo as cty::c_uchar;
+    cmdfis.lba1 = (start_lo >> 8) as cty::c_uchar;
+    cmdfis.lba2 = (start_lo >> 16) as cty::c_uchar;
+    cmdfis.device = 0x40;
+    cmdfis.lba3 = (start_lo >> 24) as cty::c_uchar;
+    cmdfis.lba4 = start_hi as cty::c_uchar;
+    cmdfis.lba5 = (start_hi >> 8) as cty::c_uchar;
+    cmdfis.count_lo = (cnt as u8) & 0xFF;
+    cmdfis.count_hi = ((cnt as u8) >> 8) & 0xFF;
+    while (port.tfd & (AtaStatus::Busy as u64 | AtaStatus::Drq as u64) > 0) && spin < 1000000 {
+        spin += 1;
+    }
+    if spin == 1000000 {
+        panic!("Detected port hang: {:?}", port);
+    }
+    port.ci = 1 << slot;
+    loop {
+        if port.ci & (1 << slot) == 0 {
+            break;
+        }
+        if port.is.get_bit(30) {
+            panic!("Read error with HBA port: {:?}", port);
+        }
+    }
+    if port.is.get_bit(30) {
+        panic!("Read error with HBA port: {:?}", port);
+    }
+    return true;
 }
