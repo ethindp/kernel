@@ -12,12 +12,12 @@ volatile = "*"
 spin = "*"
 pic8259_simple = "*"
 pc-keyboard = "*"
-raw-cpuid = "*"
 cpuio = "*"
 bit_field = "*"
-libm = "*"
 slab_allocator = "*"
 rusty-asm = {version="*", features=["proc-macro"]}
+goblin = {version = "*", default-features=false, features=["elf64", "elf32", "mach64", "mach32", "pe32", "pe64", "archive", "endian_fd"]}
+cty = "0.2.0"
 
 [dependencies.lazy_static]
 version = "*"
@@ -30,4 +30,4 @@ panic = "abort"
 panic = "abort"
 
 [package.metadata.bootimage]
-run-args = ["-serial", "stdio", "-s", "-soundhw", "all", "-drive", "format=raw,id=disk,file=disk.img,if=none", "-device", "ahci,id=ahci", "-device", "ide-drive,drive=disk,bus=ahci.0"]
+run-args = ["-serial", "stdio", "-soundhw", "all", "-drive", "format=raw,id=disk,file=disk.img,if=none", "-device", "ich9-ahci,id=ahci", "-device", "ide-drive,drive=disk,bus=ahci.0", "-no-reboot", "-cpu", "max"]

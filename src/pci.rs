@@ -17,8 +17,7 @@ lazy_static! {
 }
 
 /// Contains PCI device properties.
-#[repr(packed)]
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone, Default, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PCIDevice {
     /// Public vendor ID of device
     pub vendor: u32,
@@ -57,8 +56,7 @@ pub struct PCIDevice {
 }
 
 /// This table is applicable if the Header Type is 00h.
-#[repr(packed)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct GeneralDeviceTable {
     // Address of all six BARs.
     pub bars: [u64; 6],
@@ -80,8 +78,7 @@ pub struct GeneralDeviceTable {
 }
 
 /// This table is applicable if the Header Type is 01h (PCI-to-PCI bridge)
-#[repr(packed)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PCIToPCIBridgeTable {
     pub bars: [u64; 2],
     pub sec_latency_timer: u32,
@@ -107,8 +104,7 @@ pub struct PCIToPCIBridgeTable {
 }
 
 /// This table is applicable if the Header Type is 02h (PCI-to-CardBus bridge)
-#[repr(packed)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PCIToCardBusBridgeTable {
     pub exca_base_addr: u32,
     pub sec_status: u32,

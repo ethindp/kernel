@@ -1,19 +1,19 @@
 // Types
-type elf_half = u16;
-type elf_word = u32;
-type elf_sword = u32;
-type elf_xword = u64;
-type elf_sxword = u64;
-type elf32_addr = u32;
-type elf32_off = u32;
-type elf64_addr = u64;
-type elf64_off = u64;
-type elf32_half = elf_half;
-type elf64_half = elf_half;
-type elf32_word = elf_word;
-type elf64_word = elf_word;
-type elf32_sword = elf_sword;
-type elf64_sword = elf_sword;
+pub type elf_half = u16;
+pub type elf_word = u32;
+pub type elf_sword = u32;
+pub type elf_xword = u64;
+pub type elf_sxword = u64;
+pub type elf32_addr = u32;
+pub type elf32_off = u32;
+pub type elf64_addr = u64;
+pub type elf64_off = u64;
+pub type elf32_half = elf_half;
+pub type elf64_half = elf_half;
+pub type elf32_word = elf_word;
+pub type elf64_word = elf_word;
+pub type elf32_sword = elf_sword;
+pub type elf64_sword = elf_sword;
 
 // File types
 #[derive(Eq, PartialEq, Clone, Copy)]
@@ -676,10 +676,91 @@ StaticTls = 0x10,
 }
 
 // ELF file header
+#[derive(Debug, Copy, Clone)]
 pub struct Elf32Header {
-pub e_ident: &'static str,
+pub e_ident: [u8; 16],
 pub e_type: elf_half,
 pub e_machine: elf_half,
 pub e_version: elf_word,
 pub e_entry: elf32_addr,
 pub e_phoff: elf32_off,
+pub e_shoff: elf32_off,
+pub e_flags: elf_word,
+pub e_ehsize: elf_half,
+pub e_phentsize: elf_half,
+pub e_phnum: elf_half,
+pub e_shentsize: elf_half,
+pub e_shnum: elf_half,
+pub e_shstrndx: elf_half,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct Elf64Header {
+pub e_ident: [u8; 16],
+pub e_type: elf_half,
+pub e_machine: elf_half,
+pub e_version: elf_word,
+pub e_entry: elf64_addr,
+pub e_phoff: elf64_off,
+pub e_shoff: elf64_off,
+pub e_flags: elf_word,
+pub e_ehsize: elf_half,
+pub e_phentsize: elf_half,
+pub e_phnum: elf_half,
+pub e_shentsize: elf_half,
+pub e_shnum: elf_half,
+pub e_shstrndx: elf_half,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct Elf32SectionHeader {
+pub sh_name: elf_word,
+pub sh_type: elf_word,
+pub sh_flags: elf_word,
+pub sh_addr: elf32_addr,
+pub sh_offset: elf32_off,
+pub sh_size: elf_word,
+pub sh_link: elf_word,
+pub sh_info: elf_word,
+pub sh_addralign: elf_word,
+pub sh_entsize: elf_word,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct Elf64SectionHeader {
+pub sh_name: elf_word,
+pub sh_type: elf_word,
+pub sh_flags: elf_word,
+pub sh_addr: elf64_addr,
+pub sh_offset: elf64_off,
+pub sh_size: elf_word,
+pub sh_link: elf_word,
+pub sh_info: elf_word,
+pub sh_addralign: elf_word,
+pub sh_entsize: elf_word,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct Elf32ProgramHeader {
+    pub p_type: elf_word,
+    pub p_offset: elf32_off,
+    pub p_vaddr: elf32_addr,
+    pub p_paddr: elf32_addr,
+    pub p_filesz: elf_word,
+    pub p_memsz: elf_word,
+    pub p_flags: elf_word,
+    pub p_align: elf_word,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct Elf32ProgramHeader {
+    pub p_type: elf_word,
+    pub p_offset: elf64_off,
+    pub p_vaddr: elf64_addr,
+    pub p_paddr: elf64_addr,
+    pub p_filesz: elf_word,
+    pub p_memsz: elf_word,
+    pub p_flags: elf_word,
+    pub p_align: elf_word,
+}
+

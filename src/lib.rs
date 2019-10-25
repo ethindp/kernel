@@ -1,6 +1,7 @@
 #![no_std]
 #![feature(abi_x86_interrupt)]
-#![feature(const_vec_new)]
+#![feature(asm)]
+#![feature(slice_from_raw_parts)]
 /// The drivers module contains drivers for various hardware devices.
 pub mod drivers;
 /// The gdt module contains basic GDT functionality.
@@ -9,11 +10,14 @@ pub mod gdt;
 /// The interrupts module contains functions to set up the IDT.
 /// It also utilizes full AIO support for keyboards and other devices.
 pub mod interrupts;
-/// The memory module is currently pretty much unused. It is set up but nothing uses it.
+/// The memory module contains functions for managing memory.
 pub mod memory;
 /// The pci module contains functions for reading from PCI devices and enumerating PCI buses via the "brute-force" method.
 /// As we add drivers that require the PCI buss in, the ::probe() function of this module will be extended to load those drivers when the probe is in progress. This will then create a "brute-force and configure" method.
 pub mod pci;
+/// The registers module contains functions for retrieving all CPU registers.
+// It is only used for debugging and kernel information purposes.
+pub mod registers;
 /// The tasking module contains multitasking-related functions
 pub mod tasking;
 /// The vga module contains functions for interacting with the VGA buffer.

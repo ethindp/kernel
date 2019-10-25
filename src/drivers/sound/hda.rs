@@ -1,7 +1,5 @@
 use crate::memory::*;
 use crate::pci;
-use crate::printkln;
-use bit_field::BitField;
 
 #[repr(u16)]
 #[derive(Eq, PartialEq)]
@@ -38,7 +36,7 @@ pub enum HDARegister {
     Dplbase = 0x70,
     Dpubase = 0x74,
     IobSDnCTL = 0x80,
-    IobSD0STS = 0x83,
+    IobSDnSTS = 0x83,
     IobSDnLPIB = 0x84,
     IobSDnCBL = 0x88,
     IobISDnLVI = 0x8C,
@@ -54,7 +52,10 @@ pub enum HDARegister {
 pub fn init() {
     let mut memaddr: u64 = 0;
     for dev in pci::get_devices() {
-        if dev.device == 0x2668 && dev.vendor == 0x8086 {
+        if (dev.class == 0x04 && dev.subclass == 0x03)
+            && (dev.vendor == 0x8086 || dev.vendor == 0x1002)
+            && (dev.device == 0x2668 || dev.device == 0x27D8 || dev.device == 0x4383)
+        {
             if dev.header_type == 0 {
                 let tbl = dev.gen_dev_tbl.unwrap();
                 if tbl.bars[0] != 0 {
@@ -83,18 +84,5 @@ pub fn init() {
     }
     if memaddr != 0 {
         allocate_phys_range(memaddr, memaddr + 0x9C);
-        let gcap = read_memory(memaddr);
-        printkln!(
-            "HDA: OSS: {}, ISS: {}, BSS: {}, NSDO: {}",
-            gcap.get_bits(12..=15),
-            gcap.get_bits(8..=11),
-            gcap.get_bits(3..=7),
-            gcap.get_bits(1..=2)
-        );
-        if gcap.get_bit(0) {
-            printkln!("HDA: 64-bit addresses are supported for this device.");
-        } else {
-            printkln!("HDA: warning: 64-bit addresses are not supported by this device.");
-        }
     }
 }
