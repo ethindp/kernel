@@ -137,11 +137,7 @@ impl FisRegH2D {
     }
 
     #[inline]
-    pub fn new_bitfield_1(
-        pmport: u8,
-        rsv0: u8,
-        c: u8,
-    ) -> bitfield<[u8; 1usize], u8> {
+    pub fn new_bitfield_1(pmport: u8, rsv0: u8, c: u8) -> bitfield<[u8; 1usize], u8> {
         let mut bitfield: bitfield<[u8; 1usize], u8> = Default::default();
         bitfield.set(0usize, 4u8, {
             let pmport: u8 = unsafe { transmute(pmport) };
@@ -218,12 +214,7 @@ impl FisRegD2H {
     }
 
     #[inline]
-    pub fn new_bitfield_1(
-        pmport: u8,
-        rsv0: u8,
-        i: u8,
-        rsv1: u8,
-    ) -> bitfield<[u8; 1usize], u8> {
+    pub fn new_bitfield_1(pmport: u8, rsv0: u8, i: u8, rsv1: u8) -> bitfield<[u8; 1usize], u8> {
         let mut bitfield: bitfield<[u8; 1usize], u8> = Default::default();
         bitfield.set(0usize, 4u8, {
             let pmport: u8 = unsafe { transmute(pmport) };
@@ -274,10 +265,7 @@ impl FisData {
     }
 
     #[inline]
-    pub fn new_bitfield_1(
-        pmport: u8,
-        rsv0: u8,
-    ) -> bitfield<[u8; 1usize], u8> {
+    pub fn new_bitfield_1(pmport: u8, rsv0: u8) -> bitfield<[u8; 1usize], u8> {
         let mut bitfield: bitfield<[u8; 1usize], u8> = Default::default();
         bitfield.set(0usize, 4u8, {
             let pmport: u8 = unsafe { transmute(pmport) };
@@ -454,13 +442,7 @@ impl FisDmaSetup {
     }
 
     #[inline]
-    pub fn new_bitfield_1(
-        pmport: u8,
-        rsv0: u8,
-        d: u8,
-        i: u8,
-        a: u8,
-    ) -> bitfield<[u8; 1usize], u8> {
+    pub fn new_bitfield_1(pmport: u8, rsv0: u8, d: u8, i: u8, a: u8) -> bitfield<[u8; 1usize], u8> {
         let mut bitfield: bitfield<[u8; 1usize], u8> = Default::default();
         bitfield.set(0usize, 4u8, {
             let pmport: u8 = unsafe { transmute(pmport) };
@@ -732,11 +714,7 @@ impl HbaPrdtEntry {
     }
 
     #[inline]
-    pub fn new_bitfield_1(
-        dbc: u32,
-        rsv1: u32,
-        i: u32,
-    ) -> bitfield<[u8; 4usize], u32> {
+    pub fn new_bitfield_1(dbc: u32, rsv1: u32, i: u32) -> bitfield<[u8; 4usize], u32> {
         let mut bitfield: bitfield<[u8; 4usize], u32> = Default::default();
         bitfield.set(0usize, 22u8, {
             let dbc: u32 = unsafe { transmute(dbc) };
