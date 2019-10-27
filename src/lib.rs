@@ -18,6 +18,8 @@ pub mod pci;
 /// The registers module contains functions for retrieving all CPU registers.
 // It is only used for debugging and kernel information purposes.
 pub mod registers;
+// Te smbios module contains SMBIOS functions
+pub mod smbios;
 /// The tasking module contains multitasking-related functions
 pub mod tasking;
 /// The vga module contains functions for interacting with the VGA buffer.
@@ -60,6 +62,7 @@ pub fn init() {
             outb(prev | 0x40, 0x71);
         }
     });
+    smbios::init();
     // Now, probe the PCI bus.
     pci::init();
     // Request other drivers to initialize

@@ -21,25 +21,25 @@ pub struct NoProgressError;
 
 impl fmt::Display for ShortError {
 fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-write!(f, "Write accepted smaller byte count than requested");
+write!(f, "Write accepted smaller byte count than requested")
 }
 }
 
 impl fmt::Display for ShortBufferError {
 fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-write!(f, "larger buffer required to store all data (incomplete write)");
+write!(f, "larger buffer required to store all data (incomplete write)")
 }
 }
 
 impl fmt::Display for EofError {
 fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-write!(f, "No more input available");
+write!(f, "No more input available")
 }
 }
 
 impl fmt::Display for UnexpectedEofError {
 fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-write!(f, "Got unexpected EOF when reading");
+write!(f, "Got unexpected EOF when reading")
 }
 }
 
@@ -49,7 +49,8 @@ write!(f, "IO: no outputs available (broken IOF?)")
 }
 }
 
-#[derive(Clone, Copy)]
+#[repr(u8)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum SeekLocation {
 Start,
 Current,
@@ -58,6 +59,7 @@ End,
 
 // The Reader trait wraps the reading of data.
 pub trait Reader {
+// The read() method reads data synchronously.
 fn read()->Result<(Vec<u8>, u64), Error>;
 }
 
@@ -90,3 +92,4 @@ pub trait ReadWriteCloser: Reader, Writer, Closer;
 pub trait ReadSeeker: Reader, Seeker;
 pub trait WriteSeeker: Writer, Seeker;
 pub trait ReadWriteSeeker: Reader, Writer, Seeker;
+
