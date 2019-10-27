@@ -62,7 +62,7 @@ pub fn init() {
             outb(prev | 0x40, 0x71);
         }
     });
-    smbios::init();
+    //smbios::init();
     // Now, probe the PCI bus.
     pci::init();
     // Request other drivers to initialize

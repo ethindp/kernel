@@ -182,7 +182,7 @@ pub enum FisType {
 }
 
 pub fn init() {
-    allocate_page_range(AHCI_BASE as u64, AHCI_BASE as u64 + 100000);
+    allocate_phys_range(AHCI_BASE as u64, AHCI_BASE as u64 + 100000);
     for dev in pci::get_devices() {
         if dev.class == 0x01 && dev.subclass == 0x06 && dev.prog_if == 0x01 {
             printkln!(
@@ -249,7 +249,7 @@ pub fn init() {
                                 for j in 0..512 {
                                 let buf = buffer as *mut u8;
                                     let ptr = unsafe { buf.offset(j as isize) };
-                                    data.push(unsafe { ptr.read_volatile() } as u8);
+                                    data.push(unsafe { *ptr } as u8);
                                 }
                                 for j in 0..511 {
                                     if data[i] == 0x55 && data[i + 1] == 0xAA {
@@ -363,7 +363,7 @@ pub fn ata_read(addr: u64, start_lo: u32, start_hi: u32, count: u32, buffer: &u1
         cmdtbl.prdt_entry[j].dba = *buf as u32;
         cmdtbl.prdt_entry[j].set_dbc(8 * 1024 - 1);
         cmdtbl.prdt_entry[j].set_i(1);
-        buf = buf.add(4 * 1024).as_mut().unwrap();
+        buf = (4 * 1024 * i) as *mut u16;
         cnt -= 16;
         i = j;
         }
