@@ -9,6 +9,7 @@ use core::mem::size_of;
 use lazy_static::lazy_static;
 use spin::Mutex;
 use x86_64::instructions::hlt;
+use alloc::vec::Vec;
 
 lazy_static! {
 // HBADB: An array of up to 64 Host bus adapters (HBAs)
@@ -242,12 +243,13 @@ pub fn init() {
                             } else if port.sig == SIG_SATA as u32 {
                                 printkln!("AHCI: Port {}: SATA device found", i);
                                 rebase_port(u64::from_str_radix(addr, 16).unwrap(), i as u32);
-                                let buffer: *mut u16 = 0x1000 as *mut u16;
-                                ata_read(u64::from_str_radix(addr, 16).unwrap(), 0, 0, 1, buffer);
-                                let mut data: [u8; 512] = [0; 512];
+                                let buffer = 0x1000u16;
+                                ata_read(u64::from_str_radix(addr, 16).unwrap(), 0, 0, 1, &buffer);
+                                let mut data: Vec<u8> = Vec::new();
                                 for j in 0..512 {
-                                    let ptr = unsafe { buffer.offset(j as isize) };
-                                    data[j] = unsafe { ptr.read_volatile() } as u8;
+                                let buf = buffer as *mut u8;
+                                    let ptr = unsafe { buf.offset(j as isize) };
+                                    data.push(unsafe { ptr.read_volatile() } as u8);
                                 }
                                 for j in 0..511 {
                                     if data[i] == 0x55 && data[i + 1] == 0xAA {
@@ -334,10 +336,11 @@ pub fn find_cmd_slot(addr: u64) -> i32 {
     return -1;
 }
 
-pub fn ata_read(addr: u64, start_lo: u32, start_hi: u32, count: u32, buffer: *mut u16) -> bool {
+pub fn ata_read(addr: u64, start_lo: u32, start_hi: u32, count: u32, buffer: &u16) -> bool {
     let mut port = unsafe { &mut *(addr as *mut internal::HbaPort) };
     port.is = u32::max_value();
     let mut cnt = count.clone() as u16;
+    let mut buf = buffer.clone() as *mut u16;
     let mut spin = 0;
     let slot = find_cmd_slot(addr.clone());
     if slot == -1 {
@@ -356,13 +359,16 @@ pub fn ata_read(addr: u64, start_lo: u32, start_hi: u32, count: u32, buffer: *mu
     };
     let mut i: usize = 0;
     for j in 0..(header.prdtl as usize) - 1 {
-        cmdtbl.prdt_entry[j].dba = unsafe { *buffer.offset((j as isize) + 4 * 1024) } as u32;
+    unsafe {
+        cmdtbl.prdt_entry[j].dba = *buf as u32;
         cmdtbl.prdt_entry[j].set_dbc(8 * 1024 - 1);
         cmdtbl.prdt_entry[j].set_i(1);
+        buf = buf.add(4 * 1024).as_mut().unwrap();
         cnt -= 16;
         i = j;
+        }
     }
-    cmdtbl.prdt_entry[i].dba = unsafe { *buffer as u32 };
+    cmdtbl.prdt_entry[i].dba = buf as u32;
     cmdtbl.prdt_entry[i].set_dbc(((cnt as u32) << 9) - 1 as u32);
     cmdtbl.prdt_entry[i].set_i(1);
     let ptr = &mut cmdtbl.cfis;
