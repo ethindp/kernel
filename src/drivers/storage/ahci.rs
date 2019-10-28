@@ -183,7 +183,7 @@ pub enum FisType {
 
 pub fn init() {
     allocate_phys_range(AHCI_BASE as u64, AHCI_BASE as u64 + 100000);
-    allocate_page_range(0x1000000, 0x2000000);
+    allocate_phys_range(0x1000000, 0x100C350);
     for dev in pci::get_devices() {
         if dev.class == 0x01 && dev.subclass == 0x06 && dev.prog_if == 0x01 {
             printkln!(
