@@ -183,6 +183,7 @@ pub enum FisType {
 
 pub fn init() {
     allocate_phys_range(AHCI_BASE as u64, AHCI_BASE as u64 + 100000);
+    allocate_page_range(0x1000000, 0x2000000);
     for dev in pci::get_devices() {
         if dev.class == 0x01 && dev.subclass == 0x06 && dev.prog_if == 0x01 {
             printkln!(
@@ -243,13 +244,12 @@ pub fn init() {
                             } else if port.sig == SIG_SATA as u32 {
                                 printkln!("AHCI: Port {}: SATA device found", i);
                                 rebase_port(u64::from_str_radix(addr, 16).unwrap(), i as u32);
-                                let buffer = 0x1000u16;
-                                ata_read(u64::from_str_radix(addr, 16).unwrap(), 0, 0, 1, &buffer);
+                                let mut buffer: u64 = 0x1000000;
+                                ata_read(u64::from_str_radix(addr, 16).unwrap(), 0, 0, 64, &mut buffer);
                                 let mut data: Vec<u8> = Vec::new();
                                 for j in 0..512 {
                                 let buf = buffer as *mut u8;
-                                    let ptr = unsafe { buf.offset(j as isize) };
-                                    data.push(unsafe { *ptr } as u8);
+                                    data.push(unsafe { buf.offset(j as isize).read_volatile() } as u8);
                                 }
                                 for j in 0..511 {
                                     if data[i] == 0x55 && data[i + 1] == 0xAA {
@@ -336,23 +336,27 @@ pub fn find_cmd_slot(addr: u64) -> i32 {
     return -1;
 }
 
-pub fn ata_read(addr: u64, start_lo: u32, start_hi: u32, count: u32, buffer: &u16) -> bool {
+pub fn ata_read(addr: u64, start_lo: u32, start_hi: u32, count: u32, buffer: &mut u64) -> bool {
     let mut port = unsafe { &mut *(addr as *mut internal::HbaPort) };
     port.is = u32::max_value();
-    let mut cnt = count.clone() as u16;
-    let mut buf = buffer.clone() as *mut u16;
+    let mut cnt = count.clone();
+    printkln!("AHCI: cnt = {:X}h, buf = {:X}h", cnt, buffer);
     let mut spin = 0;
     let slot = find_cmd_slot(addr.clone());
     if slot == -1 {
         return false;
     }
+    printkln!("AHCI: using cmd slot {:X}h", slot);
     let header = unsafe {
         let raw_ptr = port.clb as *mut internal::HbaCmdHeader;
         raw_ptr.offset(slot as isize).as_mut().unwrap() as &mut internal::HbaCmdHeader
     };
     header.set_cfl((size_of::<internal::FisRegH2D>() / size_of::<u32>()) as u8);
+    printkln!("AHCI: set CFL to {:X}h", header.cfl());
     header.set_w(0);
+    printkln!("AHCI: set W bit to {:X}h", header.w());
     header.prdtl = (((cnt - 1) >> 4) + 1) as u16;
+    printkln!("AHCI: set PRDTL to {:X}h", header.prdtl);
     let cmdtbl = unsafe {
         let raw_ptr = header.ctba as *mut internal::HbaCmdTbl;
         raw_ptr.as_mut().unwrap() as &mut internal::HbaCmdTbl
@@ -360,31 +364,46 @@ pub fn ata_read(addr: u64, start_lo: u32, start_hi: u32, count: u32, buffer: &u1
     let mut i: usize = 0;
     for j in 0..(header.prdtl as usize) - 1 {
     unsafe {
-        cmdtbl.prdt_entry[j].dba = *buf as u32;
+        cmdtbl.prdt_entry[j].dba = buffer.get_bits(0 ..= 31) as u32;
+        cmdtbl.prdt_entry[j].dbau = buffer.get_bits(32 ..= 63) as u32;
+        printkln!("AHCI: PRDT {}: set DBA to {:X}h and DBAU to {:X}h", j, buffer.get_bits(0 ..= 31) as u32, buffer.get_bits(32 ..= 63) as u32);
         cmdtbl.prdt_entry[j].set_dbc(8 * 1024 - 1);
+        printkln!("AHCI: PRDT {}: set DBC to {:X}h", j, cmdtbl.prdt_entry[j].dbc());
         cmdtbl.prdt_entry[j].set_i(1);
-        buf = (4 * 1024 * i) as *mut u16;
-        cnt -= 16;
+        printkln!("AHCI: PRDT {}: set i bit", j);
+        *buffer = buffer.saturating_add(4 * 1024);
+        cnt = cnt.saturating_sub(16);
+        printkln!("AHCI: PRDT {}: buf is now {:X}h, count is now {:X}h", j, buffer, cnt);
         i = j;
         }
     }
-    cmdtbl.prdt_entry[i].dba = buf as u32;
+    cmdtbl.prdt_entry[i].dba = buffer.get_bits(0 ..= 31) as u32;
+    cmdtbl.prdt_entry[i].dbau = buffer.get_bits(32 ..= 63) as u32;
+    printkln!("AHCI: PRDT {}: set DBA to {:X}h and DBAU to {:X}h", i, buffer.get_bits(0 ..= 31) as u32, buffer.get_bits(32 ..= 63) as u32);
     cmdtbl.prdt_entry[i].set_dbc(((cnt as u32) << 9) - 1 as u32);
+    printkln!("AHCI: PRDT {}: set DBC to {:X}h", i, cmdtbl.prdt_entry[i].dbc());
     cmdtbl.prdt_entry[i].set_i(1);
+    printkln!("AHCI: PRDT {}: set i bit", i);
     let ptr = &mut cmdtbl.cfis;
     let cmdfis = unsafe { &mut *(ptr as *mut [u8; 64] as *mut internal::FisRegH2D) };
     cmdfis.fis_type = FisType::RegH2D as u8;
+    printkln!("AHCI: cmdfis: set fis type to {:X}h", FisType::RegH2D as u8);
     cmdfis.set_c(1);
+    printkln!("AHCI: cmdfis: set C bit");
     cmdfis.command = AhciCommand::ReadDmaExt as u8;
+    printkln!("AHCI: cmdfis: set command to {:X}h", AhciCommand::ReadDmaExt as u8);
     cmdfis.lba0 = start_lo as u8;
     cmdfis.lba1 = (start_lo >> 8) as u8;
     cmdfis.lba2 = (start_lo >> 16) as u8;
+    printkln!("AHCI: cmdfis: LBAs 0-2: {:X}h, {:X}h, {:X}h", cmdfis.lba0, cmdfis.lba1, cmdfis.lba2);
     cmdfis.device = 1 << 6;
     cmdfis.lba3 = (start_lo >> 24) as u8;
     cmdfis.lba4 = start_hi as u8;
     cmdfis.lba5 = (start_hi >> 8) as u8;
-    cmdfis.count_lo = cnt.get_bits(0..7) as u8;
-    cmdfis.count_hi = cnt.get_bits(8..15) as u8;
+    printkln!("AHCI: cmdfis: device = {:X}, LBAs 3-5: {:X}h, {:X}h, {:X}h", cmdfis.device, cmdfis.lba3, cmdfis.lba4, cmdfis.lba5);
+    cmdfis.count_lo = cnt.get_bits(0..=7) as u8;
+    cmdfis.count_hi = cnt.get_bits(8..=15) as u8;
+    printkln!("AHCI: cmdfis: countl = {:X}h, counth = {:X}h", cmdfis.count_lo, cmdfis.count_hi);
     while (port.tfd & (AtaStatus::Busy as u32 | AtaStatus::Drq as u32) > 0) && spin < 1000000 {
         spin += 1;
     }
@@ -392,6 +411,7 @@ pub fn ata_read(addr: u64, start_lo: u32, start_hi: u32, count: u32, buffer: &u1
         panic!("Detected port hang: {:?}", port);
     }
     port.ci = 1 << slot;
+    printkln!("AHCI: port: ci = {:X}h", port.ci);
     loop {
         hlt();
         if port.ci & (1 << slot) == 0 {
