@@ -19,7 +19,7 @@ pub mod pci;
 // It is only used for debugging and kernel information purposes.
 pub mod registers;
 // Te smbios module contains SMBIOS functions
-pub mod smbios;
+// pub mod smbios;
 /// The tasking module contains multitasking-related functions
 pub mod tasking;
 /// The vga module contains functions for interacting with the VGA buffer.

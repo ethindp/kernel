@@ -183,6 +183,7 @@ pub enum FisType {
 
 pub fn init() {
     allocate_phys_range(AHCI_BASE as u64, AHCI_BASE as u64 + 100000);
+    allocate_page_range(0x1000, 0x1000+512);
     for dev in pci::get_devices() {
         if dev.class == 0x01 && dev.subclass == 0x06 && dev.prog_if == 0x01 {
             printkln!(
@@ -247,9 +248,8 @@ pub fn init() {
                                 ata_read(u64::from_str_radix(addr, 16).unwrap(), 0, 0, 1, &buffer);
                                 let mut data: Vec<u8> = Vec::new();
                                 for j in 0..512 {
-                                let buf = buffer as *mut u8;
-                                    let ptr = unsafe { buf.offset(j as isize) };
-                                    data.push(unsafe { *ptr } as u8);
+                                let buf = (buffer + j) as *mut u8;
+                                    data.push(unsafe { *buf } as u8);
                                 }
                                 for j in 0..511 {
                                     if data[i] == 0x55 && data[i + 1] == 0xAA {
