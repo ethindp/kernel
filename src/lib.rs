@@ -2,6 +2,7 @@
 #![feature(abi_x86_interrupt)]
 #![feature(asm)]
 #![feature(slice_from_raw_parts)]
+#![allow(dead_code)]
 /// The drivers module contains drivers for various hardware devices.
 pub mod drivers;
 /// The gdt module contains basic GDT functionality.

@@ -90,6 +90,7 @@ extern "x86-interrupt" fn handle_bp(stack_frame: &mut InterruptStackFrame) {
 }
 
 extern "x86-interrupt" fn handle_df(stack_frame: &mut InterruptStackFrame, error_code: u64) {
+unsafe {asm!("push rax" :::: "intel");} 
     panic!(
         "EXCEPTION: DOUBLE FAULT({})\n{:#?}\n{}",
         error_code,
@@ -175,21 +176,36 @@ extern "x86-interrupt" fn handle_keyboard(_stack_frame: &mut InterruptStackFrame
 }
 
 extern "x86-interrupt" fn handle_pf(
-    stack_frame: &mut InterruptStackFrame,
+    stack: &mut InterruptStackFrame,
     error_code: PageFaultErrorCode,
 ) {
+unsafe {asm!("push rax" :::: "intel");} 
     use crate::idle_forever;
-    use crate::printkln;
+    use crate::{printk, printkln};
     use x86_64::registers::control::Cr2;
+    use bit_field::BitField;
+    use crate::memory::allocate_page_range;
     let addr = Cr2::read();
-    printkln!("Page fault: {:?}", error_code);
-    if (error_code.bits() & PageFaultErrorCode::CAUSED_BY_WRITE.bits()) > 0 {
-        printkln!("Caused by write to memory address {:?}", addr);
-    } else {
-        printkln!("Caused by read from memory address {:?}", addr);
+    let ec = error_code.bits();
+            printk!("Page fault: ");
+    if (ec & 1<<0) > 0 {
+    printkln!("Protection violation");
+        } else if !(ec & 1 << 0) > 0 {
+        printkln!("Page not present");
+    } else if (ec & 1<<2) > 0 {
+    printkln!("Possible privilege violation (user mode)");
+    } else if !(ec & 1<<2) > 0 {
+    printkln!("Possible privilege violation (kernel mode)");
+    } else if ec & 1 << 3 > 0 {
+    printkln!("Attempted read of reserved PTT entry");
+    } else if ec & 1 << 4 > 0 {
+    printkln!("Instruction fetch");
     }
-    printkln!("Stack frame: {:#?}", stack_frame);
-    printkln!("{}", registers::CPURegs::read());
+    if ec & 1 << 1 > 0 {
+        printkln!("Possibly caused by write to memory address {:X}h", addr.as_u64());
+    } else {
+        printkln!("Possibly caused by read from memory address {:X}h", addr.as_u64());
+    }
     idle_forever();
 }
 
@@ -223,6 +239,7 @@ extern "x86-interrupt" fn handle_nm(stack: &mut InterruptStackFrame) {
 }
 
 extern "x86-interrupt" fn handle_gp(_: &mut InterruptStackFrame, ec: u64) {
+unsafe {asm!("push rax" :::: "intel");} 
     use crate::printkln;
     printkln!(
         "Cannot continue: protection violation, error code {}\n{}",
