@@ -3,11 +3,12 @@
 #![feature(alloc_error_handler)]
 #![feature(proc_macro_hygiene)]
 #![feature(asm)]
+#![allow(dead_code)]
 extern crate alloc;
 extern crate uart_16550;
 extern crate x86_64;
 mod memory;
-mod ui;
+//mod ui;
 mod vga;
 use bit_field::BitField;
 use bootloader::bootinfo::*;
@@ -60,9 +61,6 @@ fn kmain(boot_info: &'static BootInfo) -> ! {
     printkln!("SSE enabled");
     kernel::init();
     printkln!("Kernel init done!");
-    // Initialize the TUI and transfer control to it
-    ui::init();
-    // We should *never* reach this point.
     kernel::idle_forever();
 }
 

@@ -1,5 +1,10 @@
 use crate::memory::*;
 use crate::pci;
+use crate::printkln;
+use bit_field::BitField;
+use crate::interrupts::sleep_for;
+use x86_64::instructions::random::RdRand;
+use x86_64::align_up;
 
 #[repr(u16)]
 #[derive(Eq, PartialEq)]
@@ -71,6 +76,7 @@ pub fn init() {
                 } else if tbl.bars[5] != 0 {
                     memaddr = tbl.bars[5];
                 }
+                printkln!("HDA: Interrupt pin {:X}h, interrupt line {:X}h", tbl.interrupt_pin, tbl.interrupt_line);
             } else if dev.header_type == 1 {
                 let tbl = dev.pci_to_pci_bridge_tbl.unwrap();
                 if tbl.bars[0] != 0 {
@@ -78,11 +84,133 @@ pub fn init() {
                 } else if tbl.bars[1] != 0 {
                     memaddr = tbl.bars[1];
                 }
+printkln!("HDA: Interrupt pin {:X}h, interrupt line {:X}h", tbl.interrupt_pin, tbl.interrupt_line);
             }
             break;
         }
     }
     if memaddr != 0 {
         allocate_phys_range(memaddr, memaddr + 0x9C);
+        init_hda(memaddr);
     }
+}
+
+fn init_hda(memaddr: u64) {
+printkln!("HDA: init: resetting HDA controller");
+{
+let mut gctl = read_memory(memaddr + HDARegister::Gctl as u64) as u32;
+gctl.set_bit(0, true);
+write_memory(memaddr + HDARegister::Gctl as u64, gctl as u64);
+loop {
+if read_memory(memaddr + HDARegister::Gctl as u64) .get_bit(0) {
+break;
+}
+for _ in 256 ..= 0 {
+continue;
+}
+}
+sleep_for(10);
+}
+printkln!("HDA: init: reset complete");
+printkln!("HDA: init: configuring HDA controller");
+{
+let mut wakeen = read_memory(memaddr + HDARegister::Wakeen as u64) as u16;
+wakeen.set_bits(0 ..= 14, 1);
+write_memory(memaddr + HDARegister::Wakeen as u64, wakeen as u64);
+}
+// Setup CORB
+printkln!("HDA: init: corb: configuring");
+{
+let mut corbctl = read_memory(memaddr + HDARegister::Corbctl as u64) as u8;
+corbctl.set_bit(1, false);
+corbctl.set_bit(0, false);
+write_memory(memaddr + HDARegister::Corbctl as u64, corbctl as u64);
+}
+{
+let mut corbsize = read_memory(memaddr + HDARegister::Corbsize as u64) as u8;
+// determine size of CORB based on bits, abort at first largest size (in order)
+printkln!("HDA: init: corb: setting corb size max to 256 entries");
+corbsize.set_bits(0 ..= 1, 0x02);
+write_memory(memaddr + HDARegister::Corbsize as u64, corbsize as u64);
+// Generate a random address
+let mut addr = align_up({
+let mut val = RdRand::new().unwrap().get_u64().unwrap();
+if val.get_bits(48 .. 64) != 0 {
+val.set_bits(48 .. 64, 0);
+}
+val
+}, 128);
+if addr.get_bits(48 .. 64) != 0 {
+addr.set_bits(48 .. 64, 0);
+addr = align_up(addr, 128);
+}
+printkln!("HDA: init: corb: allocating corb at addr {:X}h", addr);
+allocate_phys_range(addr, addr + 1024);
+write_memory(memaddr + HDARegister::Corblbase as u64, addr.get_bits(0 .. 32));
+write_memory(memaddr + HDARegister::Corbubase as u64, addr.get_bits(32 .. 64));
+}
+printkln!("HDA: init: corb: clearing corb WP");
+write_memory(memaddr + HDARegister::Corbwp as u64, 0);
+printkln!("HDA: init: corb: resetting corb RP");
+while read_memory(memaddr + HDARegister::Corbrp as u64).get_bit(15) {
+let mut val = 0u64;
+val.set_bit(15, true);
+write_memory(memaddr + HDARegister::Corbrp as u64, val);
+for _ in 256 ..= 0 {
+continue;
+}
+}
+printkln!("HDA: init: corb: configuration complete");
+printkln!("HDA: init: rirb: configuring");
+{
+let mut rirbctl = read_memory(memaddr + HDARegister::Rirbctl as u64) as u8;
+rirbctl.set_bit(1, false);
+rirbctl.set_bit(0, false);
+rirbctl.set_bit(2, false);
+write_memory(memaddr + HDARegister::Rirbctl as u64, rirbctl as u64);
+}
+{
+let mut rirbsize = read_memory(memaddr + HDARegister::Rirbsize as u64) as u8;
+printkln!("HDA: init: rirb: setting rirb size max to 256 entries");
+rirbsize.set_bits(0 ..= 1, 0x02);
+write_memory(memaddr + HDARegister::Rirbsize as u64, rirbsize as u64);
+// Generate a random address
+let mut addr = align_up({
+let mut val = RdRand::new().unwrap().get_u64().unwrap();
+if val.get_bits(48 .. 64) != 0 {
+val.set_bits(48 .. 64, 0);
+}
+val
+}, 128);
+if addr.get_bits(48 .. 64) != 0 {
+addr.set_bits(48 .. 64, 0);
+addr = align_up(addr, 128);
+}
+printkln!("HDA: init: rirb: allocating rirb at addr {:X}h", addr);
+allocate_phys_range(addr, addr + 2048);
+write_memory(memaddr + HDARegister::Rirblbase as u64, addr.get_bits(0 .. 32));
+write_memory(memaddr + HDARegister::Rirbubase as u64, addr.get_bits(32 .. 64));
+}
+printkln!("HDA: init: rirb: configuration complete");
+printkln!("HDA: init: starting corb and rirb");
+{
+let mut corbctl = read_memory(memaddr + HDARegister::Corbctl as u64) as u8;
+corbctl.set_bit(1, true);
+corbctl.set_bit(0, false);
+write_memory(memaddr + HDARegister::Corbctl as u64, corbctl as u64);
+}
+{
+let mut rirbctl = read_memory(memaddr + HDARegister::Rirbctl as u64) as u8;
+rirbctl.set_bit(1, true);
+rirbctl.set_bit(0, false);
+rirbctl.set_bit(2, false);
+write_memory(memaddr + HDARegister::Rirbctl as u64, rirbctl as u64);
+}
+// Verify that all is working fine
+{
+let corbsts = read_memory(memaddr + HDARegister::Corbsts as u64) as u8;
+if corbsts.get_bit(0) {
+panic!("HDA: CMEI set!");
+}
+}
 }

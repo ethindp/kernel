@@ -1,4 +1,3 @@
-#[allow(dead_code)]
 // This code was almost directly written from Writing an OS in Rust by Phil-op on github. We need to improve it though and get the kernel to fully use paging. (It wasn't written by phil-op, but by me, with a few modifications to fit the kernel.)
 use crate::printkln;
 use bootloader::bootinfo::*;
@@ -60,17 +59,14 @@ fn allocate_paged_heap(
 
 /// Allocates a paged heap with the specified permissions.
 /// Possible permissions are:
-///
-/// * Writable: controls whether writes to the mapped frames are allowed. If this bit is unset in a level 1 page table entry, the mapped frame is read-only. If this bit is unset in a higher level page table entry the complete range of mapped pages is read-only.
-/// * User accessible: controls whether accesses from userspace (i.e. ring 3) are permitted.
-/// * Write-through: if this bit is set, a "write-through" policy is used for the cache, else a "write-back" policy is used. Types of caching is explained below.
-/// * No cache: Disables caching for this memory page.
-/// * Accessed: set by the CPU when the mapped frame or page table is accessed.
-/// * Dirty: set by the CPU on a write to the mapped frame.
-/// * Huge page: specifies that the entry maps a huge frame instead of a page table. Only allowed in P2 or P3 tables.
-/// * Global: indicates that the mapping is present in all address spaces, so it isn't flushed from the TLB on an address space switch.
+/// * Writable (W): controls whether writes to the mapped frames are allowed. If this bit is unset in a level 1 page table entry, the mapped frame is read-only. If this bit is unset in a higher level page table entry the complete range of mapped pages is read-only.
+/// * User accessible (UA): controls whether accesses from userspace (i.e. ring 3) are permitted.
+/// * Write-through (WT): if this bit is set, a "write-through" policy is used for the cache, else a "write-back" policy is used.
+/// * No cache (NC): Disables caching for this memory page.
+/// * Huge page (HP): specifies that the entry maps a huge frame instead of a page table. Only allowed in P2 or P3 tables.
+/// * Global (G): indicates that the mapping is present in all address spaces, so it isn't flushed from the TLB on an address space switch.
 /// * bits 9, 10, 11, and 52-62: available to the OS, can be used to store additional data, e.g. custom flags.
-/// * No execute: forbid code execution from the mapped frames. Can be only used when the no-execute page protection feature is enabled in the EFER register.
+/// * No execute (NX): forbid code execution from the mapped frames. Can be only used when the no-execute page protection feature is enabled in the EFER register.
 fn allocate_paged_heap_with_perms(
     start: u64,
     size: u64,
@@ -147,7 +143,9 @@ pub fn init(physical_memory_offset: u64, memory_map: &'static MemoryMap) {
     // Give us 32 M (or more) of RAM
     let start_addr: u64 = 0x100000000000;
     let end_addr = start_addr + 1 * 1048576;
-    // We cannot call allocate_paged_heap here since we hold the spinlock, which would result in an endless lock acquisition attempt loop. Instead we call the function directly here.
+    // We cannot call allocate_paged_heap here since we hold the spinlock,
+    // which would result in an endless lock acquisition attempt loop (deadlock).
+    // Instead we call the function directly here.
     match (mapper.as_mut(), allocator.as_mut()) {
         (Some(m), Some(a)) => match allocate_paged_heap(start_addr, end_addr - start_addr, m, a) {
             Ok(()) => (),
@@ -286,3 +284,4 @@ pub fn write_memory(address: u64, value: u64) {
         write_volatile(addr, value);
     }
 }
+

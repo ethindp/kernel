@@ -183,7 +183,7 @@ pub enum FisType {
 
 pub fn init() {
     allocate_phys_range(AHCI_BASE as u64, AHCI_BASE as u64 + 100000);
-    allocate_phys_range(0x1000000, 0x100C350);
+    allocate_phys_range(0x1000000, 0x1000000+0x100C350);
     for dev in pci::get_devices() {
         if dev.class == 0x01 && dev.subclass == 0x06 && dev.prog_if == 0x01 {
             printkln!(
@@ -245,27 +245,28 @@ pub fn init() {
                                 printkln!("AHCI: Port {}: SATA device found", i);
                                 rebase_port(u64::from_str_radix(addr, 16).unwrap(), i as u32);
                                 let mut buffer: u64 = 0x1000000;
-                                ata_read(u64::from_str_radix(addr, 16).unwrap(), 0, 0, 64, &mut buffer);
+                                ata_read(u64::from_str_radix(addr, 16).unwrap(), 0, 0, 1, &mut buffer);
+                                let mut found: bool = false;
+                                let mut power: u64 = 128;
+                                while !found {
+                                                                if power > 4096 {
+                                printkln!("AHCI: error: device does not appear to be bootable");
+                                break;
+                                }
                                 let mut data: Vec<u8> = Vec::new();
-                                for j in 0..512 {
+                                for j in 0..power {
                                 let buf = buffer as *mut u8;
                                     data.push(unsafe { buf.offset(j as isize).read_volatile() } as u8);
                                 }
-                                for j in 0..511 {
+                                for j in 0..power - 1 {
                                     if data[i] == 0x55 && data[i + 1] == 0xAA {
                                         printkln!("AHCI: port {}: found boot signature at bytes {} and {}", i, j, j + 1);
+                                        found = true;
                                         break;
                                     }
                                 }
-                                printk!("AHCI: data: [");
-                                for j in 0..512 {
-                                    if j != 511 {
-                                        printk!("{}, ", data[j]);
-                                    } else {
-                                        printk!("{}", data[j]);
-                                    }
+                                power = (power + 1).next_power_of_two();
                                 }
-                                printkln!("]");
                             }
                         }
                     }
@@ -363,7 +364,6 @@ pub fn ata_read(addr: u64, start_lo: u32, start_hi: u32, count: u32, buffer: &mu
     };
     let mut i: usize = 0;
     for j in 0..(header.prdtl as usize) - 1 {
-    unsafe {
         cmdtbl.prdt_entry[j].dba = buffer.get_bits(0 ..= 31) as u32;
         cmdtbl.prdt_entry[j].dbau = buffer.get_bits(32 ..= 63) as u32;
         printkln!("AHCI: PRDT {}: set DBA to {:X}h and DBAU to {:X}h", j, buffer.get_bits(0 ..= 31) as u32, buffer.get_bits(32 ..= 63) as u32);
@@ -375,7 +375,6 @@ pub fn ata_read(addr: u64, start_lo: u32, start_hi: u32, count: u32, buffer: &mu
         cnt = cnt.saturating_sub(16);
         printkln!("AHCI: PRDT {}: buf is now {:X}h, count is now {:X}h", j, buffer, cnt);
         i = j;
-        }
     }
     cmdtbl.prdt_entry[i].dba = buffer.get_bits(0 ..= 31) as u32;
     cmdtbl.prdt_entry[i].dbau = buffer.get_bits(32 ..= 63) as u32;
