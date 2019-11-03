@@ -40,6 +40,7 @@ pub struct CPURegs {
 }
 
 impl CPURegs {
+#[inline]
     pub fn read() -> CPURegs {
         let rax: u64;
         let rbx: u64;
