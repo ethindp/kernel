@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 x86_64 = "*"
-bootloader = {version="*", features=["map_physical_memory"]}
+bootloader = {version="*", features=["map_physical_memory", "sse"]}
 uart_16550 = "*"
 volatile = "*"
 spin = "*"

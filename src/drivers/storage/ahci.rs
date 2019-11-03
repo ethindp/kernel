@@ -191,6 +191,13 @@ pub fn init() {
                 dev.vendor,
                 dev.device
             );
+            printkln!("AHCI: configuring PCI command register");
+            {
+            let mut command = dev.command as u16;
+            command.set_bits(8 ..= 10, 1);
+            command.set_bits(0 ..= 6, 1);
+            pci::write_word(dev.bus as u8, dev.device as u8, dev.func as u8, 0x04, command);
+            }
             let mut hbadb = HBADB.lock();
             let bars = match dev.header_type {
                 0x00 => dev.gen_dev_tbl.unwrap().bars,
@@ -210,8 +217,14 @@ pub fn init() {
                     printkln!("AHCI: skipping AHCI device {:X}:{:X}: AHCI device has 16-bit BAR address {:X}", dev.vendor, dev.device, bars[5]);
                     continue;
                 }
-                allocate_phys_range(bars[5], bars[5] + 0x28);
+                allocate_phys_range(bars[5], bars[5] + 0x1080);
                 printkln!("AHCI: detected base address for AHCI driver: {:X}", bars[5]);
+                {
+                printkln!("AHCI: Enabling AHCI");
+                let mut ghc = read_memory(bars[5] + 0x04);
+                ghc.set_bit(31, true);
+                write_memory(bars[5] + 0x04, ghc);
+                }
                 let mut pos = usize::max_value();
                 for (i, hba) in hbadb.iter().enumerate() {
                     if hba.bar == 0 && hba.idx == 0 {
@@ -224,28 +237,34 @@ pub fn init() {
                     hbadb[pos].bar = bars[5];
                     hbadb[pos].idx = pos;
                     hbadb[pos].device = dev;
-                    let mem = unsafe { &mut *(hbadb[pos].bar as *mut internal::HbaMem) };
-                    printkln!("AHCI: Device scan: dbg: {:?}", mem);
-                    let pi = mem.pi;
                     for i in 0..32 {
-                        if pi.get_bit(i) {
-                            let port = mem.ports[i];
-                            let addr = format!("{:p}", &mem.ports[i]);
-                            let addr = addr.trim_start_matches("0x");
-                            let ssts = port.ssts;
-                            let ipm = (ssts >> 8) & 0x0F;
-                            let det = ipm & 0x0F;
-                            if det != HBAPortStatus::DetPresent as u32
-                                && ipm != HBAPortStatus::IpmActive as u32
-                            {
+                        if read_memory(bars[5] + 0x0C).get_bit(i) {
+                            // Calculate port address
+                            let portaddr: u64 = (bars[5] + 0x100 + ((i as u64) * 0x80));
+                            if read_memory(portaddr + 0x18).get_bits(28 ..= 31) == 0x00 {
+                                                        printkln!("AHCI: port {}: transitioning to active state", i);
+                            let mut cmd = read_memory(portaddr + 0x18) as u32;
+                            cmd.set_bits(28 ..= 31, 1);
+                            write_memory(portaddr + 0x18, cmd as u64);
+                            while read_memory(portaddr + 0x18).get_bits(28 ..= 31) != 0x00 {
+                            hlt();
+                            }
+                            printkln!("AHCI: port {}: transition complete", i);
+                            }
+                            let ssts = read_memory(portaddr + 0x28);
+                            let ipm = ssts.get_bits(8 ..= 11);
+                            let det = ssts.get_bits(0 ..= 3);
+                            if det != 0x03 && ipm != 0x01 {
                                 continue;
-                            } else if port.sig == SIG_ATAPI as u32 {
+                            }
+                            if read_memory(portaddr + 0x24) == SIG_ATAPI {
                                 printkln!("AHCI: Port {}: ATAPI device found, but ATAPI devices are not supported. Skipping", i);
-                            } else if port.sig == SIG_SATA as u32 {
+                                continue;
+                            } else if read_memory(portaddr + 0x24) == SIG_SATA {
                                 printkln!("AHCI: Port {}: SATA device found", i);
-                                rebase_port(u64::from_str_radix(addr, 16).unwrap(), i as u32);
+                                rebase_port(portaddr, i as u32);
                                 let mut buffer: u64 = 0x1000000;
-                                ata_read(u64::from_str_radix(addr, 16).unwrap(), 0, 0, 1, &mut buffer);
+                                ata_read(AHCI_BASE as u64, 0, 0, 1, &mut buffer);
                                 let mut found: bool = false;
                                 let mut power: u64 = 128;
                                 while !found {
@@ -267,6 +286,15 @@ pub fn init() {
                                 }
                                 power = (power + 1).next_power_of_two();
                                 }
+                            } else if read_memory(portaddr + 0x24) == SIG_SEM {
+                            printkln!("AHCI: port {}: detected enclosure management bridge", i);
+                            continue;
+                            } else if read_memory(portaddr + 0x24) == SIG_PM {
+                            printkln!("AHCI: port {}: detected port multiplier", i);
+                            continue;
+                            } else {
+                            printkln!("AHCI: warning: port {} has unknown signature: {:X}h", i, read_memory(portaddr + 0x24));
+                            continue;
                             }
                         }
                     }

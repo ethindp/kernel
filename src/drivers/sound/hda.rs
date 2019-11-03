@@ -5,6 +5,15 @@ use bit_field::BitField;
 use crate::interrupts::sleep_for;
 use x86_64::instructions::random::RdRand;
 use x86_64::align_up;
+use lazy_static::lazy_static;
+use spin::Mutex;
+use x86_64::instructions::hlt;
+
+lazy_static! {
+static ref SDINS: Mutex<[bool; 15]> = Mutex::new([false; 15]);
+static ref CORBADDR: Mutex<u64> = Mutex::new(0);
+static ref RIRBADDR: Mutex<u64> = Mutex::new(0);
+}
 
 #[repr(u16)]
 #[derive(Eq, PartialEq)]
@@ -61,6 +70,12 @@ pub fn init() {
             && (dev.vendor == 0x8086 || dev.vendor == 0x1002)
             && (dev.device == 0x2668 || dev.device == 0x27D8 || dev.device == 0x4383)
         {
+                    {
+            let mut command = dev.command as u16;
+            command.set_bits(8 ..= 10, 1);
+            command.set_bits(0 ..= 6, 1);
+            pci::write_word(dev.bus as u8, dev.device as u8, dev.func as u8, 0x04, command);
+            }
             if dev.header_type == 0 {
                 let tbl = dev.gen_dev_tbl.unwrap();
                 if tbl.bars[0] != 0 {
@@ -97,6 +112,7 @@ printkln!("HDA: Interrupt pin {:X}h, interrupt line {:X}h", tbl.interrupt_pin, t
 
 fn init_hda(memaddr: u64) {
 printkln!("HDA: init: resetting HDA controller");
+write_memory(memaddr + HDARegister::Statests as u64, (1 << 8) as u64);
 {
 let mut gctl = read_memory(memaddr + HDARegister::Gctl as u64) as u32;
 gctl.set_bit(0, true);
@@ -108,6 +124,7 @@ break;
 for _ in 256 ..= 0 {
 continue;
 }
+hlt();
 }
 sleep_for(10);
 }
@@ -211,6 +228,16 @@ write_memory(memaddr + HDARegister::Rirbctl as u64, rirbctl as u64);
 let corbsts = read_memory(memaddr + HDARegister::Corbsts as u64) as u8;
 if corbsts.get_bit(0) {
 panic!("HDA: CMEI set!");
+}
+}
+{
+let statests = read_memory(memaddr + HDARegister::Statests as u64).get_bits(0 ..= 14);
+let mut sdins = SDINS.lock();
+for codec in 0 ..= 14 {
+sdins[codec] = statests.get_bit(codec);
+if sdins[codec] {
+printkln!("HDA: detected codec {}", codec);
+}
 }
 }
 }
