@@ -257,7 +257,7 @@ pub fn allocate_phys_range(start: u64, end: u64) {
                 PhysFrame::range_inclusive(start_frame, end_frame)
             };
             for frame in frame_range {
-                let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
+                let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
                 unsafe {
                     match m.identity_map(frame, flags, a) {
                         Ok(r) => r.flush(),

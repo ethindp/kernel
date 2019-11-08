@@ -442,7 +442,7 @@ pub fn probe() {
                 let mut bist = read_dword(bus, slot, function, 0x0C).get_bits(24..=31) as u8;
                 // Calculate amount of time to wait
                 let time_to_wait = {
-                let mut ttw = (60000.0 / (1000000.0 / (32768 >> 2) as f64)) as f64;
+                let ttw = (60000.0 / (1000000.0 / (32768 >> 2) as f64)) as f64;
                 ttw as u128
                 };
                 if bist.get_bit(7) {

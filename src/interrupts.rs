@@ -176,15 +176,13 @@ extern "x86-interrupt" fn handle_keyboard(_stack_frame: &mut InterruptStackFrame
 }
 
 extern "x86-interrupt" fn handle_pf(
-    stack: &mut InterruptStackFrame,
+    _: &mut InterruptStackFrame,
     error_code: PageFaultErrorCode,
 ) {
 unsafe {asm!("push rax" :::: "intel");} 
     use crate::idle_forever;
     use crate::{printk, printkln};
     use x86_64::registers::control::Cr2;
-    use bit_field::BitField;
-    use crate::memory::allocate_page_range;
     let addr = Cr2::read();
     let ec = error_code.bits();
             printk!("Page fault: ");
