@@ -10,12 +10,10 @@ extern crate x86_64;
 mod memory;
 //mod ui;
 mod vga;
-use bit_field::BitField;
 use bootloader::bootinfo::*;
 use bootloader::*;
 use core::panic::PanicInfo;
 use slab_allocator::LockedHeap;
-use x86_64::registers::control::Cr0;
 
 entry_point!(kmain);
 #[global_allocator]
@@ -40,7 +38,6 @@ fn kmain(boot_info: &'static BootInfo) -> ! {
         ALLOCATOR.init(start_addr as usize, (end_addr - start_addr) as usize);
     }
     kernel::init();
-    printkln!("Kernel init done!");
     kernel::idle_forever();
 }
 
