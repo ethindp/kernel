@@ -67,3 +67,7 @@ bootimage build
 ```
 
 I am working on documentation right now, while juggling kernel updates, so docs may take a while.
+
+## Running
+
+To run this kernel you'll need Qemu. So download that to actually run the kernel. (Creating a bootable ISO is a bit more complicated, and I'll post instructions when its time to test this in a more complex virtualization environment like VMware or VirtualBox.)
