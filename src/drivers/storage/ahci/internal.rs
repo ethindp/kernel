@@ -47,12 +47,13 @@ pub struct FisRegD2H {
 }
 
 #[repr(C)]
+#[derive(Copy, Clone)]
 pub struct FisData {
     pub fis_type: u8,
     pub pmport: u8,
     rsv0: u8,
     rsv1: [u8; 2],
-    pub data: [u32],
+    pub data: [u32; 65535],
 }
 
 #[repr(C)]
@@ -177,6 +178,7 @@ pub struct HbaPort {
 }
 
 #[repr(C)]
+#[derive(Copy, Clone)]
 pub struct HbaMem {
     pub cap: u32,
     pub ghc: u32,

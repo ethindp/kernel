@@ -24,6 +24,14 @@ features = ["spin_no_std"]
 
 [profile.dev]
 panic = "abort"
+opt-level=0
+debug=true
+rpath=false
+lto=false
+debug-assertions = true
+codegen-units = 64
+overflow-checks = true
+incremental = true
 
 [profile.release]
 panic = "abort"
