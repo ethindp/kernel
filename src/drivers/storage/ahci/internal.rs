@@ -1,4 +1,4 @@
-#[repr(C)]
+#[repr(packed)]
 #[derive(Debug, Default, Copy, Clone, Hash, PartialOrd, Ord, PartialEq, Eq)]
 pub struct FisRegH2D {
     pub fis_type: u8,
@@ -22,7 +22,7 @@ pub struct FisRegH2D {
     rsv1: [u8; 4],
 }
 
-#[repr(C)]
+#[repr(packed)]
 #[derive(Debug, Default, Copy, Clone, Hash, PartialOrd, Ord, PartialEq, Eq)]
 pub struct FisRegD2H {
     pub fis_type: u8,
@@ -46,17 +46,16 @@ pub struct FisRegD2H {
     rsv4: [u8; 4],
 }
 
-#[repr(C)]
-#[derive(Copy, Clone)]
+#[repr(packed)]
 pub struct FisData {
     pub fis_type: u8,
     pub pmport: u8,
     rsv0: u8,
     rsv1: [u8; 2],
-    pub data: [u32; 65535],
+    pub data: [u32],
 }
 
-#[repr(C)]
+#[repr(packed)]
 #[derive(Debug, Default, Copy, Clone, Hash, PartialOrd, Ord, PartialEq, Eq)]
 pub struct FisPioSetup {
     pub fis_type: u8,
@@ -83,7 +82,7 @@ pub struct FisPioSetup {
     rsv4: [u8; 2],
 }
 
-#[repr(C)]
+#[repr(packed)]
 #[derive(Debug, Default, Copy, Clone, Hash, PartialOrd, Ord, PartialEq, Eq)]
 pub struct FisDmaSetup {
     pub fis_type: u8,
@@ -100,7 +99,7 @@ pub struct FisDmaSetup {
     resvd: u32,
 }
 
-#[repr(C)]
+#[repr(packed)]
 #[derive(Copy, Clone)]
 pub struct HbaFis {
     pub dsfis: FisDmaSetup,
@@ -114,7 +113,7 @@ pub struct HbaFis {
     rsv: [u8; 96],
 }
 
-#[repr(C)]
+#[repr(packed)]
 #[derive(Debug, Default, Copy, Clone, Hash, PartialOrd, Ord, PartialEq, Eq)]
 pub struct HbaCmdHeader {
     pub cfl: u8,
@@ -133,7 +132,7 @@ pub struct HbaCmdHeader {
     rsv1: [u32; 4],
 }
 
-#[repr(C)]
+#[repr(packed)]
 #[derive(Debug, Default, Copy, Clone, Hash, PartialOrd, Ord, PartialEq, Eq)]
 pub struct HbaPrdtEntry {
     pub dba: u32,
@@ -144,16 +143,15 @@ pub struct HbaPrdtEntry {
     pub i: u8,
 }
 
-#[repr(C)]
-#[derive(Copy, Clone)]
+#[repr(packed)]
 pub struct HbaCmdTbl {
-    pub cfis: [u8; 64],
+    pub cfis: FisRegH2D,
     pub acmd: [u8; 16],
     rsv: [u8; 48],
-    pub prdt_entry: [HbaPrdtEntry; 65535],
+    pub prdt_entry: [HbaPrdtEntry; 1024],
 }
 
-#[repr(C)]
+#[repr(packed)]
 #[derive(Debug, Default, Copy, Clone, Hash, PartialOrd, Ord, PartialEq, Eq)]
 pub struct HbaPort {
     pub clb: u32,
@@ -177,7 +175,7 @@ pub struct HbaPort {
     pub vendor: [u32; 4],
 }
 
-#[repr(C)]
+#[repr(packed)]
 #[derive(Copy, Clone)]
 pub struct HbaMem {
     pub cap: u32,

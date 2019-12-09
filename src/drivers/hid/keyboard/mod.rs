@@ -1,16 +1,27 @@
-extern crate alloc;
 use crate::printkln;
-use alloc::collections::VecDeque;
 use cpuio::*;
 use lazy_static::lazy_static;
 use pc_keyboard::KeyCode;
 use spin::Mutex;
+use fixedvec::{alloc_stack, FixedVec};
+
+static SPACE: [(Option::<char>, Option::<KeyCode>); 512] = {
+alloc_stack!([(Option::<char>, Option::<KeyCode>); 512])
+};
 
 lazy_static! {
-    static ref KEY_QUEUE: Mutex<VecDeque<(Option<char>, Option<KeyCode>)>> =
-        Mutex::new(VecDeque::new());
-    static ref CMD_QUEUE: Mutex<VecDeque<u8>> = Mutex::new(VecDeque::new());
-    static ref RESEND_QUEUE: Mutex<VecDeque<u8>> = Mutex::new(VecDeque::new());
+    static ref KEY_QUEUE: Mutex<FixedVec> =
+        Mutex::new(FixedVec::new(SPACE));
+    static ref CMD_QUEUE: Mutex<FixedVec<u8>> = Mutex::new({
+    let space = alloc_stack!([u8; 512]);
+let mut vec = FixedVec::new(&mut space);
+vec
+});
+    static ref RESEND_QUEUE: Mutex<FixedVec<u8>> = Mutex::new({
+    let space = alloc_stack!([u8; 512]);
+let mut vec = FixedVec::new(&mut space);
+vec
+});
 }
 
 pub fn init() {
@@ -25,57 +36,53 @@ pub fn init() {
 }
 
 fn queue_command(command: u8) {
-    CMD_QUEUE.lock().push_back(command);
-    RESEND_QUEUE.lock().push_back(command);
+    let mut cmdqueue = CMD_QUEUE.lock();
+    let mut rsndqueue = RESEND_QUEUE.lock();
+    cmdqueue.push(command);
+    rsndqueue.push(command);
 }
 
 pub fn dequeue_command() -> Option<u8> {
-    CMD_QUEUE.lock().pop_front()
+let queue = CMD_QUEUE.lock();
+queue.pop()
 }
 
 pub fn notify_ack(byte: u8) {
-    let mut idx = usize::max_value();
-    for (i, cmd) in CMD_QUEUE.lock().iter().enumerate() {
-        if *cmd == byte {
-            idx = i;
-            break;
-        }
-    }
-    if idx < usize::max_value() {
-        CMD_QUEUE.lock().remove(idx);
+    let mut cmdqueue = CMD_QUEUE.lock();
+    let mut resendqueue = RESEND_QUEUE.lock();
+    let mut idx = match cmdqueue.iter().position(move | b | b == byte) {
+    Some(i) => i,
+    None => usize::max_value()
+    };
+    if idx != usize::max_value() {
+        cmdqueue.remove(idx);
     }
     // Is this command in the resend queue? If so, find it and eliminate it.
-    idx = usize::max_value();
-    for (i, cmd) in RESEND_QUEUE.lock().iter().enumerate() {
-        if *cmd == byte {
-            idx = i;
-            break;
-        }
-    }
-    if idx < usize::max_value() {
-        RESEND_QUEUE.lock().remove(idx);
+        idx = match resendqueue.iter().position(move | b | b == byte) {
+    Some(i) => i,
+    None => usize::max_value()
+    };
+    if idx != usize::max_value() {
+        resendqueue.remove(idx);
     }
 }
 
 pub fn notify_resend(byte: u8) {
     // If we got here, the command should *not* be in the command queue.
     // Cover this case anyway.
-    let mut idx = usize::max_value();
-    for (i, cmd) in CMD_QUEUE.lock().iter().enumerate() {
-        if *cmd == byte {
-            idx = i;
-            break;
-        }
-    }
-    if idx <= usize::max_value() {
-        CMD_QUEUE.lock().remove(idx);
+        let mut cmdqueue = CMD_QUEUE.lock();
+    let mut resendqueue = RESEND_QUEUE.lock();
+    let mut idx =         match cmdqueue.iter().position(move | b | b == byte) {
+    Some(i) => i,
+    None => usize::max_value()
+    };
+    if idx != usize::max_value() {
+        cmdqueue.remove(idx);
     }
     // The command should be in the resend queue, though.
-    for cmd in RESEND_QUEUE.lock().iter() {
-        if *cmd == byte {
-            CMD_QUEUE.lock().push_back(*cmd);
-            break;
-        } else {
+match resendqueue.iter().position(move | b | b == byte) {
+Some(idx) => cmdqueue.push(resendqueue.get(idx).unwrap()),
+None => {
             // This shouldn't ever happen, but we need to handle it anyway.
             panic!(
                 "KBD: kernel notified driver that byte {:X} required resend, but couldn't find it",
@@ -98,7 +105,10 @@ pub fn notify_self_test_failed() {
 }
 
 pub fn notify_key(key: (Option<char>, Option<KeyCode>)) {
-    KEY_QUEUE.lock().push_back(key);
+let mut queue = KEY_QUEUE.lock();
+if queue.available() > 0 {
+    queue.push(key);
+    }
 }
 
 pub fn notify_id_finished(byte1: u8, byte2: u8) {
@@ -364,5 +374,10 @@ pub fn enable() {
 
 /// Returns a key code if keys are in the internal key queue, otherwise returns None.
 pub fn read() -> Option<(Option<char>, Option<KeyCode>)> {
-    KEY_QUEUE.lock().pop_front()
+    let queue = KEY_QUEUE.lock();
+    if queue.len() > 0 {
+    Some(queue.swap_remove(0))
+    } else {
+    None
+    }
 }

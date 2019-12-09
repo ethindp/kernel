@@ -1,6 +1,4 @@
-extern crate alloc;
 use crate::printkln;
-use alloc::vec::Vec;
 use bit_field::BitField;
 use cpuio::*;
 use lazy_static::lazy_static;
@@ -13,11 +11,12 @@ const MAX_BUS: u8 = 255;
 
 // These statics are internally tracked by the kernel -- do not modify!
 lazy_static! {
-// Vector to hold a list of all recognized PCI devices.
-    static ref PCI_DEVICES: Mutex<Vec<PCIDevice>> = Mutex::new(Vec::new());
+// Array to hold a list of all recognized PCI devices.
+    static ref PCI_DEVICES: Mutex<[[[Option<PCIDevice>; MAX_FUNCTION]; MAX_DEVICE]; MAX_BUS+1]> = Mutex::new([[[None; MAX_FUNCTION]; MAX_DEVICE]; MAX_BUS+1]);
 }
 
 /// Contains PCI device properties.
+#[repr(C)]
 #[derive(Debug, Copy, Clone, Default, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PCIDevice {
     /// Public vendor ID of device
@@ -57,6 +56,7 @@ pub struct PCIDevice {
 }
 
 /// This table is applicable if the Header Type is 00h.
+#[repr(C)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct GeneralDeviceTable {
     // Address of all six BARs.
@@ -79,6 +79,7 @@ pub struct GeneralDeviceTable {
 }
 
 /// This table is applicable if the Header Type is 01h (PCI-to-PCI bridge)
+#[repr(C)]
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PCIToPCIBridgeTable {
     pub bars: [u64; 2],
@@ -105,6 +106,7 @@ pub struct PCIToPCIBridgeTable {
 }
 
 /// This table is applicable if the Header Type is 02h (PCI-to-CardBus bridge)
+#[repr(C)]
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PCIToCardBusBridgeTable {
     pub exca_base_addr: u32,
@@ -132,11 +134,29 @@ pub struct PCIToCardBusBridgeTable {
 
 // Adds a device to the PCI device list.
 fn add_device(device: PCIDevice) {
-    PCI_DEVICES.lock().push(device);
+let mut devices = PCI_DEVICES.lock();
+if devices[device.bus][device.device][device.func].is_none() {
+devices[device.bus][device.device][device.func] = Some(device);
+} else {
+printkln!("Warning: PCI device conflict found");
+printkln!("Warning: bus {:X}, device {:X}, function {:X} already contains a device profile", device.bus, device.device, device.func);
+for bus in 0..=MAX_BUS {
+for slot in 0..MAX_DEVICE {
+for function in 0..MAX_FUNCTION {
+if devices[bus][slot][function].is_none() {
+printkln!("Warning: device with bus {:X}, device {:X}, func {:X} added to PCI DB in bus {:X}, device {:X}, func {:X}", device.bus, device.device, device.func, bus, slot, function);
+devices[bus][slot][function] = Some(device);
+} else {
+panic!("Cannot add device to PCI database; bus={:X}, slot={:X}, function={:X}, vendor={:X}, device={:X}, class={:X}, subclass={:X}, interface={:X}", device.bus, device.device, device.func, device.vendor, device.class, device.subclass, device.prog_if);
+}
+}
+}
+}
 }
 
 /// Reads a dword from a PCI bus, device and function using the given offset and returns it.
-pub fn read_dword(bus: u8, slot: u8, func: u8, offset: u8) -> u32 {
+#[no_mangle]
+pub extern "C" fn read_dword(bus: u8, slot: u8, func: u8, offset: u8) -> u32 {
     let lbus = bus as u32;
     let lslot = slot as u32;
     let lfunc = func as u32;
@@ -154,7 +174,8 @@ pub fn read_dword(bus: u8, slot: u8, func: u8, offset: u8) -> u32 {
 }
 
 /// Writes a dword to the PCI bus
-pub fn write_dword(bus: u8, slot: u8, func: u8, offset: u8, data: u32) {
+#[no_mangle]
+pub extern "C" fn write_dword(bus: u8, slot: u8, func: u8, offset: u8, data: u32) {
     let lbus = bus as u32;
     let lslot = slot as u32;
     let lfunc = func as u32;
@@ -172,7 +193,8 @@ pub fn write_dword(bus: u8, slot: u8, func: u8, offset: u8, data: u32) {
 }
 
 /// Reads a word from a PCI bus, device and function using the given offset and returns it.
-pub fn read_word(bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
+#[no_mangle]
+pub extern "C" fn read_word(bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
     let lbus = bus as u32;
     let lslot = slot as u32;
     let lfunc = func as u32;
@@ -190,7 +212,8 @@ pub fn read_word(bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
 }
 
 /// Writes a word to the PCI bus
-pub fn write_word(bus: u8, slot: u8, func: u8, offset: u8, data: u16) {
+#[no_mangle]
+pub extern "C" fn write_word(bus: u8, slot: u8, func: u8, offset: u8, data: u16) {
     let lbus = bus as u32;
     let lslot = slot as u32;
     let lfunc = func as u32;
@@ -208,7 +231,8 @@ pub fn write_word(bus: u8, slot: u8, func: u8, offset: u8, data: u16) {
 }
 
 /// Reads a byte from a PCI bus, device and function using the given offset and returns it.
-pub fn read_byte(bus: u8, slot: u8, func: u8, offset: u8) -> u8 {
+#[no_mangle]
+pub extern "C" fn read_byte(bus: u8, slot: u8, func: u8, offset: u8) -> u8 {
     let lbus = bus as u32;
     let lslot = slot as u32;
     let lfunc = func as u32;
@@ -226,7 +250,8 @@ pub fn read_byte(bus: u8, slot: u8, func: u8, offset: u8) -> u8 {
 }
 
 /// Writes a byte to the PCI bus
-pub fn write_byte(bus: u8, slot: u8, func: u8, offset: u8, data: u8) {
+#[no_mangle]
+pub extern "C" fn write_byte(bus: u8, slot: u8, func: u8, offset: u8, data: u8) {
     let lbus = bus as u32;
     let lslot = slot as u32;
     let lfunc = func as u32;
@@ -283,7 +308,7 @@ fn get_rev(bus: u8, device: u8, function: u8) -> u32 {
 
 pub fn probe() {
     printkln!("Starting PCI scan");
-    for bus in 0..MAX_BUS {
+    for bus in 0..MAX_BUS+1 {
         for slot in 0..MAX_DEVICE {
             for function in 0..MAX_FUNCTION {
                 // Get vendor, device, class and subclass codes.
@@ -442,7 +467,7 @@ pub fn probe() {
                 let mut bist = read_dword(bus, slot, function, 0x0C).get_bits(24..=31) as u8;
                 // Calculate amount of time to wait
                 let time_to_wait = {
-                let ttw = (60000.0 / (1000000.0 / (32768 >> 2) as f64)) as f64;
+                let ttw = 20.0 * (1000.0 / (1000000.0 / (32768 >> 2 as f64)));
                 ttw as u128
                 };
                 if bist.get_bit(7) {
@@ -473,12 +498,9 @@ pub fn init() {
     probe();
 }
 
-pub fn get_devices() -> Vec<PCIDevice> {
-    let mut devices: Vec<PCIDevice> = Vec::new();
-    for device in PCI_DEVICES.lock().iter() {
-        devices.push(*device);
-    }
-    devices
+#[no_mangle]
+pub extern "C" fn get_devices() ->[Option<PCIDevice>] {
+    PCI_DEVICES.lock().as_slice();
 }
 
 fn calculate_bar_addr(bar1: u32, bar2: u32) -> u64 {
