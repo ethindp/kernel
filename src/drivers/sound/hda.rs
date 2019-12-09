@@ -2,7 +2,7 @@ use crate::memory::*;
 use crate::pci;
 use crate::printkln;
 use bit_field::BitField;
-use crate::interrupts::sleep_for;
+use crate::interrupts::{sleep_for, get_tick_count};
 use x86_64::instructions::random::RdRand;
 use x86_64::align_up;
 use lazy_static::lazy_static;
@@ -117,11 +117,22 @@ write_memory(memaddr + HDARegister::Statests as u64, (1 << 8) as u64);
 let mut gctl = read_memory(memaddr + HDARegister::Gctl as u64) as u32;
 gctl.set_bit(0, true);
 write_memory(memaddr + HDARegister::Gctl as u64, gctl as u64);
+let hard_timeout = get_tick_count() + 10000;
+let mut attempts_left = 10;
 loop {
 if read_memory(memaddr + HDARegister::Gctl as u64) .get_bit(0) {
 break;
 }
 for _ in 256 ..= 0 {
+continue;
+}
+if attempts_left <= 0 {
+printkln!("HDA: init: HDA controller failed to respond within 10000 RTC ticks; aborting");
+return;
+}
+if get_tick_count() >= (hard_timeout - (1000 * attempts_left)) {
+write_memory(memaddr + HDARegister::Gctl as u64, gctl as u64);
+attempts_left -= 1;
 continue;
 }
 hlt();

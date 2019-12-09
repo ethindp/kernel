@@ -208,7 +208,7 @@ pub fn init() {
                     printkln!("AHCI: skipping AHCI device {:X}:{:X}: AHCI device has 16-bit BAR address {:X}", dev.vendor, dev.device, bars[5]);
                     continue;
                 }
-                allocate_phys_range(bars[5], bars[5] + 0x28);
+                allocate_phys_range(bars[5], bars[5] + 8192);
                 printkln!("AHCI: detected base address for AHCI driver: {:X}", bars[5]);
                 let mut pos = usize::max_value();
                 for (i, hba) in hbadb.iter().enumerate() {
@@ -394,20 +394,22 @@ pub fn ata_read(addr: u64, start_lo: u32, start_hi: u32, count: u32, buffer: &mu
     unsafe {
     cmdtbl_ptr.write_volatile(cmdtbl);
     }
-    let ptr = &mut cmdtbl.cfis;
-    let cmdfis = unsafe { &mut *(ptr as *mut [u8; 64] as *mut internal::FisRegH2D) };
-    cmdfis.fis_type = FisType::RegH2D as u8;
-    cmdfis.c = 1;
-    cmdfis.command = AhciCommand::ReadDmaExt as u8;
-    cmdfis.lba0 = start_lo as u8;
-    cmdfis.lba1 = (start_lo >> 8) as u8;
-    cmdfis.lba2 = (start_lo >> 16) as u8;
-    cmdfis.device = 1 << 6;
-    cmdfis.lba3 = (start_lo >> 24) as u8;
-    cmdfis.lba4 = start_hi as u8;
-    cmdfis.lba5 = (start_hi >> 8) as u8;
-    cmdfis.count_lo = cnt.get_bits(0..=7) as u8;
-    cmdfis.count_hi = cnt.get_bits(8..=15) as u8;
+    cmdtbl = unsafe { cmdtbl_ptr.read_volatile() };
+    cmdtbl.cfis.fis_type = FisType::RegH2D as u8;
+    cmdtbl.cfis.c = 1;
+    cmdtbl.cfis.command = AhciCommand::ReadDmaExt as u8;
+    cmdtbl.cfis.lba0 = start_lo as u8;
+    cmdtbl.cfis.lba1 = (start_lo >> 8) as u8;
+    cmdtbl.cfis.lba2 = (start_lo >> 16) as u8;
+    cmdtbl.cfis.device = 1 << 6;
+    cmdtbl.cfis.lba3 = (start_lo >> 24) as u8;
+    cmdtbl.cfis.lba4 = start_hi as u8;
+    cmdtbl.cfis.lba5 = (start_hi >> 8) as u8;
+    cmdtbl.cfis.count_lo = cnt.get_bits(0..=7) as u8;
+    cmdtbl.cfis.count_hi = cnt.get_bits(8..=15) as u8;
+    unsafe {
+    cmdtbl_ptr.write_volatile(cmdtbl);
+    }
     while (port.tfd & (AtaStatus::Busy as u32 | AtaStatus::Drq as u32) > 0) && spin < 1000000 {
     port = unsafe { port_ptr.read_volatile() };
         spin += 1;
