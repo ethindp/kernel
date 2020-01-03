@@ -182,8 +182,11 @@ pub enum FisType {
 pub fn init() {
     allocate_phys_range(AHCI_BASE as u64, AHCI_BASE as u64 + 100000);
     allocate_phys_range(0x1000000, 0x2000000);
-    for dev in pci::get_devices() {
-        if dev.class == 0x01 && dev.subclass == 0x06 && dev.prog_if == 0x01 {
+let dev = pci::find_device(0x01, 0x06, 0x01);
+if dev.is_none() {
+return;
+}
+let dev = dev.unwrap();
             printkln!(
                 "AHCI: found AHCI-capable device with vendor {:X} and device {:X}",
                 dev.vendor,
@@ -206,7 +209,7 @@ pub fn init() {
             if bars[5] != 0 && !bars[5].get_bit(0) {
                 if bars[5].get_bits(1..=2) == 1 {
                     printkln!("AHCI: skipping AHCI device {:X}:{:X}: AHCI device has 16-bit BAR address {:X}", dev.vendor, dev.device, bars[5]);
-                    continue;
+                    return;
                 }
                 allocate_phys_range(bars[5], bars[5] + 8192);
                 printkln!("AHCI: detected base address for AHCI driver: {:X}", bars[5]);
@@ -224,7 +227,7 @@ pub fn init() {
                     hbadb[pos].device = dev;
                                     } else {
                     printkln!("AHCI: error: Cannot add HBA {:X}:{:X} to the internal HBA list: HBA maximum reached.", dev.vendor, dev.device);
-                    continue;
+                    return;
                 }
                     let mem_ptr = bars[5] as *mut internal::HbaMem;
                     let mem = unsafe { mem_ptr.read_volatile() };
@@ -265,8 +268,6 @@ pub fn init() {
             }
         }
     }
-}
-}
 }
 
 pub fn start_command_engine(addr: u64) {

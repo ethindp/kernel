@@ -25,7 +25,8 @@ pub enum InterruptType {
     Floppy,  // IRQ 6 - floppy disk controller
     Lpt1, // IRQ 7 - parallel port 1. It is used for printers or for any parallel port if a printer is not present. It can also be potentially be shared with a secondary sound card with careful management of the port.
     Rtc,  // IRQ 8 - real-time clock (RTC)
-    Acpi, // IRQ 9 - Advanced Configuration and Power Interface (ACPI) system control interrupt on Intel chipsets. Other chipset manufacturers might use another interrupt for this purpose, or make it available for the use of peripherals (any devices configured to use IRQ 2 will actually be using IRQ 9)
+    Acpi, // IRQ 9 - Advanced Configuration and Power Interface (ACPI) system control interrupt on Intel chipsets.
+// Other chipset manufacturers might use another interrupt for this purpose, or make it available for the use of peripherals (any devices configured to use IRQ 2 will actually be using IRQ 9)
     Open1, // IRQ 10 - The Interrupt is left open for the use of peripherals (open interrupt/available, SCSI or NIC)
     Open2, // IRQ 11 - The Interrupt is left open for the use of peripherals (open interrupt/available, SCSI or NIC)
     Mouse, // IRQ 12 - mouse on PS/2 connector
@@ -89,7 +90,7 @@ extern "x86-interrupt" fn handle_bp(stack_frame: &mut InterruptStackFrame) {
     );
 }
 
-extern "x86-interrupt" fn handle_df(stack_frame: &mut InterruptStackFrame, error_code: u64) {
+extern "x86-interrupt" fn handle_df(stack_frame: &mut InterruptStackFrame, error_code: u64)->! {
 unsafe {asm!("push rax" :::: "intel");} 
     panic!(
         "EXCEPTION: DOUBLE FAULT({})\n{:#?}\n{}",
