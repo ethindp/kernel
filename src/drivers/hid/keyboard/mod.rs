@@ -25,67 +25,67 @@ pub fn init() {
 fn queue_command(command: u8) {
     let mut cmdqueue = CMD_QUEUE.lock();
     let mut rsndqueue = RESEND_QUEUE.lock();
-let mut queued_in_cmdqueue = false;
-let mut queued_in_rsndqueue = false;
-for it in cmdqueue.iter_mut().zip(rsndqueue.iter_mut()) {
-let (cmdq, rsndq) = it;
-if cmdq.is_none() && !queued_in_cmdqueue {
-*cmdq = Some(command);
-queued_in_cmdqueue = true;
-}
-if rsndq.is_none() && !queued_in_rsndqueue {
-*rsndq = Some(command);
-queued_in_rsndqueue = true;
-}
-if queued_in_cmdqueue && queued_in_rsndqueue {
-break;
-}
-}
+    let mut queued_in_cmdqueue = false;
+    let mut queued_in_rsndqueue = false;
+    for it in cmdqueue.iter_mut().zip(rsndqueue.iter_mut()) {
+        let (cmdq, rsndq) = it;
+        if cmdq.is_none() && !queued_in_cmdqueue {
+            *cmdq = Some(command);
+            queued_in_cmdqueue = true;
+        }
+        if rsndq.is_none() && !queued_in_rsndqueue {
+            *rsndq = Some(command);
+            queued_in_rsndqueue = true;
+        }
+        if queued_in_cmdqueue && queued_in_rsndqueue {
+            break;
+        }
+    }
 }
 
 pub fn dequeue_command() -> Option<u8> {
-let mut queue = CMD_QUEUE.lock();
-for cmd in queue.iter_mut() {
-if cmd.is_some() {
-return cmd.take()
-}
-}
-None
+    let mut queue = CMD_QUEUE.lock();
+    for cmd in queue.iter_mut() {
+        if cmd.is_some() {
+            return cmd.take();
+        }
+    }
+    None
 }
 
 pub fn notify_ack(byte: u8) {
     let mut cmdqueue = CMD_QUEUE.lock();
     let mut resendqueue = RESEND_QUEUE.lock();
-for cmd in cmdqueue.iter_mut() {
-if cmd.contains(&byte) {
-cmd.take();
-break;
-}
-}
+    for cmd in cmdqueue.iter_mut() {
+        if cmd.contains(&byte) {
+            cmd.take();
+            break;
+        }
+    }
     // Is this command in the resend queue? If so, find it and eliminate it.
-for cmd in resendqueue.iter_mut() {
-if cmd.contains(&byte) {
-cmd.take();
-break;
-}
-}
+    for cmd in resendqueue.iter_mut() {
+        if cmd.contains(&byte) {
+            cmd.take();
+            break;
+        }
+    }
 }
 
 pub fn notify_resend(byte: u8) {
-let mut cmdqueue = CMD_QUEUE.lock();
-let mut resendqueue = RESEND_QUEUE.lock();
-for it in cmdqueue.iter_mut().zip(resendqueue.iter_mut()) {
-let (cmdbyte, rsndbyte) = it;
-if rsndbyte.contains(&byte) {
-rsndbyte.take();
-}
-if cmdbyte.is_none() {
-*cmdbyte = Some(byte);
-return;
-}
-}
-// This should never be reached. Ever.
-panic!("Can't locate byte {} in keyboard resend queue", byte);
+    let mut cmdqueue = CMD_QUEUE.lock();
+    let mut resendqueue = RESEND_QUEUE.lock();
+    for it in cmdqueue.iter_mut().zip(resendqueue.iter_mut()) {
+        let (cmdbyte, rsndbyte) = it;
+        if rsndbyte.contains(&byte) {
+            rsndbyte.take();
+        }
+        if cmdbyte.is_none() {
+            *cmdbyte = Some(byte);
+            return;
+        }
+    }
+    // This should never be reached. Ever.
+    panic!("Can't locate byte {} in keyboard resend queue", byte);
 }
 
 pub fn notify_key_error() {
@@ -101,25 +101,25 @@ pub fn notify_self_test_failed() {
 }
 
 pub fn notify_key(key: (Option<char>, Option<KeyCode>)) {
-let (character, code) = key;
-if character.is_none() {
-let mut chrqueue = CHR_QUEUE.lock();
-for it in chrqueue.iter_mut() {
-if it.is_none() {
-*it = Some(character.unwrap());
-break;
-}
-}
-}
-if code.is_none() {
-let mut keyqueue = KEY_QUEUE.lock();
-for it in keyqueue.iter_mut() {
-if it.is_none() {
-*it = Some(code.unwrap());
-break;
-}
-}
-}
+    let (character, code) = key;
+    if character.is_none() {
+        let mut chrqueue = CHR_QUEUE.lock();
+        for it in chrqueue.iter_mut() {
+            if it.is_none() {
+                *it = Some(character.unwrap());
+                break;
+            }
+        }
+    }
+    if code.is_none() {
+        let mut keyqueue = KEY_QUEUE.lock();
+        for it in keyqueue.iter_mut() {
+            if it.is_none() {
+                *it = Some(code.unwrap());
+                break;
+            }
+        }
+    }
 }
 
 pub fn notify_id_finished(byte1: u8, byte2: u8) {
@@ -386,28 +386,23 @@ pub fn enable() {
 // Public interfaces
 
 /// Returns a character code that can be interpreted via the ASCII table.
-pub fn read_character()->Option<char> {
-let mut chrqueue = CHR_QUEUE.lock();
-for chr in chrqueue.iter_mut() {
-if chr.is_some() {
-return chr.take();
+pub fn read_character() -> Option<char> {
+    let mut chrqueue = CHR_QUEUE.lock();
+    for chr in chrqueue.iter_mut() {
+        if chr.is_some() {
+            return chr.take();
+        }
+    }
+    None
 }
-}
-None
-}
-
-
 
 /// Returns a key code useful for key scanning
-pub fn read_key()->Option<KeyCode> {
-let mut keyqueue = KEY_QUEUE.lock();
-for key in keyqueue.iter_mut() {
-if key.is_some() {
-return key.take();
+pub fn read_key() -> Option<KeyCode> {
+    let mut keyqueue = KEY_QUEUE.lock();
+    for key in keyqueue.iter_mut() {
+        if key.is_some() {
+            return key.take();
+        }
+    }
+    None
 }
-}
-None
-}
-
-
-

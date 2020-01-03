@@ -193,4 +193,3 @@ pub struct HbaMem {
     pub vendor: [u8; 96],
     pub ports: [HbaPort; 32],
 }
-
