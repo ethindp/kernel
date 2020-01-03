@@ -10,6 +10,7 @@ use x86_64::structures::paging::OffsetPageTable;
 use x86_64::{
     structures::paging::{
         FrameAllocator, Mapper, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB,
+        UnusedPhysFrame,
     },
     PhysAddr, VirtAddr,
 };
@@ -52,14 +53,15 @@ fn allocate_paged_heap(
             None => panic!("Can't allocate frame!"),
         };
         let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
-        unsafe { mapper.map_to(page, frame, flags, frame_allocator)?.flush() };
+        mapper.map_to(page, frame, flags, frame_allocator)?.flush();
     }
     Ok(())
 }
 
 /// Allocates a paged heap with the specified permissions.
 /// Possible permissions are:
-/// * Writable (W): controls whether writes to the mapped frames are allowed. If this bit is unset in a level 1 page table entry, the mapped frame is read-only. If this bit is unset in a higher level page table entry the complete range of mapped pages is read-only.
+/// * Writable (W): controls whether writes to the mapped frames are allowed. If this bit is unset in a level 1 page table entry, the mapped frame is read-only.
+/// If this bit is unset in a higher level page table entry the complete range of mapped pages is read-only.
 /// * User accessible (UA): controls whether accesses from userspace (i.e. ring 3) are permitted.
 /// * Write-through (WT): if this bit is set, a "write-through" policy is used for the cache, else a "write-back" policy is used.
 /// * No cache (NC): Disables caching for this memory page.
@@ -86,11 +88,9 @@ fn allocate_paged_heap_with_perms(
             Some(f) => f,
             None => panic!("Can't allocate frame!"),
         };
-        unsafe {
-            mapper
-                .map_to(page, frame, permissions, frame_allocator)?
-                .flush()
-        };
+        mapper
+            .map_to(page, frame, permissions, frame_allocator)?
+            .flush()
     }
     Ok(())
 }
@@ -128,10 +128,15 @@ impl GlobalFrameAllocator {
 }
 
 unsafe impl FrameAllocator<Size4KiB> for GlobalFrameAllocator {
-    fn allocate_frame(&mut self) -> Option<PhysFrame> {
+    fn allocate_frame(&mut self) -> Option<UnusedPhysFrame> {
         let frame = self.iter_usable_frames().nth(self.next);
-        self.next += 1;
-        frame
+        if frame.is_some() {
+            let unused_frame = unsafe { UnusedPhysFrame::new(frame.unwrap()) };
+            self.next += 1;
+            Some(unused_frame)
+        } else {
+            None
+        }
     }
 }
 
@@ -140,7 +145,7 @@ pub fn init(physical_memory_offset: u64, memory_map: &'static MemoryMap) {
     let mut allocator = FRAME_ALLOCATOR.lock();
     *mapper = Some(unsafe { init_mapper(physical_memory_offset) });
     *allocator = Some(unsafe { GlobalFrameAllocator::init(memory_map) });
-    // Give us 32 M (or more) of RAM
+    // Give us 1 M (or more) of RAM
     let start_addr: u64 = 0x100000000000;
     let end_addr = start_addr + 1 * 1048576;
     // We cannot call allocate_paged_heap here since we hold the spinlock,
@@ -195,16 +200,14 @@ pub fn allocate_page_range(start: u64, end: u64) {
                     None => panic!("Can't allocate frame!"),
                 };
                 let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
-                unsafe {
-                    match m.map_to(page, frame, flags, a) {
-                        Ok(r) => r.flush(),
-                        Err(e) => printkln!(
-                            "Kernel: Warning: Cannot map memory page range {:X}h-{:X}h: {:#?}",
-                            start,
-                            end,
-                            e
-                        ),
-                    }
+                match m.map_to(page, frame, flags, a) {
+                    Ok(r) => r.flush(),
+                    Err(e) => printkln!(
+                        "Kernel: Warning: Cannot map memory page range {:X}h-{:X}h: {:#?}",
+                        start,
+                        end,
+                        e
+                    ),
                 }
             }
         }
@@ -229,15 +232,13 @@ pub fn allocate_page_range_with_perms(start: u64, end: u64, permissions: PageTab
                     Some(f) => f,
                     None => panic!("Can't allocate frame!"),
                 };
-                unsafe {
-                    match m.map_to(page, frame, permissions, a) {
+                match m.map_to(page, frame, permissions, a) {
                         Ok(r) => r.flush(),
                         Err(e) => printkln!(
                             "Kernel: warning: Cannot map memory page range {:X}h-{:X}h with perms {:#?}: {:#?}",
                             start, end, permissions, e
                         ),
                     }
-                }
             }
         }
         _ => panic!("Memory allocator or frame allocator are not set"),
@@ -257,9 +258,10 @@ pub fn allocate_phys_range(start: u64, end: u64) {
                 PhysFrame::range_inclusive(start_frame, end_frame)
             };
             for frame in frame_range {
-                let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
+                let flags =
+                    PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
                 unsafe {
-                    match m.identity_map(frame, flags, a) {
+                    match m.identity_map(UnusedPhysFrame::new(frame), flags, a) {
                         Ok(r) => r.flush(),
                         Err(e) => printkln!(
                             "Kernel: warning: Cannot map physical memory address range {:X}h-{:X}h: {:#?}",
@@ -284,4 +286,3 @@ pub fn write_memory(address: u64, value: u64) {
         write_volatile(addr, value);
     }
 }
-

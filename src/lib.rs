@@ -2,6 +2,7 @@
 #![feature(abi_x86_interrupt)]
 #![feature(asm)]
 #![feature(slice_from_raw_parts)]
+#![feature(option_result_contains)]
 #![allow(dead_code)]
 /// The drivers module contains drivers for various hardware devices.
 pub mod drivers;

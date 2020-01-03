@@ -16,8 +16,8 @@ pub static PICS: spin::Mutex<ChainedPics> =
 /// This enumeration contains a list of all IRQs.
 #[repr(u8)]
 pub enum InterruptType {
-    Timer = 32,   // IRQ 0 - system timer (cannot be changed)
-    Keyboard,     // IRQ 1 - keyboard controller (cannot be changed)
+    Timer = 32, // IRQ 0 - system timer (cannot be changed)
+    Keyboard,   // IRQ 1 - keyboard controller (cannot be changed)
     Cascade, // IRQ 2 - cascaded signals from IRQs 8-15 (any devices configured to use IRQ 2 will actually be using IRQ 9)
     Uart1, // IRQ 3 - serial port controller for serial port 2 (shared with serial port 4, if present)
     Serial1, // IRQ 4 - serial port controller for serial port 1 (shared with serial port 3, if present)
@@ -25,7 +25,8 @@ pub enum InterruptType {
     Floppy,  // IRQ 6 - floppy disk controller
     Lpt1, // IRQ 7 - parallel port 1. It is used for printers or for any parallel port if a printer is not present. It can also be potentially be shared with a secondary sound card with careful management of the port.
     Rtc,  // IRQ 8 - real-time clock (RTC)
-    Acpi, // IRQ 9 - Advanced Configuration and Power Interface (ACPI) system control interrupt on Intel chipsets. Other chipset manufacturers might use another interrupt for this purpose, or make it available for the use of peripherals (any devices configured to use IRQ 2 will actually be using IRQ 9)
+    Acpi, // IRQ 9 - Advanced Configuration and Power Interface (ACPI) system control interrupt on Intel chipsets.
+    // Other chipset manufacturers might use another interrupt for this purpose, or make it available for the use of peripherals (any devices configured to use IRQ 2 will actually be using IRQ 9)
     Open1, // IRQ 10 - The Interrupt is left open for the use of peripherals (open interrupt/available, SCSI or NIC)
     Open2, // IRQ 11 - The Interrupt is left open for the use of peripherals (open interrupt/available, SCSI or NIC)
     Mouse, // IRQ 12 - mouse on PS/2 connector
@@ -89,8 +90,10 @@ extern "x86-interrupt" fn handle_bp(stack_frame: &mut InterruptStackFrame) {
     );
 }
 
-extern "x86-interrupt" fn handle_df(stack_frame: &mut InterruptStackFrame, error_code: u64) {
-unsafe {asm!("push rax" :::: "intel");} 
+extern "x86-interrupt" fn handle_df(stack_frame: &mut InterruptStackFrame, error_code: u64) -> ! {
+    unsafe {
+        asm!("push rax" :::: "intel");
+    }
     panic!(
         "EXCEPTION: DOUBLE FAULT({})\n{:#?}\n{}",
         error_code,
@@ -175,34 +178,39 @@ extern "x86-interrupt" fn handle_keyboard(_stack_frame: &mut InterruptStackFrame
     }
 }
 
-extern "x86-interrupt" fn handle_pf(
-    _: &mut InterruptStackFrame,
-    error_code: PageFaultErrorCode,
-) {
-unsafe {asm!("push rax" :::: "intel");} 
+extern "x86-interrupt" fn handle_pf(_: &mut InterruptStackFrame, error_code: PageFaultErrorCode) {
+    unsafe {
+        asm!("push rax" :::: "intel");
+    }
     use crate::idle_forever;
     use crate::{printk, printkln};
     use x86_64::registers::control::Cr2;
     let addr = Cr2::read();
     let ec = error_code.bits();
-            printk!("Page fault: ");
-    if (ec & 1<<0) > 0 {
-    printkln!("Protection violation");
-        } else if !(ec & 1 << 0) > 0 {
+    printk!("Page fault: ");
+    if (ec & 1 << 0) > 0 {
+        printkln!("Protection violation");
+    } else if !(ec & 1 << 0) > 0 {
         printkln!("Page not present");
-    } else if (ec & 1<<2) > 0 {
-    printkln!("Possible privilege violation (user mode)");
-    } else if !(ec & 1<<2) > 0 {
-    printkln!("Possible privilege violation (kernel mode)");
+    } else if (ec & 1 << 2) > 0 {
+        printkln!("Possible privilege violation (user mode)");
+    } else if !(ec & 1 << 2) > 0 {
+        printkln!("Possible privilege violation (kernel mode)");
     } else if ec & 1 << 3 > 0 {
-    printkln!("Attempted read of reserved PTT entry");
+        printkln!("Attempted read of reserved PTT entry");
     } else if ec & 1 << 4 > 0 {
-    printkln!("Instruction fetch");
+        printkln!("Instruction fetch");
     }
     if ec & 1 << 1 > 0 {
-        printkln!("Possibly caused by write to memory address {:X}h", addr.as_u64());
+        printkln!(
+            "Possibly caused by write to memory address {:X}h",
+            addr.as_u64()
+        );
     } else {
-        printkln!("Possibly caused by read from memory address {:X}h", addr.as_u64());
+        printkln!(
+            "Possibly caused by read from memory address {:X}h",
+            addr.as_u64()
+        );
     }
     idle_forever();
 }
@@ -237,7 +245,9 @@ extern "x86-interrupt" fn handle_nm(stack: &mut InterruptStackFrame) {
 }
 
 extern "x86-interrupt" fn handle_gp(_: &mut InterruptStackFrame, ec: u64) {
-unsafe {asm!("push rax" :::: "intel");} 
+    unsafe {
+        asm!("push rax" :::: "intel");
+    }
     use crate::printkln;
     printkln!(
         "Cannot continue: protection violation, error code {}\n{}",

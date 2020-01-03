@@ -1,13 +1,12 @@
 mod internal;
 use crate::memory::*;
 use crate::pci;
+use crate::printkln;
 use bit_field::BitField;
 use core::mem::size_of;
 use lazy_static::lazy_static;
 use spin::Mutex;
 use x86_64::instructions::hlt;
-use crate::printkln;
-
 
 lazy_static! {
 // HBADB: An array of up to 64 Host bus adapters (HBAs)
@@ -182,116 +181,126 @@ pub enum FisType {
 pub fn init() {
     allocate_phys_range(AHCI_BASE as u64, AHCI_BASE as u64 + 100000);
     allocate_phys_range(0x1000000, 0x2000000);
-    for dev in pci::get_devices() {
-        if dev.class == 0x01 && dev.subclass == 0x06 && dev.prog_if == 0x01 {
+    let dev = pci::find_device(0x01, 0x06, 0x01);
+    if dev.is_none() {
+        return;
+    }
+    let dev = dev.unwrap();
+    printkln!(
+        "AHCI: found AHCI-capable device with vendor {:X} and device {:X}",
+        dev.vendor,
+        dev.device
+    );
+    let mut hbadb = HBADB.lock();
+    let bars = match dev.header_type {
+        0x00 => dev.gen_dev_tbl.unwrap().bars,
+        0x01 => [
+            dev.pci_to_pci_bridge_tbl.unwrap().bars[0],
+            dev.pci_to_pci_bridge_tbl.unwrap().bars[1],
+            0,
+            0,
+            0,
+            0,
+        ],
+        e => panic!("Header type {} is not supported for AHCI", e),
+    };
+    // Figure out our MMIO BAR address
+    if bars[5] != 0 && !bars[5].get_bit(0) {
+        if bars[5].get_bits(1..=2) == 1 {
             printkln!(
-                "AHCI: found AHCI-capable device with vendor {:X} and device {:X}",
+                "AHCI: skipping AHCI device {:X}:{:X}: AHCI device has 16-bit BAR address {:X}",
                 dev.vendor,
-                dev.device
+                dev.device,
+                bars[5]
             );
-            let mut hbadb = HBADB.lock();
-            let bars = match dev.header_type {
-                0x00 => dev.gen_dev_tbl.unwrap().bars,
-                0x01 => [
-                    dev.pci_to_pci_bridge_tbl.unwrap().bars[0],
-                    dev.pci_to_pci_bridge_tbl.unwrap().bars[1],
-                    0,
-                    0,
-                    0,
-                    0,
-                ],
-                e => panic!("Header type {} is not supported for AHCI", e),
-            };
-            // Figure out our MMIO BAR address
-            if bars[5] != 0 && !bars[5].get_bit(0) {
-                if bars[5].get_bits(1..=2) == 1 {
-                    printkln!("AHCI: skipping AHCI device {:X}:{:X}: AHCI device has 16-bit BAR address {:X}", dev.vendor, dev.device, bars[5]);
+            return;
+        }
+        allocate_phys_range(bars[5], bars[5] + 8192);
+        printkln!("AHCI: detected base address for AHCI driver: {:X}", bars[5]);
+        let mut pos = usize::max_value();
+        for (i, hba) in hbadb.iter().enumerate() {
+            if hba.bar == 0 && hba.idx == 0 {
+                pos = i;
+                printkln!("AHCI: Inserting device at position {}", i);
+                break;
+            }
+        }
+        if pos != usize::max_value() {
+            hbadb[pos].bar = bars[5];
+            hbadb[pos].idx = pos;
+            hbadb[pos].device = dev;
+        } else {
+            printkln!("AHCI: error: Cannot add HBA {:X}:{:X} to the internal HBA list: HBA maximum reached.", dev.vendor, dev.device);
+            return;
+        }
+        let mem_ptr = bars[5] as *mut internal::HbaMem;
+        let mem = unsafe { mem_ptr.read_volatile() };
+        let pi = mem.pi;
+        for i in 0..32 {
+            if pi.get_bit(i) {
+                let portaddr: u64 = bars[5] + 0x100 + ((i as u64) * 0x80);
+                let port_ptr = portaddr as *mut internal::HbaPort;
+                let port = unsafe { port_ptr.read_volatile() };
+                let ssts = port.ssts;
+                let ipm = (ssts >> 8) & 0x0F;
+                let det = ipm & 0x0F;
+                if det != HBAPortStatus::DetPresent as u32 && ipm != HBAPortStatus::IpmActive as u32
+                {
                     continue;
-                }
-                allocate_phys_range(bars[5], bars[5] + 8192);
-                printkln!("AHCI: detected base address for AHCI driver: {:X}", bars[5]);
-                let mut pos = usize::max_value();
-                for (i, hba) in hbadb.iter().enumerate() {
-                    if hba.bar == 0 && hba.idx == 0 {
-                        pos = i;
-                        printkln!("AHCI: Inserting device at position {}", i);
-                        break;
+                } else if port.sig == SIG_ATAPI as u32 {
+                    printkln!("AHCI: Port {}: ATAPI device found, but ATAPI devices are not supported. Skipping", i);
+                } else if port.sig == SIG_SATA as u32 {
+                    printkln!("AHCI: Port {}: SATA device found", i);
+                    rebase_port(portaddr, i as u32);
+                    let mut buffer: u64 = 0x1000000;
+                    if !ata_read(portaddr, 0, 0, 1, &mut buffer) {
+                        printkln!("AHCI: read failure");
+                    }
+                    let mut data = [0u8; 512];
+                    for j in 0..512 {
+                        let buf_ptr = (buffer + j) as *mut u8;
+                        let buf = buf_ptr as *mut u8;
+                        data[j as usize] = unsafe { buf.read_volatile() };
+                    }
+                    for j in 0..511 {
+                        if data[j] == 0x55 && data[j + 1] == 0xAA {
+                            printkln!(
+                                "AHCI: port {}: found boot signature at bytes {} and {}",
+                                i,
+                                j,
+                                j + 1
+                            );
+                        }
                     }
                 }
-                if pos != usize::max_value() {
-                    hbadb[pos].bar = bars[5];
-                    hbadb[pos].idx = pos;
-                    hbadb[pos].device = dev;
-                                    } else {
-                    printkln!("AHCI: error: Cannot add HBA {:X}:{:X} to the internal HBA list: HBA maximum reached.", dev.vendor, dev.device);
-                    continue;
-                }
-                    let mem_ptr = bars[5] as *mut internal::HbaMem;
-                    let mem = unsafe { mem_ptr.read_volatile() };
-                    let pi = mem.pi;
-                    for i in 0..32 {
-                        if pi.get_bit(i) {
-                        let portaddr: u64 = bars[5] + 0x100 + ((i as u64) * 0x80);
-                            let port_ptr = portaddr as *mut internal::HbaPort;
-                            let port = unsafe { port_ptr.read_volatile() };
-                            let ssts = port.ssts;
-                            let ipm = (ssts >> 8) & 0x0F;
-                            let det = ipm & 0x0F;
-                            if det != HBAPortStatus::DetPresent as u32
-                                && ipm != HBAPortStatus::IpmActive as u32
-                            {
-                                continue;
-                            } else if port.sig == SIG_ATAPI as u32 {
-                                printkln!("AHCI: Port {}: ATAPI device found, but ATAPI devices are not supported. Skipping", i);
-                            } else if port.sig == SIG_SATA as u32 {
-                                printkln!("AHCI: Port {}: SATA device found", i);
-                                rebase_port(portaddr, i as u32);
-                                let mut buffer: u64 = 0x1000000;
-                                if !ata_read(portaddr, 0, 0, 1, &mut buffer) {
-                                printkln!("AHCI: read failure");
-                                }
-                                let mut data = [0u8; 512];
-                                for j in 0..512 {
-                                let buf_ptr = (buffer + j) as *mut u8;
-                                let buf = buf_ptr as *mut u8;
-                                    data[j as usize] = unsafe { buf.read_volatile() };
-                                }
-                                for j in 0..511 {
-                                    if data[j] == 0x55 && data[j + 1] == 0xAA {
-                                        printkln!("AHCI: port {}: found boot signature at bytes {} and {}", i, j, j + 1);
-                            }
-                        }
-                        }
             }
         }
     }
 }
-}
-}
 
 pub fn start_command_engine(addr: u64) {
-                            let port_ptr = addr as *mut internal::HbaPort;
+    let port_ptr = addr as *mut internal::HbaPort;
     let mut port = unsafe { port_ptr.read_volatile() };
     while port.cmd & PortCommand::Cr as u32 == 1 {
-    port = unsafe { port_ptr.read_volatile() };
+        port = unsafe { port_ptr.read_volatile() };
         hlt();
     }
     port.cmd |= PortCommand::Fre as u32;
     port.cmd |= PortCommand::St as u32;
     unsafe {
-    port_ptr.write_volatile(port);
+        port_ptr.write_volatile(port);
     }
 }
 
 pub fn stop_command_engine(addr: u64) {
-                            let port_ptr = addr as *mut internal::HbaPort;
+    let port_ptr = addr as *mut internal::HbaPort;
     let mut port = unsafe { port_ptr.read_volatile() };
     port.cmd &= !(PortCommand::St as u32);
     unsafe {
-    port_ptr.write_volatile(port);
+        port_ptr.write_volatile(port);
     }
     loop {
-    port = unsafe { port_ptr.read_volatile() };
+        port = unsafe { port_ptr.read_volatile() };
         hlt();
         if port.cmd & PortCommand::Fr as u32 == 1 {
             continue;
@@ -303,41 +312,41 @@ pub fn stop_command_engine(addr: u64) {
     }
     port.cmd &= !(PortCommand::Fre as u32);
     unsafe {
-    port_ptr.write_volatile(port);
+        port_ptr.write_volatile(port);
     }
 }
 
 pub fn rebase_port(addr: u64, new_port: u32) {
     stop_command_engine(addr.clone());
-                                let port_ptr = addr as *mut internal::HbaPort;
+    let port_ptr = addr as *mut internal::HbaPort;
     let mut port = unsafe { port_ptr.read_volatile() };
     port.clb = AHCI_BASE + (new_port << 10) as u32;
     port.clbu = 0;
     port.fb = AHCI_BASE + (32 << 10) + (new_port << 8) as u32;
     port.fbu = 0;
     unsafe {
-    port_ptr.write_volatile(port);
+        port_ptr.write_volatile(port);
     }
     port = unsafe { port_ptr.read_volatile() };
-        for i in 0..32 {
-            let header_ptr = {
+    for i in 0..32 {
+        let header_ptr = {
             let header_ptr = port.clb as *mut internal::HbaCmdHeader;
-                    let header_ptr = unsafe { header_ptr.offset(i as isize) };
-                    header_ptr
-                    };
-                let mut header = unsafe { header_ptr.read_volatile() };
-            header.prdtl = 8;
-            header.ctba = AHCI_BASE + (40 << 10) + (new_port << 13) + (i << 8) as u32;
-            header.ctbau = 0;
-            unsafe {
+            let header_ptr = unsafe { header_ptr.offset(i as isize) };
+            header_ptr
+        };
+        let mut header = unsafe { header_ptr.read_volatile() };
+        header.prdtl = 8;
+        header.ctba = AHCI_BASE + (40 << 10) + (new_port << 13) + (i << 8) as u32;
+        header.ctbau = 0;
+        unsafe {
             header_ptr.write_volatile(header);
-            }
         }
+    }
     start_command_engine(addr.clone());
 }
 
 pub fn find_cmd_slot(addr: u64) -> i32 {
-                                let port_ptr = addr as *mut internal::HbaPort;
+    let port_ptr = addr as *mut internal::HbaPort;
     let port = unsafe { port_ptr.read_volatile() };
     let mut slots = port.sact | port.ci;
     for i in 0..32 {
@@ -351,11 +360,11 @@ pub fn find_cmd_slot(addr: u64) -> i32 {
 }
 
 pub fn ata_read(addr: u64, start_lo: u32, start_hi: u32, count: u32, buffer: &mut u64) -> bool {
-                                let port_ptr = addr as *mut internal::HbaPort;
+    let port_ptr = addr as *mut internal::HbaPort;
     let mut port = unsafe { port_ptr.read_volatile() };
     port.is = u32::max_value();
     unsafe {
-    port_ptr.write_volatile(port);
+        port_ptr.write_volatile(port);
     }
     let mut cnt = count.clone();
     let mut spin = 0;
@@ -373,26 +382,26 @@ pub fn ata_read(addr: u64, start_lo: u32, start_hi: u32, count: u32, buffer: &mu
     header.w = 0;
     header.prdtl = (((cnt - 1) >> 4) + 1) as u16;
     unsafe {
-    header_ptr.write_volatile(header);
+        header_ptr.write_volatile(header);
     }
     let cmdtbl_ptr = header.ctba as *mut internal::HbaCmdTbl;
     let mut cmdtbl = unsafe { cmdtbl_ptr.read_volatile() };
     let mut i: usize = 0;
     for j in 0..(header.prdtl as usize) - 1 {
-        cmdtbl.prdt_entry[j].dba = buffer.get_bits(0 ..= 31) as u32;
-        cmdtbl.prdt_entry[j].dbau = buffer.get_bits(32 ..= 63) as u32;
+        cmdtbl.prdt_entry[j].dba = buffer.get_bits(0..=31) as u32;
+        cmdtbl.prdt_entry[j].dbau = buffer.get_bits(32..=63) as u32;
         cmdtbl.prdt_entry[j].dbc = 8 * 1024 - 1;
         cmdtbl.prdt_entry[j].i = 1;
         *buffer = buffer.saturating_add(4 * 1024);
         cnt = cnt.saturating_sub(16);
         i = j;
     }
-    cmdtbl.prdt_entry[i].dba = buffer.get_bits(0 ..= 31) as u32;
-    cmdtbl.prdt_entry[i].dbau = buffer.get_bits(32 ..= 63) as u32;
+    cmdtbl.prdt_entry[i].dba = buffer.get_bits(0..=31) as u32;
+    cmdtbl.prdt_entry[i].dbau = buffer.get_bits(32..=63) as u32;
     cmdtbl.prdt_entry[i].dbc = ((cnt as u32) << 9) - 1 as u32;
     cmdtbl.prdt_entry[i].i = 1;
     unsafe {
-    cmdtbl_ptr.write_volatile(cmdtbl);
+        cmdtbl_ptr.write_volatile(cmdtbl);
     }
     cmdtbl = unsafe { cmdtbl_ptr.read_volatile() };
     cmdtbl.cfis.fis_type = FisType::RegH2D as u8;
@@ -408,10 +417,10 @@ pub fn ata_read(addr: u64, start_lo: u32, start_hi: u32, count: u32, buffer: &mu
     cmdtbl.cfis.count_lo = cnt.get_bits(0..=7) as u8;
     cmdtbl.cfis.count_hi = cnt.get_bits(8..=15) as u8;
     unsafe {
-    cmdtbl_ptr.write_volatile(cmdtbl);
+        cmdtbl_ptr.write_volatile(cmdtbl);
     }
     while (port.tfd & (AtaStatus::Busy as u32 | AtaStatus::Drq as u32) > 0) && spin < 1000000 {
-    port = unsafe { port_ptr.read_volatile() };
+        port = unsafe { port_ptr.read_volatile() };
         spin += 1;
     }
     if spin == 1000000 {
@@ -419,10 +428,10 @@ pub fn ata_read(addr: u64, start_lo: u32, start_hi: u32, count: u32, buffer: &mu
     }
     port.ci = 1 << slot;
     unsafe {
-    port_ptr.write_volatile(port);
+        port_ptr.write_volatile(port);
     }
     loop {
-    port = unsafe { port_ptr.read_volatile() };
+        port = unsafe { port_ptr.read_volatile() };
         hlt();
         if port.ci & (1 << slot) == 0 {
             break;

@@ -18,8 +18,7 @@ bit_field = "*"
 slab_allocator = "*"
 rusty-asm = {version="*", features=["proc-macro"]}
 goblin = {version = "*", default-features=false, features=["elf64", "elf32", "mach64", "mach32", "pe32", "pe64", "archive", "endian_fd"]}
-fixedvec = "0.2.4"
-register = "0.4.1"
+register = "0.4.2"
 
 [dependencies.lazy_static]
 version = "*"
@@ -40,8 +39,12 @@ incremental = true
 panic = "abort"
 
 [package.metadata.bootimage]
-run-args = ["-serial", "stdio", "-soundhw", "all", "-no-reboot", "-drive", "format=raw,id=disk,file=linux-0.2.img,if=none", "-device", "ahci,id=ahci", "-device", "ide-drive,drive=disk,bus=ahci.0", "-no-reboot", "-cpu", "max", "-s", "-S"]
+run-args = ["-serial", "stdio", "-soundhw", "all", "-no-reboot", "-drive", "format=raw,id=disk,file=linux-0.2.img,if=none", "-device", "ahci,id=ahci", "-device", "ide-hd,drive=disk,bus=ahci.0", "-no-reboot", "-cpu", "max"]
 
 [package.metadata.cargo-xbuild]
 memcpy = true
 sysroot_path = "target/sysroot"
+
+[package.metadata.bootloader]
+kernel-stack-size = 2048
+

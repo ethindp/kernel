@@ -3,25 +3,12 @@ use cpuio::*;
 use lazy_static::lazy_static;
 use pc_keyboard::KeyCode;
 use spin::Mutex;
-use fixedvec::{alloc_stack, FixedVec};
-
-static SPACE: [(Option::<char>, Option::<KeyCode>); 512] = {
-alloc_stack!([(Option::<char>, Option::<KeyCode>); 512])
-};
 
 lazy_static! {
-    static ref KEY_QUEUE: Mutex<FixedVec> =
-        Mutex::new(FixedVec::new(SPACE));
-    static ref CMD_QUEUE: Mutex<FixedVec<u8>> = Mutex::new({
-    let space = alloc_stack!([u8; 512]);
-let mut vec = FixedVec::new(&mut space);
-vec
-});
-    static ref RESEND_QUEUE: Mutex<FixedVec<u8>> = Mutex::new({
-    let space = alloc_stack!([u8; 512]);
-let mut vec = FixedVec::new(&mut space);
-vec
-});
+    static ref KEY_QUEUE: Mutex<[Option<KeyCode>; 512]> = Mutex::new([None; 512]);
+    static ref CHR_QUEUE: Mutex<[Option<char>; 512]> = Mutex::new([None; 512]);
+    static ref CMD_QUEUE: Mutex<[Option<u8>; 512]> = Mutex::new([None; 512]);
+    static ref RESEND_QUEUE: Mutex<[Option<u8>; 512]> = Mutex::new([None; 512]);
 }
 
 pub fn init() {
@@ -38,58 +25,67 @@ pub fn init() {
 fn queue_command(command: u8) {
     let mut cmdqueue = CMD_QUEUE.lock();
     let mut rsndqueue = RESEND_QUEUE.lock();
-    cmdqueue.push(command);
-    rsndqueue.push(command);
+    let mut queued_in_cmdqueue = false;
+    let mut queued_in_rsndqueue = false;
+    for it in cmdqueue.iter_mut().zip(rsndqueue.iter_mut()) {
+        let (cmdq, rsndq) = it;
+        if cmdq.is_none() && !queued_in_cmdqueue {
+            *cmdq = Some(command);
+            queued_in_cmdqueue = true;
+        }
+        if rsndq.is_none() && !queued_in_rsndqueue {
+            *rsndq = Some(command);
+            queued_in_rsndqueue = true;
+        }
+        if queued_in_cmdqueue && queued_in_rsndqueue {
+            break;
+        }
+    }
 }
 
 pub fn dequeue_command() -> Option<u8> {
-let queue = CMD_QUEUE.lock();
-queue.pop()
+    let mut queue = CMD_QUEUE.lock();
+    for cmd in queue.iter_mut() {
+        if cmd.is_some() {
+            return cmd.take();
+        }
+    }
+    None
 }
 
 pub fn notify_ack(byte: u8) {
     let mut cmdqueue = CMD_QUEUE.lock();
     let mut resendqueue = RESEND_QUEUE.lock();
-    let mut idx = match cmdqueue.iter().position(move | b | b == byte) {
-    Some(i) => i,
-    None => usize::max_value()
-    };
-    if idx != usize::max_value() {
-        cmdqueue.remove(idx);
+    for cmd in cmdqueue.iter_mut() {
+        if cmd.contains(&byte) {
+            cmd.take();
+            break;
+        }
     }
     // Is this command in the resend queue? If so, find it and eliminate it.
-        idx = match resendqueue.iter().position(move | b | b == byte) {
-    Some(i) => i,
-    None => usize::max_value()
-    };
-    if idx != usize::max_value() {
-        resendqueue.remove(idx);
+    for cmd in resendqueue.iter_mut() {
+        if cmd.contains(&byte) {
+            cmd.take();
+            break;
+        }
     }
 }
 
 pub fn notify_resend(byte: u8) {
-    // If we got here, the command should *not* be in the command queue.
-    // Cover this case anyway.
-        let mut cmdqueue = CMD_QUEUE.lock();
+    let mut cmdqueue = CMD_QUEUE.lock();
     let mut resendqueue = RESEND_QUEUE.lock();
-    let mut idx =         match cmdqueue.iter().position(move | b | b == byte) {
-    Some(i) => i,
-    None => usize::max_value()
-    };
-    if idx != usize::max_value() {
-        cmdqueue.remove(idx);
-    }
-    // The command should be in the resend queue, though.
-match resendqueue.iter().position(move | b | b == byte) {
-Some(idx) => cmdqueue.push(resendqueue.get(idx).unwrap()),
-None => {
-            // This shouldn't ever happen, but we need to handle it anyway.
-            panic!(
-                "KBD: kernel notified driver that byte {:X} required resend, but couldn't find it",
-                byte
-            );
+    for it in cmdqueue.iter_mut().zip(resendqueue.iter_mut()) {
+        let (cmdbyte, rsndbyte) = it;
+        if rsndbyte.contains(&byte) {
+            rsndbyte.take();
+        }
+        if cmdbyte.is_none() {
+            *cmdbyte = Some(byte);
+            return;
         }
     }
+    // This should never be reached. Ever.
+    panic!("Can't locate byte {} in keyboard resend queue", byte);
 }
 
 pub fn notify_key_error() {
@@ -105,9 +101,24 @@ pub fn notify_self_test_failed() {
 }
 
 pub fn notify_key(key: (Option<char>, Option<KeyCode>)) {
-let mut queue = KEY_QUEUE.lock();
-if queue.available() > 0 {
-    queue.push(key);
+    let (character, code) = key;
+    if character.is_none() {
+        let mut chrqueue = CHR_QUEUE.lock();
+        for it in chrqueue.iter_mut() {
+            if it.is_none() {
+                *it = Some(character.unwrap());
+                break;
+            }
+        }
+    }
+    if code.is_none() {
+        let mut keyqueue = KEY_QUEUE.lock();
+        for it in keyqueue.iter_mut() {
+            if it.is_none() {
+                *it = Some(code.unwrap());
+                break;
+            }
+        }
     }
 }
 
@@ -372,12 +383,26 @@ pub fn enable() {
     }
 }
 
-/// Returns a key code if keys are in the internal key queue, otherwise returns None.
-pub fn read() -> Option<(Option<char>, Option<KeyCode>)> {
-    let queue = KEY_QUEUE.lock();
-    if queue.len() > 0 {
-    Some(queue.swap_remove(0))
-    } else {
-    None
+// Public interfaces
+
+/// Returns a character code that can be interpreted via the ASCII table.
+pub fn read_character() -> Option<char> {
+    let mut chrqueue = CHR_QUEUE.lock();
+    for chr in chrqueue.iter_mut() {
+        if chr.is_some() {
+            return chr.take();
+        }
     }
+    None
+}
+
+/// Returns a key code useful for key scanning
+pub fn read_key() -> Option<KeyCode> {
+    let mut keyqueue = KEY_QUEUE.lock();
+    for key in keyqueue.iter_mut() {
+        if key.is_some() {
+            return key.take();
+        }
+    }
+    None
 }
