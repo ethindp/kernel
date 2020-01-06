@@ -29,8 +29,8 @@ fn panic(panic_information: &PanicInfo) -> ! {
 fn kmain(boot_info: &'static BootInfo) -> ! {
     printkln!("Loading kernel");
     kernel::memory::init(boot_info.physical_memory_offset, &boot_info.memory_map);
-    let start_addr: u64 = 0x100000000000;
-    let mut end_addr = start_addr + 1 * 1048576;
+    let start_addr: u64 = 0x1000_0000_0000;
+    let mut end_addr = start_addr + 8 * 1_048_576;
     while ((end_addr - start_addr) % 32768) != 0 {
         end_addr -= 1;
     }

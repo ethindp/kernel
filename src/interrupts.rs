@@ -1,6 +1,5 @@
 use crate::drivers::hid::keyboard::*;
 use crate::gdt;
-use crate::registers;
 use cpuio::{inb, outb};
 use lazy_static::lazy_static;
 use pc_keyboard::{layouts, DecodedKey, HandleControl, Keyboard, ScancodeSet1};
@@ -35,12 +34,12 @@ pub enum InterruptType {
 }
 
 impl InterruptType {
-    fn as_u8(self) -> u8 {
+    fn to_u8(self) -> u8 {
         self as u8
     }
 
-    fn as_usize(self) -> usize {
-        usize::from(self.as_u8())
+    fn to_usize(self) -> usize {
+        usize::from(self.to_u8())
     }
 }
 
@@ -61,9 +60,9 @@ lazy_static! {
         idt.invalid_opcode.set_handler_fn(handle_ud);
         idt.device_not_available.set_handler_fn(handle_nm);
         idt.general_protection_fault.set_handler_fn(handle_gp);
-        idt[InterruptType::Keyboard.as_usize()].set_handler_fn(handle_keyboard);
-        idt[InterruptType::Rtc.as_usize()].set_handler_fn(handle_rtc);
-        idt[InterruptType::Timer.as_usize()].set_handler_fn(handle_timer);
+        idt[InterruptType::Keyboard.to_usize()].set_handler_fn(handle_keyboard);
+        idt[InterruptType::Rtc.to_usize()].set_handler_fn(handle_rtc);
+        idt[InterruptType::Timer.to_usize()].set_handler_fn(handle_timer);
         idt
     };
     static ref KEYBOARD: Mutex<Keyboard<layouts::Us104Key, ScancodeSet1>> =
@@ -95,10 +94,9 @@ extern "x86-interrupt" fn handle_df(stack_frame: &mut InterruptStackFrame, error
         asm!("push rax" :::: "intel");
     }
     panic!(
-        "EXCEPTION: DOUBLE FAULT({})\n{:#?}\n{}",
+        "EXCEPTION: DOUBLE FAULT({})\n{:#?}",
         error_code,
         stack_frame,
-        registers::CPURegs::read()
     );
 }
 
@@ -107,16 +105,13 @@ extern "x86-interrupt" fn handle_timer(_: &mut InterruptStackFrame) {
     let mut cmd = KEY_CMD.lock();
     unsafe {
         // Figure out what we've got
-        match dequeue_command() {
-            Some(command) => {
+        if let Some(command) = dequeue_command() {
                 // Keyboard command, output it to the keyboard and set the keyboard command static reference to this command for later use.
                 *cmd = command;
                 outb(command, 0x60);
             }
-            None => (),
-        }
         PICS.lock()
-            .notify_end_of_interrupt(InterruptType::Timer.as_u8());
+            .notify_end_of_interrupt(InterruptType::Timer.to_u8());
     }
 }
 
@@ -125,7 +120,7 @@ extern "x86-interrupt" fn handle_rtc(_stack_frame: &mut InterruptStackFrame) {
         let mut tc = TICK_COUNT.lock();
         *tc += 1;
         PICS.lock()
-            .notify_end_of_interrupt(InterruptType::Rtc.as_u8());
+            .notify_end_of_interrupt(InterruptType::Rtc.to_u8());
         outb(0x0C, 0x70);
         inb(0x71);
     }
@@ -174,7 +169,7 @@ extern "x86-interrupt" fn handle_keyboard(_stack_frame: &mut InterruptStackFrame
     }
     unsafe {
         PICS.lock()
-            .notify_end_of_interrupt(InterruptType::Keyboard.as_u8());
+            .notify_end_of_interrupt(InterruptType::Keyboard.to_u8());
     }
 }
 
@@ -188,9 +183,9 @@ extern "x86-interrupt" fn handle_pf(_: &mut InterruptStackFrame, error_code: Pag
     let addr = Cr2::read();
     let ec = error_code.bits();
     printk!("Page fault: ");
-    if (ec & 1 << 0) > 0 {
+    if (ec & 1) > 0 {
         printkln!("Protection violation");
-    } else if !(ec & 1 << 0) > 0 {
+    } else if !(ec & 1) > 0 {
         printkln!("Page not present");
     } else if (ec & 1 << 2) > 0 {
         printkln!("Possible privilege violation (user mode)");
@@ -222,25 +217,22 @@ extern "x86-interrupt" fn handle_of(_: &mut InterruptStackFrame) {
 
 extern "x86-interrupt" fn handle_br(stack: &mut InterruptStackFrame) {
     panic!(
-        "Cannot continue: bounds range exceeded.\nStack:\n{:?}\n{}",
+        "Cannot continue: bounds range exceeded.\nStack:\n{:?}",
         stack,
-        registers::CPURegs::read()
     );
 }
 
 extern "x86-interrupt" fn handle_ud(stack: &mut InterruptStackFrame) {
     panic!(
-        "Cannot continue: invalid opcode!\nStack:\n{:?}\n{}",
+        "Cannot continue: invalid opcode!\nStack:\n{:?}",
         stack,
-        registers::CPURegs::read()
     );
 }
 
 extern "x86-interrupt" fn handle_nm(stack: &mut InterruptStackFrame) {
     panic!(
-        "Can't continue: device unavailable!\nStack:\n{:?}\n{}",
+        "Can't continue: device unavailable!\nStack:\n{:?}",
         stack,
-        registers::CPURegs::read()
     );
 }
 
@@ -250,9 +242,8 @@ extern "x86-interrupt" fn handle_gp(_: &mut InterruptStackFrame, ec: u64) {
     }
     use crate::printkln;
     printkln!(
-        "Cannot continue: protection violation, error code {}\n{}",
+        "Cannot continue: protection violation, error code {}",
         ec,
-        registers::CPURegs::read()
     );
 }
 

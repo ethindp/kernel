@@ -102,20 +102,20 @@ pub fn notify_self_test_failed() {
 
 pub fn notify_key(key: (Option<char>, Option<KeyCode>)) {
     let (character, code) = key;
-    if character.is_some() {
+    if let Some(chr) = character {
         let mut chrqueue = CHR_QUEUE.lock();
         for it in chrqueue.iter_mut() {
             if it.is_none() {
-                *it = Some(character.unwrap());
+                *it = Some(chr);
                 break;
             }
         }
     }
-    if code.is_some() {
+    if let Some(c) = code {
         let mut keyqueue = KEY_QUEUE.lock();
         for it in keyqueue.iter_mut() {
             if it.is_none() {
-                *it = Some(code.unwrap());
+                *it = Some(c);
                 break;
             }
         }

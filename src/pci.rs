@@ -153,7 +153,7 @@ pub extern "C" fn read_dword(bus: u8, slot: u8, func: u8, offset: u8) -> u32 {
                 | (((lslot as u32) << 11) as u32)
                 | (((lfunc as u32) << 8) as u32)
                 | ((offset as u32) & 0xfc)
-                | (0x80000000)) as u32,
+                | (0x8000_0000)) as u32,
             0xCF8,
         );
         inl(0xCFC)
@@ -172,7 +172,7 @@ pub extern "C" fn write_dword(bus: u8, slot: u8, func: u8, offset: u8, data: u32
                 | (((lslot as u32) << 11) as u32)
                 | (((lfunc as u32) << 8) as u32)
                 | ((offset as u32) & 0xfc)
-                | (0x80000000)) as u32,
+                | (0x8000_0000)) as u32,
             0xCF8,
         );
         outl(data, 0xCFC);
@@ -191,7 +191,7 @@ pub extern "C" fn read_word(bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
                 | (((lslot as u32) << 11) as u32)
                 | (((lfunc as u32) << 8) as u32)
                 | ((offset as u32) & 0xfc)
-                | (0x80000000)) as u32,
+                | (0x8000_0000)) as u32,
             0xCF8,
         );
         inw(0xCFC)
@@ -210,7 +210,7 @@ pub extern "C" fn write_word(bus: u8, slot: u8, func: u8, offset: u8, data: u16)
                 | (((lslot as u32) << 11) as u32)
                 | (((lfunc as u32) << 8) as u32)
                 | ((offset as u32) & 0xfc)
-                | (0x80000000)) as u32,
+                | (0x8000_0000)) as u32,
             0xCF8,
         );
         outw(data, 0xCFC);
@@ -229,7 +229,7 @@ pub extern "C" fn read_byte(bus: u8, slot: u8, func: u8, offset: u8) -> u8 {
                 | (((lslot as u32) << 11) as u32)
                 | (((lfunc as u32) << 8) as u32)
                 | ((offset as u32) & 0xfc)
-                | (0x80000000)) as u32,
+                | (0x8000_0000)) as u32,
             0xCF8,
         );
         inb(0xCFC)
@@ -248,7 +248,7 @@ pub extern "C" fn write_byte(bus: u8, slot: u8, func: u8, offset: u8, data: u8) 
                 | (((lslot as u32) << 11) as u32)
                 | (((lfunc as u32) << 8) as u32)
                 | ((offset as u32) & 0xfc)
-                | (0x80000000)) as u32,
+                | (0x8000_0000)) as u32,
             0xCF8,
         );
         outb(data, 0xCFC);
@@ -295,7 +295,7 @@ fn get_rev(bus: u8, device: u8, function: u8) -> u32 {
 
 pub fn probe() {
     printkln!("Starting PCI scan");
-    for bus in 0..MAX_BUS + 1 {
+    for bus in 0..=MAX_BUS {
         for slot in 0..MAX_DEVICE {
             for function in 0..MAX_FUNCTION {
                 // Get vendor, device, class and subclass codes.
@@ -316,15 +316,15 @@ pub fn probe() {
                 // Conditional initialization is the term I use when I take advantage of conditional statements being expressions and "conditionally" initialize parts of (or entire) data structures with them, as I do here.
                 let mut pcidev = PCIDevice {
                     // Non-conditional initialization.
-                    vendor: vendor,
-                    device: device,
+                    vendor,
+                    device,
                     slot: slot as u32,
                     func: function as u32,
                     bus: bus as u32,
                     status: get_status(bus as u8, slot as u8, function as u8),
                     command: get_command(bus as u8, slot as u8, function as u8),
-                    class: class,
-                    subclass: subclass,
+                    class,
+                    subclass,
                     prog_if: get_prog_if(bus as u8, slot as u8, function as u8),
                     revision_id: get_rev(bus as u8, slot as u8, function as u8),
                     bist: read_dword(bus as u8, slot as u8, function as u8, 0x0C).get_bits(24..=31),
@@ -585,7 +585,7 @@ pub fn probe() {
                         .get_bits(24..=31) as u8;
                     // Calculate amount of time to wait
                     let time_to_wait = {
-                        let ttw = 20.0 * (1000.0 / (1000000.0 / ((32768 >> 2) as f64)));
+                        let ttw = 20.0 * (1000.0 / (1_000_000.0 / ((32768 >> 2) as f64)));
                         ttw as u128
                     };
                     if bist.get_bit(7) {
@@ -628,13 +628,13 @@ pub fn init() {
 fn calculate_bar_addr(bar1: u32, bar2: u32) -> u64 {
     if !bar1.get_bit(0) {
         match bar1.get_bits(1..=2) {
-            0 => ((bar1 as u64) & 0xFFFFFFF0),
+            0 => ((bar1 as u64) & 0xFFFF_FFF0),
             1 => ((bar1 as u64) & 0xFFF0),
-            2 => (((bar1 as u64) & 0xFFFFFFF0) + (((bar2 as u64) & 0xFFFFFFFF) << 32)),
+            2 => (((bar1 as u64) & 0xFFFF_FFF0) + (((bar2 as u64) & 0xFFFF_FFFF) << 32)),
             _ => bar1 as u64,
         }
     } else {
-        ((bar1 as u64) & 0xFFFFFFFC)
+        ((bar1 as u64) & 0xFFFF_FFFC)
     }
 }
 
@@ -671,4 +671,5 @@ pub extern "C" fn find_device_ex(
     }
     None
 }
+
 

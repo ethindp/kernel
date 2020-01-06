@@ -20,9 +20,6 @@ pub mod memory;
 /// The pci module contains functions for reading from PCI devices and enumerating PCI buses via the "brute-force" method.
 /// As we add drivers that require the PCI buss in, the ::probe() function of this module will be extended to load those drivers when the probe is in progress. This will then create a "brute-force and configure" method.
 pub mod pci;
-/// The registers module contains functions for retrieving all CPU registers.
-// It is only used for debugging and kernel information purposes.
-pub mod registers;
 // The smbios module contains SMBIOS functions
 // pub mod smbios;
 /// The tasking module contains multitasking-related functions
@@ -72,6 +69,7 @@ pub fn init() {
     drivers::hid::keyboard::init();
     drivers::sound::hda::init();
 //    drivers::storage::ahci::init();
+drivers::storage::ata::init();
 }
 
 /// This function is designed as a failsafe against memory corruption if we panic.
