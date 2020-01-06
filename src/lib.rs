@@ -72,6 +72,7 @@ pub fn init() {
     drivers::hid::keyboard::init();
     drivers::sound::hda::init();
 //    drivers::storage::ahci::init();
+drivers::storage::ata::init();
 }
 
 /// This function is designed as a failsafe against memory corruption if we panic.

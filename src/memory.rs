@@ -152,9 +152,8 @@ pub fn init(physical_memory_offset: u64, memory_map: &'static MemoryMap) {
     let mut allocator = FRAME_ALLOCATOR.lock();
     *mapper = Some(unsafe { init_mapper(physical_memory_offset) });
     *allocator = Some(unsafe { GlobalFrameAllocator::init(memory_map) });
-    // Give us 5M (or more) of RAM
     let start_addr: u64 = 0x100000000000;
-    let end_addr = start_addr + 1 * (1 * 1048576);
+    let end_addr = start_addr + 1 * (8 * 1048576);
     // We cannot call allocate_paged_heap here since we hold the spinlock,
     // which would result in an endless lock acquisition attempt loop (deadlock).
     // Instead we call the function directly here.
