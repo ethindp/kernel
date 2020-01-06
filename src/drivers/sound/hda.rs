@@ -122,7 +122,7 @@ pub fn init() {
         allocate_phys_range(memaddr, memaddr + 0x9C);
 {
 let mut addr = HDACADDR.lock();
-*addr = memaddr.clone();
+*addr = memaddr;
 }
         init_hda(memaddr);
     }
@@ -141,10 +141,10 @@ fn init_hda(memaddr: u64) {
             if read_memory(memaddr + HDARegister::Gctl as u64).get_bit(0) {
                 break;
             }
-            for _ in 256..=0 {
+            for _ in (0 .. 256).rev() {
                 continue;
             }
-            if attempts_left <= 0 {
+            if attempts_left == 0 {
                 printkln!(
                     "HDA: init: HDA controller failed to respond within 10000 RTC ticks; aborting"
                 );
@@ -213,7 +213,7 @@ fn init_hda(memaddr: u64) {
         let mut val = 0u64;
         val.set_bit(15, true);
         write_memory(memaddr + HDARegister::Corbrp as u64, val);
-        for _ in 256..=0 {
+        for _ in (0 .. 256).rev() {
             continue;
         }
     }
@@ -279,7 +279,7 @@ fn init_hda(memaddr: u64) {
             panic!("HDA: CMEI set!");
         }
     }
-for _ in 10000 ..= 0 {
+for _ in (0 .. 10000).rev() {
 hlt();
 }
     {
@@ -321,16 +321,14 @@ cmd.set_bits(8 ..= 19, command.get_bits(0 ..= 11) as u32);
 cmd.set_bits(0 ..= 7, data as u32);
 if read_memory(*hdaaddr as u64 + HDARegister::Corbwp as u64) < 255 {
 // calculate offset
-let offset = (*corbaddr as u64) + (read_memory(*hdaaddr as u64 + HDARegister::Corbwp as u64) + 1 * 4);
+let offset = (*corbaddr as u64) + (read_memory(*hdaaddr as u64 + HDARegister::Corbwp as u64) + 4);
 write_memory(offset, cmd as u64);
 write_memory(*hdaaddr as u64 + HDARegister::Corbwp as u64, read_memory(*hdaaddr as u64 + HDARegister::Corbwp as u64) + 1);
-} else {
-if read_memory(*hdaaddr as u64 + HDARegister::Corbrp as u64) == 255 {
+} else if read_memory(*hdaaddr as u64 + HDARegister::Corbrp as u64) == 255 {
 // calculate offset
 let offset = (*corbaddr as u64) + 4;
 write_memory(offset, cmd as u64);
 write_memory(*hdaaddr as u64 + HDARegister::Corbwp as u64, 1);
-}
 }
 }
 

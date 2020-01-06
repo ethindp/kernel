@@ -9,8 +9,8 @@ pub fn pc_speaker_on(freq: u16) {
     }
     unsafe {
         outb(0xb6, 0x43);
-        outb(((0x1234DD / pitch) as u8) & 0xFF, 0x42);
-        outb((((0x1234DD / pitch) >> 8) as u8) & 0xFF, 0x42);
+        outb((0x0012_34DD / pitch) as u8, 0x42);
+        outb(((0x0012_34DD / pitch) >> 8) as u8, 0x42);
         outb(inb(0x61) | 0x03, 0x61);
     }
 }

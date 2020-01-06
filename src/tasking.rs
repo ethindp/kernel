@@ -46,7 +46,7 @@ pub extern "C" fn create_ppid(pid: u32, tid: u32) -> u64 {
 #[no_mangle]
 pub extern "C" fn unpack_ppid(ppid: u64) -> (u32, u32) {
     (
-        (((ppid & 0xFFFFFFFF00000000) >> 32) as u32),
-        ((ppid & 0xFFFFFFFF) as u32),
+        (((ppid & 0xFFFF_FFFF_0000_0000) >> 32) as u32),
+        ((ppid & 0xFFFF_FFFF) as u32),
     )
 }

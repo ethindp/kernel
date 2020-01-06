@@ -219,8 +219,8 @@ continue;
 }
 if !inb(STATUS).get_bit(ERR) {
 let mut data: [u16; 256] = [0; 256];
-for i in 0 .. 256 {
-data[i] = inw(DATA);
+for item in data.iter_mut() {
+ *item = inw(DATA);
 }
 } else {
 // ATAPI/SATA drive?
@@ -254,8 +254,8 @@ continue;
 }
 if !inb(STATUS).get_bit(ERR) {
 let mut data: [u16; 256] = [0; 256];
-for i in 0 .. 256 {
-data[i] = inw(DATA);
+for item in data.iter_mut() {
+*item = inw(DATA);
 }
 } else {
 // ATAPI/SATA drive?

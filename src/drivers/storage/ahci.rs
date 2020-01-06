@@ -26,13 +26,13 @@ pub struct AhciDevice {
 }
 
 // SATA/ATA signatures
-const SIG_SATA: u64 = 0x00000101; // SATA drive
-const SIG_ATAPI: u64 = 0xEB140101; // SATAPI drive
-const SIG_SEM: u64 = 0xC33C0101; // Enclosure management bridge
-const SIG_PM: u64 = 0x96690101; // Port multiplier
+const SIG_SATA: u64 = 0x0000_0101; // SATA drive
+const SIG_ATAPI: u64 = 0xEB14_0101; // SATAPI drive
+const SIG_SEM: u64 = 0xC33C_0101; // Enclosure management bridge
+const SIG_PM: u64 = 0x9669_0101; // Port multiplier
 
 // Base address, 4M
-const AHCI_BASE: u32 = 0x400000;
+const AHCI_BASE: u32 = 0x0040_0000;
 
 #[repr(u8)]
 pub enum AhciDeviceType {
@@ -55,7 +55,7 @@ pub enum PortCommand {
     Fr = 1 << 14,
     Fre = 1 << 4,
     Sud = 1 << 1,
-    St = 1 << 0,
+    St = 1,
 }
 
 #[repr(u8)]
@@ -179,8 +179,8 @@ pub enum FisType {
 }
 
 pub fn init() {
-    allocate_phys_range(AHCI_BASE as u64, AHCI_BASE as u64 + 100000);
-    allocate_phys_range(0x1000000, 0x2000000);
+    allocate_phys_range(AHCI_BASE as u64, AHCI_BASE as u64 + 100_000);
+    allocate_phys_range(0x0100_0000, 0x0200_0000);
     let dev = pci::find_device(0x01, 0x06, 0x01);
     if dev.is_none() {
         return;
@@ -252,7 +252,7 @@ pub fn init() {
                 } else if port.sig == SIG_SATA as u32 {
                     printkln!("AHCI: Port {}: SATA device found", i);
                     rebase_port(portaddr, i as u32);
-                    let mut buffer: u64 = 0x1000000;
+                    let mut buffer: u64 = 0x0100_0000;
                     if !ata_read(portaddr, 0, 0, 1, &mut buffer) {
                         printkln!("AHCI: read failure");
                     }
@@ -317,7 +317,7 @@ pub fn stop_command_engine(addr: u64) {
 }
 
 pub fn rebase_port(addr: u64, new_port: u32) {
-    stop_command_engine(addr.clone());
+    stop_command_engine(addr);
     let port_ptr = addr as *mut internal::HbaPort;
     let mut port = unsafe { port_ptr.read_volatile() };
     port.clb = AHCI_BASE + (new_port << 10) as u32;
@@ -331,8 +331,7 @@ pub fn rebase_port(addr: u64, new_port: u32) {
     for i in 0..32 {
         let header_ptr = {
             let header_ptr = port.clb as *mut internal::HbaCmdHeader;
-            let header_ptr = unsafe { header_ptr.offset(i as isize) };
-            header_ptr
+             unsafe { header_ptr.offset(i as isize) }
         };
         let mut header = unsafe { header_ptr.read_volatile() };
         header.prdtl = 8;
@@ -342,7 +341,7 @@ pub fn rebase_port(addr: u64, new_port: u32) {
             header_ptr.write_volatile(header);
         }
     }
-    start_command_engine(addr.clone());
+    start_command_engine(addr);
 }
 
 pub fn find_cmd_slot(addr: u64) -> i32 {
@@ -356,7 +355,7 @@ pub fn find_cmd_slot(addr: u64) -> i32 {
         slots >>= 1;
     }
     printkln!("AHCI: fatal: cannot find free command slot");
-    return -1;
+-1
 }
 
 pub fn ata_read(addr: u64, start_lo: u32, start_hi: u32, count: u32, buffer: &mut u64) -> bool {
@@ -366,16 +365,15 @@ pub fn ata_read(addr: u64, start_lo: u32, start_hi: u32, count: u32, buffer: &mu
     unsafe {
         port_ptr.write_volatile(port);
     }
-    let mut cnt = count.clone();
+    let mut cnt = count;
     let mut spin = 0;
-    let slot = find_cmd_slot(addr.clone());
+    let slot = find_cmd_slot(addr);
     if slot == -1 {
         return false;
     }
     let header_ptr = {
         let raw_ptr = port.clb as *mut internal::HbaCmdHeader;
-        let raw_ptr = unsafe { raw_ptr.offset(slot as isize) };
-        raw_ptr
+         unsafe { raw_ptr.offset(slot as isize) }
     };
     let mut header = unsafe { header_ptr.read_volatile() };
     header.cfl = (size_of::<internal::FisRegH2D>() / size_of::<u32>()) as u8;
@@ -419,11 +417,11 @@ pub fn ata_read(addr: u64, start_lo: u32, start_hi: u32, count: u32, buffer: &mu
     unsafe {
         cmdtbl_ptr.write_volatile(cmdtbl);
     }
-    while (port.tfd & (AtaStatus::Busy as u32 | AtaStatus::Drq as u32) > 0) && spin < 1000000 {
+    while (port.tfd & (AtaStatus::Busy as u32 | AtaStatus::Drq as u32) > 0) && spin < 1_000_000 {
         port = unsafe { port_ptr.read_volatile() };
         spin += 1;
     }
-    if spin == 1000000 {
+    if spin == 1_000_000 {
         panic!("Detected port hang: {:?}", port);
     }
     port.ci = 1 << slot;
@@ -443,5 +441,5 @@ pub fn ata_read(addr: u64, start_lo: u32, start_hi: u32, count: u32, buffer: &mu
     if port.is & (1 << 30) > 0 {
         panic!("Read error with HBA port: {:?}", port);
     }
-    return true;
+true
 }
