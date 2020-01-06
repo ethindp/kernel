@@ -10,8 +10,7 @@ use spin::Mutex;
 use x86_64::structures::idt::PageFaultErrorCode;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
 
-pub static PICS: spin::Mutex<ChainedPics> =
-    spin::Mutex::new(unsafe { ChainedPics::new(32, 32 + 8) });
+static PICS: spin::Mutex<ChainedPics> = spin::Mutex::new(unsafe { ChainedPics::new(32, 32 + 8) });
 
 /// This enumeration contains a list of all IRQs.
 #[repr(u8)]
@@ -77,8 +76,9 @@ lazy_static! {
     static ref KEY_CMD: Mutex<u8> = Mutex::new(0u8);
 }
 
-pub fn initialize_idt() {
+pub fn init() {
     IDT.load();
+    unsafe { PICS.lock().initialize() };
 }
 
 extern "x86-interrupt" fn handle_bp(stack_frame: &mut InterruptStackFrame) {

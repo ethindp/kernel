@@ -53,7 +53,11 @@ fn allocate_paged_heap(
             None => panic!("Can't allocate frame!"),
         };
         let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
-        mapper.map_to(page, frame, flags, frame_allocator)?.flush();
+let frame2 = frame.clone();
+        match mapper.map_to(page, frame, flags, frame_allocator) {
+Ok(f) => f.flush(),
+Err(e) => panic!("Cannot allocate frame range {:X}h-{:X}h: {:?}", frame2.start_address().as_u64(), frame2.start_address().as_u64() + frame2.size(), e),
+}
     }
     Ok(())
 }
@@ -88,9 +92,12 @@ fn allocate_paged_heap_with_perms(
             Some(f) => f,
             None => panic!("Can't allocate frame!"),
         };
-        mapper
-            .map_to(page, frame, permissions, frame_allocator)?
-            .flush()
+let frame2 = frame.clone();
+        match mapper
+            .map_to(page, frame, permissions, frame_allocator) {
+Ok(f) => f.flush(),
+Err(e) => panic!("Cannot allocate frame range {:X}h-{:X}h: {:?}", frame2.start_address().as_u64(), frame2.start_address().as_u64() + frame2.size(), e),
+}
     }
     Ok(())
 }
@@ -145,9 +152,9 @@ pub fn init(physical_memory_offset: u64, memory_map: &'static MemoryMap) {
     let mut allocator = FRAME_ALLOCATOR.lock();
     *mapper = Some(unsafe { init_mapper(physical_memory_offset) });
     *allocator = Some(unsafe { GlobalFrameAllocator::init(memory_map) });
-    // Give us 1 M (or more) of RAM
+    // Give us 5M (or more) of RAM
     let start_addr: u64 = 0x100000000000;
-    let end_addr = start_addr + 1 * 1048576;
+    let end_addr = start_addr + 1 * (1 * 1048576);
     // We cannot call allocate_paged_heap here since we hold the spinlock,
     // which would result in an endless lock acquisition attempt loop (deadlock).
     // Instead we call the function directly here.

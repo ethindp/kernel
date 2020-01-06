@@ -4,6 +4,7 @@ use bit_field::BitField;
 use cpuio::*;
 use lazy_static::lazy_static;
 use spin::Mutex;
+use alloc::collections::linked_list::LinkedList;
 
 const MAX_FUNCTION: usize = 8;
 const MAX_DEVICE: usize = 32;
@@ -12,7 +13,7 @@ const MAX_BUS: usize = 256;
 // These statics are internally tracked by the kernel -- do not modify!
 lazy_static! {
 // Array to hold a list of all recognized PCI devices.
-    static ref PCI_DEVICES: Mutex<[Option<PCIDevice>; MAX_BUS * MAX_DEVICE * MAX_FUNCTION]> = Mutex::new([None; MAX_BUS * MAX_DEVICE * MAX_FUNCTION]);
+    static ref PCI_DEVICES: Mutex<LinkedList<PCIDevice>> = Mutex::new(LinkedList::new());
 }
 
 /// Contains PCI device properties.
@@ -134,41 +135,10 @@ pub struct PCIToCardBusBridgeTable {
 }
 
 // Adds a device to the PCI device list.
+#[inline(always)]
 fn add_device(device: PCIDevice) {
     let mut devices = PCI_DEVICES.lock();
-    if devices[calculate_pos(
-        device.bus as usize,
-        device.slot as usize,
-        device.func as usize,
-    )]
-    .is_none()
-    {
-        devices[calculate_pos(
-            device.bus as usize,
-            device.slot as usize,
-            device.func as usize,
-        )] = Some(device);
-    } else {
-        printkln!("Warning: PCI device conflict found");
-        printkln!(
-            "Warning: bus {:X}, slot {:X}, function {:X} already contains a device profile",
-            device.bus,
-            device.slot,
-            device.func
-        );
-        for bus in 0..MAX_BUS + 1 {
-            for slot in 0..MAX_DEVICE {
-                for function in 0..MAX_FUNCTION {
-                    if devices[calculate_pos(bus, slot, function)].is_none() {
-                        printkln!("Warning: device with bus {:X}, slot {:X}, func {:X} added to PCI DB in bus {:X}, slot {:X}, func {:X}", device.bus, device.slot, device.func, bus, slot, function);
-                        devices[calculate_pos(bus, slot, function)] = Some(device);
-                        return;
-                    }
-                }
-            }
-        }
-        panic!("Cannot add device to PCI database; bus={:X}, slot={:X}, function={:X}, vendor={:X}, class={:X}, subclass={:X}, interface={:X}", device.bus, device.slot, device.func, device.vendor, device.class, device.subclass, device.prog_if);
-    }
+devices.push_back(device);
 }
 
 /// Reads a dword from a PCI bus, device and function using the given offset and returns it.
@@ -654,6 +624,7 @@ pub fn init() {
     probe();
 }
 
+#[inline(always)]
 fn calculate_bar_addr(bar1: u32, bar2: u32) -> u64 {
     if !bar1.get_bit(0) {
         match bar1.get_bits(1..=2) {
@@ -668,21 +639,19 @@ fn calculate_bar_addr(bar1: u32, bar2: u32) -> u64 {
 }
 
 #[no_mangle]
+#[inline(always)]
 pub extern "C" fn find_device(class: u32, subclass: u32, interface: u32) -> Option<PCIDevice> {
     let devices = PCI_DEVICES.lock();
     for dev in devices.iter() {
-        if dev.is_some()
-            && dev.unwrap().class == class
-            && dev.unwrap().subclass == subclass
-            && dev.unwrap().prog_if == interface
-        {
-            return *dev;
+        if dev.class == class && dev.subclass == subclass && dev.prog_if == interface {
+            return Some(*dev);
         }
     }
     None
 }
 
 #[no_mangle]
+#[inline(always)]
 pub extern "C" fn find_device_ex(
     class: u32,
     subclass: u32,
@@ -691,11 +660,11 @@ pub extern "C" fn find_device_ex(
 ) -> Option<PCIDevice> {
     let devices = PCI_DEVICES.lock();
     for dev in devices.iter() {
-        if dev.is_some() && dev.unwrap().class == class && dev.unwrap().subclass == subclass {
+        if dev.class == class && dev.subclass == subclass {
             for it in vendors.iter().zip(device_ids.iter()) {
                 let (vendor, device) = it;
-                if dev.unwrap().vendor == *vendor && dev.unwrap().device == *device {
-                    return *dev;
+                if dev.vendor == *vendor && dev.device == *device {
+                    return Some(*dev);
                 }
             }
         }
@@ -703,7 +672,3 @@ pub extern "C" fn find_device_ex(
     None
 }
 
-#[inline]
-fn calculate_pos(x: usize, y: usize, z: usize) -> usize {
-    x * MAX_DEVICE * MAX_FUNCTION + y * MAX_FUNCTION + z
-}
