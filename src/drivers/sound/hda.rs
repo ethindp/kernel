@@ -1,18 +1,21 @@
 use crate::interrupts::{get_tick_count, sleep_for};
 use crate::memory::*;
 use crate::pci;
-use crate::printkln;
+use crate::{printkln, printk};
 use bit_field::BitField;
 use lazy_static::lazy_static;
 use spin::Mutex;
 use x86_64::align_up;
 use x86_64::instructions::hlt;
 use x86_64::instructions::random::RdRand;
+use alloc::collections::linked_list::LinkedList;
 
 lazy_static! {
     static ref SDINS: Mutex<[bool; 15]> = Mutex::new([false; 15]);
     static ref CORBADDR: Mutex<u64> = Mutex::new(0);
     static ref RIRBADDR: Mutex<u64> = Mutex::new(0);
+static ref HDACADDR: Mutex<u64> = Mutex::new(0);
+static ref RIRBRP: Mutex<u8> = Mutex::new(0);
 }
 
 #[repr(u16)]
@@ -117,6 +120,10 @@ pub fn init() {
     }
     if memaddr != 0 {
         allocate_phys_range(memaddr, memaddr + 0x9C);
+{
+let mut addr = HDACADDR.lock();
+*addr = memaddr.clone();
+}
         init_hda(memaddr);
     }
 }
@@ -272,6 +279,9 @@ fn init_hda(memaddr: u64) {
             panic!("HDA: CMEI set!");
         }
     }
+for _ in 10000 ..= 0 {
+hlt();
+}
     {
         let statests = read_memory(memaddr + HDARegister::Statests as u64).get_bits(0..=14);
         let mut sdins = SDINS.lock();
@@ -282,4 +292,62 @@ fn init_hda(memaddr: u64) {
             }
         }
     }
+// Compose command F00
+printkln!("HDA: Submitting command F00(04) to codec 0, NID 0");
+submit_command(0, 0, 0xF00, 0x04);
+// Give the hardware time to respond
+sleep_for(32);
+{
+printk!("HDA: received responses: ");
+let resp = read_rirb();
+if resp.is_empty() {
+printkln!("none");
+} else {
+for i in resp.iter() {
+printk!("\t{:X}h", i);
 }
+printkln!("{}", "");
+}
+}
+}
+
+pub fn submit_command(codec_addr: u8, nid: u8, command: u16, data: u8) {
+let corbaddr = CORBADDR.lock();
+let hdaaddr = HDACADDR.lock();
+let mut cmd: u32 = 0;
+cmd.set_bits(28 ..= 31, codec_addr.get_bits(0 ..= 4) as u32);
+cmd.set_bits(20 ..= 27, nid as u32);
+cmd.set_bits(8 ..= 19, command.get_bits(0 ..= 11) as u32);
+cmd.set_bits(0 ..= 7, data as u32);
+if read_memory(*hdaaddr as u64 + HDARegister::Corbwp as u64) < 255 {
+// calculate offset
+let offset = (*corbaddr as u64) + (read_memory(*hdaaddr as u64 + HDARegister::Corbwp as u64) + 1 * 4);
+write_memory(offset, cmd as u64);
+write_memory(*hdaaddr as u64 + HDARegister::Corbwp as u64, read_memory(*hdaaddr as u64 + HDARegister::Corbwp as u64) + 1);
+} else {
+if read_memory(*hdaaddr as u64 + HDARegister::Corbrp as u64) == 255 {
+// calculate offset
+let offset = (*corbaddr as u64) + 4;
+write_memory(offset, cmd as u64);
+write_memory(*hdaaddr as u64 + HDARegister::Corbwp as u64, 1);
+}
+}
+}
+
+pub fn read_rirb()->LinkedList<u64> {
+let rirbaddr = RIRBADDR.lock();
+let hdaaddr = HDACADDR.lock();
+let mut rirbrp = RIRBRP.lock();
+let mut list = LinkedList::new();
+while *rirbrp <= read_memory(*hdaaddr as u64 + HDARegister::Rirbwp as u64).get_bits(0 ..= 7) as u8 {
+if *rirbrp == read_memory(*hdaaddr as u64 + HDARegister::Rirbwp as u64).get_bits(0 ..= 7) as u8 {
+break;
+}
+let addr: *const u64 = (*rirbaddr as u64 + read_memory(*hdaaddr + HDARegister::Rirbwp as u64) * 8) as *const u64;
+list.push_back(unsafe { addr.read_volatile() });
+*rirbrp += 1;
+}
+list
+}
+
+
