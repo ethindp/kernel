@@ -1,9 +1,7 @@
 use crate::memory::*;
 use crate::printkln;
-use core::slice;
-use core::mem::size_of;
 
-const SMBIOS_SIG: &'static [u8; 5] = b"_SM3_";
+const SMBIOS_SIG: &[u8; 5] = b"_SM3_";
 
 #[repr(C)]
 #[derive(Debug)]
@@ -21,20 +19,18 @@ pub struct_tbl_addr: u64,
 }
 
 pub fn init() {
-allocate_phys_range(0x000F0000, 0x000FFFFF);
-let mut length: u64 = 0;
+allocate_phys_range(0x000F_0000, 0x000F_FFFF);
 let mut i: u64 = 0;
 let mut checksum: u16 = u16::max_value();
 let mut entry_tbl: &mut SMBIOSTable;
 printkln!("SMBIOS: Searching for SMBios area");
-let mut j: u32 = 0x000F0000;
-while j < 0x000FFFFF {
+let mut j: u32 = 0x000F_0000;
+while j < 0x000F_FFFF {
 let addr = j as *mut u16;
 entry_tbl = unsafe { &mut *(addr as *mut SMBIOSTable) };
 if entry_tbl.anchor == *SMBIOS_SIG {
-length = entry_tbl.entry_len as u64;
 checksum = 0;
-for k in 0 .. length {
+for k in 0 .. entry_tbl.entry_len {
 checksum += unsafe { addr.offset(k as isize).read_volatile() } as u16;
 }
 }
@@ -43,7 +39,7 @@ i = j as u64;
 }
 j += 16;
 }
-if i == 0x000FFFFF {
+if i == 0x000F_FFFF {
 printkln!("SMBIOS: no SMBIOS area found");
 return;
 }

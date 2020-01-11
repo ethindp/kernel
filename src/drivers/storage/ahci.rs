@@ -331,7 +331,7 @@ pub fn rebase_port(addr: u64, new_port: u32) {
     for i in 0..32 {
         let header_ptr = {
             let header_ptr = port.clb as *mut internal::HbaCmdHeader;
-             unsafe { header_ptr.offset(i as isize) }
+            unsafe { header_ptr.offset(i as isize) }
         };
         let mut header = unsafe { header_ptr.read_volatile() };
         header.prdtl = 8;
@@ -355,7 +355,7 @@ pub fn find_cmd_slot(addr: u64) -> i32 {
         slots >>= 1;
     }
     printkln!("AHCI: fatal: cannot find free command slot");
--1
+    -1
 }
 
 pub fn ata_read(addr: u64, start_lo: u32, start_hi: u32, count: u32, buffer: &mut u64) -> bool {
@@ -373,7 +373,7 @@ pub fn ata_read(addr: u64, start_lo: u32, start_hi: u32, count: u32, buffer: &mu
     }
     let header_ptr = {
         let raw_ptr = port.clb as *mut internal::HbaCmdHeader;
-         unsafe { raw_ptr.offset(slot as isize) }
+        unsafe { raw_ptr.offset(slot as isize) }
     };
     let mut header = unsafe { header_ptr.read_volatile() };
     header.cfl = (size_of::<internal::FisRegH2D>() / size_of::<u32>()) as u8;
@@ -441,5 +441,5 @@ pub fn ata_read(addr: u64, start_lo: u32, start_hi: u32, count: u32, buffer: &mu
     if port.is & (1 << 30) > 0 {
         panic!("Read error with HBA port: {:?}", port);
     }
-true
+    true
 }

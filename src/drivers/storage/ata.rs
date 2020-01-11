@@ -1,7 +1,13 @@
+//pub mod dco;
+pub mod smart;
+//pub mod security;
+//pub mod identification;
 use cpuio::*;
 //use crate::interrupts::sleep_for;
 use crate::printkln;
+use alloc::collections::linked_list::LinkedList;
 use bit_field::BitField;
+use x86_64::instructions::hlt;
 
 #[repr(u8)]
 pub enum ATACommand {
@@ -86,10 +92,10 @@ pub enum ATACommand {
 
 #[repr(u8)]
 pub enum DCOSubcommand {
-    DeviceConfigurationFreezeLock = 0xC1,
-    DeviceConfigurationIdentify = 0xC2,
-    DeviceConfigurationRestore = 0xC0,
-    DeviceConfigurationSet = 0xC3,
+    FreezeLock = 0xC1,
+    Identify = 0xC2,
+    Restore = 0xC0,
+    Set = 0xC3,
 }
 
 #[repr(u8)]
@@ -107,14 +113,14 @@ pub enum NvCacheSubcommand {
 
 #[repr(u8)]
 pub enum SmartSubcommand {
-DisableOperations = 0xD9,
-ToggleAttributeAutosave = 0xD2,
-EnableOperations = 0xD8,
-ExecuteOfflineImmediate = 0xD4,
-ReadData = 0xD0,
-ReadLog = 0xD5,
-ReturnStatus = 0xDA,
-WriteLog = 0xD6,
+    DisableOperations = 0xD9,
+    ToggleAttributeAutosave = 0xD2,
+    EnableOperations = 0xD8,
+    ExecuteOfflineImmediate = 0xD4,
+    ReadData = 0xD0,
+    ReadLog = 0xD5,
+    ReturnStatus = 0xDA,
+    WriteLog = 0xD6,
 }
 
 // ATA ports (primary)
@@ -178,93 +184,182 @@ const HS3: usize = 5;
 const WTG: usize = 6;
 
 pub fn init() {
-// We use no PCI enumeration code here
-let mut drive_cnt = 0;
-unsafe {
-if inb(STATUS) == 0xFF {
-printkln!("ATA: bus 0 has no master");
-} else {
-drive_cnt += 1;
-}
-if inb(STATUS2) == 0xFF {
-printkln!("ATA: bus 0 has no slave");
-} else {
-drive_cnt += 1;
-}
-}
-if drive_cnt == 0 {
-printkln!("ATA: no ATA drives available; aborting initialization sequence");
-return;
-}
-printkln!("ATA: identifying drive 0");
-unsafe {
-outb(0xA0, DRIVESEL);
-outb(0, LBAL);
-outb(0, LBAM);
-outb(0, LBAH);
-outb(0xEC, COMMAND);
-if inb(STATUS) == 0 {
-printkln!("ATA: drive 0 does not exist");
-return;
-}
-while inb(STATUS).get_bit(BSY) {
-continue;
-}
-if (inb(LBAM) > 0 || inb(LBAH) > 0) || (inb(LBAM) > 0 && inb(LBAH) > 0) {
-printkln!("ATA: drive 0 is non-ATA");
-return;
-}
-while !inb(STATUS).get_bit(DRQ) || !inb(STATUS).get_bit(ERR) {
-continue;
-}
-if !inb(STATUS).get_bit(ERR) {
-let mut data: [u16; 256] = [0; 256];
-for item in data.iter_mut() {
- *item = inw(DATA);
-}
-} else {
-// ATAPI/SATA drive?
-if inb(LBAM) == 0x14 && inb(LBAH) == 0xEB {
-printkln!("ATA: drive 0: ATAPI device found");
-} else if inb(LBAM) == 0x3C && inb(LBAH) == 0xC3 {
-printkln!("ATA: drive 0: SATA device found");
-}
-}
-}
-printkln!("ATA: identifying drive 1");
-unsafe {
-outb(0xB0, DRIVESEL);
-outb(0, LBAL);
-outb(0, LBAM);
-outb(0, LBAH);
-outb(ATACommand::IdentifyDevice as u8, COMMAND);
-if inb(STATUS) == 0 {
-printkln!("ATA: drive 1 does not exist");
-return;
-}
-while inb(STATUS).get_bit(BSY) {
-continue;
-}
-if (inb(LBAM) > 0 || inb(LBAH) > 0) || (inb(LBAM) > 0 && inb(LBAH) > 0) {
-printkln!("ATA: drive 0 is non-ATA");
-return;
-}
-while !inb(STATUS).get_bit(DRQ) || !inb(STATUS).get_bit(ERR) {
-continue;
-}
-if !inb(STATUS).get_bit(ERR) {
-let mut data: [u16; 256] = [0; 256];
-for item in data.iter_mut() {
-*item = inw(DATA);
-}
-} else {
-// ATAPI/SATA drive?
-if inb(LBAM) == 0x14 && inb(LBAH) == 0xEB {
-printkln!("ATA: drive 0: ATAPI device found");
-} else if inb(LBAM) == 0x3C && inb(LBAH) == 0xC3 {
-printkln!("ATA: drive 0: SATA device found");
-}
-}
-}
+    // We use no PCI enumeration code here
+    let mut drive_cnt = 0;
+    unsafe {
+        if inb(STATUS) == 0xFF {
+            printkln!("ATA: bus 0 has no master");
+        } else {
+            drive_cnt += 1;
+            let mut cmd = 0u8;
+            cmd.set_bit(2, true);
+            outb(cmd, DEVCTL);
+            cmd.set_bit(2, false);
+            outb(cmd, DEVCTL);
+            cmd.set_bit(1, true);
+            outb(cmd, DEVCTL);
+        }
+        if inb(STATUS2) == 0xFF {
+            printkln!("ATA: bus 0 has no slave");
+        } else {
+            drive_cnt += 1;
+            let mut cmd = 0u8;
+            cmd.set_bit(2, true);
+            outb(cmd, DEVCTL2);
+            cmd.set_bit(2, false);
+            outb(cmd, DEVCTL2);
+            cmd.set_bit(1, true);
+            outb(cmd, DEVCTL2);
+        }
+    }
+    if drive_cnt == 0 {
+        printkln!("ATA: no ATA drives available; aborting initialization sequence");
+        return;
+    }
+    printkln!("ATA: identifying drive 0");
+    if let Some(data) = unsafe { identify_device_raw(1) } {
+        if data[83].get_bit(10) {
+            printkln!("ATA: drive 0: LBA 48 supported");
+            let tsecs = ((data[103] as u64) << 48)
+                + ((data[102] as u64) << 32)
+                + ((data[101] as u64) << 16)
+                + data[100] as u64;
+            printkln!("ATA: drive 0: max sectors = {}", tsecs);
+        } else {
+            printkln!("ATA: drive 0: LBA 28 is supported");
+            let tsecs = ((data[60] as u64) << 16) + data[61] as u64;
+            printkln!("ATA: drive 0: max sectors = {}", tsecs);
+        }
+    } else {
+        panic!("ATA: drive 0 set ERR bit");
+    }
 }
 
+pub unsafe fn read_sectors_ext(drive: u8, lba: u64, count: u16) -> [u8; 512] {
+    match drive {
+        0 => outb(0xE0, DRIVESEL),
+        1 => outb(0xF0, DRIVESEL),
+        2 => outb(0xE0, DRIVESEL2),
+        3 => outb(0xF0, DRIVESEL2),
+        d => panic!(
+            "ATA: read sector(s) extended got invalid drive number {}",
+            d
+        ),
+    }
+    if drive == 0 || drive == 1 {
+        outb(count.get_bits(8..=15) as u8, SECTOR_COUNT);
+        outb(lba.get_bits(24..32) as u8, LBAL);
+        outb(lba.get_bits(32..40) as u8, LBAM);
+        outb(lba.get_bits(40..48) as u8, LBAH);
+        outb(count.get_bits(0..8) as u8, SECTOR_COUNT);
+        outb(lba.get_bits(0..8) as u8, LBAL);
+        outb(lba.get_bits(8..16) as u8, LBAM);
+        outb(lba.get_bits(16..24) as u8, LBAH);
+        outb(ATACommand::ReadSectorsExt as u8, COMMAND);
+        while inb(STATUS).get_bit(BSY) {
+            hlt();
+        }
+        let mut bytes: LinkedList<u8> = LinkedList::new();
+        for _ in 0..256 {
+            let rawbytes = inw(DATA).to_le_bytes();
+            bytes.push_back(rawbytes[0]);
+            bytes.push_back(rawbytes[1]);
+        }
+        let mut sector: [u8; 512] = [0; 512];
+        for it in bytes.iter().zip(sector.iter_mut()) {
+            let (byte, sector) = it;
+            *sector = *byte;
+        }
+        drop(bytes);
+        return sector;
+    } else if drive == 3 || drive == 4 {
+        outb(count.get_bits(8..=15) as u8, SECTOR_COUNT2);
+        outb(lba.get_bits(24..32) as u8, LBAL2);
+        outb(lba.get_bits(32..40) as u8, LBAM2);
+        outb(lba.get_bits(40..48) as u8, LBAH2);
+        outb(count.get_bits(0..8) as u8, SECTOR_COUNT2);
+        outb(lba.get_bits(0..8) as u8, LBAL2);
+        outb(lba.get_bits(8..16) as u8, LBAM2);
+        outb(lba.get_bits(16..24) as u8, LBAH2);
+        outb(ATACommand::ReadSectorsExt as u8, COMMAND2);
+        while inb(STATUS2).get_bit(BSY) {
+            hlt();
+        }
+        let mut bytes: LinkedList<u8> = LinkedList::new();
+        for _ in 0..256 {
+            let rawbytes = inw(DATA2).to_le_bytes();
+            bytes.push_back(rawbytes[0]);
+            bytes.push_back(rawbytes[1]);
+        }
+        let mut sector: [u8; 512] = [0; 512];
+        for it in bytes.iter().zip(sector.iter_mut()) {
+            let (byte, sector) = it;
+            *sector = *byte;
+        }
+        drop(bytes);
+        return sector;
+    } else {
+        return [0u8; 512];
+    }
+}
+
+pub unsafe fn identify_device_raw(drive: u8) -> Option<[u16; 256]> {
+    match drive {
+        0 => outb(0xE0, DRIVESEL),
+        1 => outb(0xF0, DRIVESEL),
+        2 => outb(0xE0, DRIVESEL2),
+        3 => outb(0xF0, DRIVESEL2),
+        d => panic!("ATA: identify device got invalid drive number {}", d),
+    }
+    if drive == 0 || drive == 1 {
+        outb(0, SECTOR_COUNT);
+        outb(0, LBAL);
+        outb(0, LBAM);
+        outb(0, LBAH);
+        outb(ATACommand::IdentifyDevice as u8, COMMAND);
+        if inb(STATUS) == 0 {
+            return None;
+        }
+        while inb(STATUS).get_bit(BSY) {
+            hlt();
+        }
+        if (inb(LBAM) > 0 || inb(LBAH) > 0) || (inb(LBAM) > 0 && inb(LBAH) > 0) {
+            return None;
+        }
+        if !inb(STATUS).get_bit(ERR) && inb(STATUS).get_bit(DRQ) {
+            let mut data: [u16; 256] = [0; 256];
+            for item in data.iter_mut() {
+                *item = inw(DATA);
+            }
+            Some(data)
+        } else {
+            return None;
+        }
+    } else if drive == 3 || drive == 4 {
+        outb(0, SECTOR_COUNT2);
+        outb(0, LBAL2);
+        outb(0, LBAM2);
+        outb(0, LBAH2);
+        outb(ATACommand::IdentifyDevice as u8, COMMAND2);
+        if inb(STATUS2) == 0 {
+            return None;
+        }
+        while inb(STATUS2).get_bit(BSY) {
+            hlt();
+        }
+        if (inb(LBAM2) > 0 || inb(LBAH2) > 0) || (inb(LBAM2) > 0 && inb(LBAH2) > 0) {
+            return None;
+        }
+        if !inb(STATUS2).get_bit(ERR) && inb(STATUS2).get_bit(DRQ) {
+            let mut data: [u16; 256] = [0; 256];
+            for item in data.iter_mut() {
+                *item = inw(DATA2);
+            }
+            Some(data)
+        } else {
+            return None;
+        }
+    } else {
+        return None;
+    }
+}
