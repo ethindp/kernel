@@ -6,6 +6,7 @@ use pc_keyboard::{layouts, DecodedKey, HandleControl, Keyboard, ScancodeSet1};
 use pic8259_simple::ChainedPics;
 use spin;
 use spin::Mutex;
+use spin::RwLock;
 use x86_64::structures::idt::PageFaultErrorCode;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
 
@@ -71,7 +72,7 @@ lazy_static! {
             ScancodeSet1,
             HandleControl::MapLettersToUnicode
         ));
-    static ref TICK_COUNT: Mutex<u128> = Mutex::new(0u128);
+    static ref TICK_COUNT: RwLock<u128> = RwLock::new(0u128);
     static ref KEY_CMD: Mutex<u8> = Mutex::new(0u8);
 }
 
@@ -95,8 +96,7 @@ extern "x86-interrupt" fn handle_df(stack_frame: &mut InterruptStackFrame, error
     }
     panic!(
         "EXCEPTION: DOUBLE FAULT({})\n{:#?}",
-        error_code,
-        stack_frame,
+        error_code, stack_frame,
     );
 }
 
@@ -106,10 +106,10 @@ extern "x86-interrupt" fn handle_timer(_: &mut InterruptStackFrame) {
     unsafe {
         // Figure out what we've got
         if let Some(command) = dequeue_command() {
-                // Keyboard command, output it to the keyboard and set the keyboard command static reference to this command for later use.
-                *cmd = command;
-                outb(command, 0x60);
-            }
+            // Keyboard command, output it to the keyboard and set the keyboard command static reference to this command for later use.
+            *cmd = command;
+            outb(command, 0x60);
+        }
         PICS.lock()
             .notify_end_of_interrupt(InterruptType::Timer.to_u8());
     }
@@ -117,8 +117,9 @@ extern "x86-interrupt" fn handle_timer(_: &mut InterruptStackFrame) {
 
 extern "x86-interrupt" fn handle_rtc(_stack_frame: &mut InterruptStackFrame) {
     unsafe {
-        let mut tc = TICK_COUNT.lock();
-        *tc += 1;
+        if let Some(mut tc) = TICK_COUNT.try_write() {
+            *tc += 1;
+        }
         PICS.lock()
             .notify_end_of_interrupt(InterruptType::Rtc.to_u8());
         outb(0x0C, 0x70);
@@ -223,17 +224,11 @@ extern "x86-interrupt" fn handle_br(stack: &mut InterruptStackFrame) {
 }
 
 extern "x86-interrupt" fn handle_ud(stack: &mut InterruptStackFrame) {
-    panic!(
-        "Cannot continue: invalid opcode!\nStack:\n{:?}",
-        stack,
-    );
+    panic!("Cannot continue: invalid opcode!\nStack:\n{:?}", stack,);
 }
 
 extern "x86-interrupt" fn handle_nm(stack: &mut InterruptStackFrame) {
-    panic!(
-        "Can't continue: device unavailable!\nStack:\n{:?}",
-        stack,
-    );
+    panic!("Can't continue: device unavailable!\nStack:\n{:?}", stack,);
 }
 
 extern "x86-interrupt" fn handle_gp(_: &mut InterruptStackFrame, ec: u64) {
@@ -241,17 +236,14 @@ extern "x86-interrupt" fn handle_gp(_: &mut InterruptStackFrame, ec: u64) {
         asm!("push rax" :::: "intel");
     }
     use crate::printkln;
-    printkln!(
-        "Cannot continue: protection violation, error code {}",
-        ec,
-    );
+    printkln!("Cannot continue: protection violation, error code {}", ec,);
 }
 
 /// Gets the tick count that has passed since we started counting (since the RTC was set up).
 /// Can handle up to 340282366920938463463374607431768211456 ticks,
 /// Which, if is in microseconds, is about 10 septillion 780 sextillion years
 pub fn get_tick_count() -> u128 {
-    *TICK_COUNT.lock()
+    *TICK_COUNT.read()
 }
 
 /// Sleeps for the given duration of microseconds.

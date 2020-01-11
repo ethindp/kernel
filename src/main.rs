@@ -14,6 +14,7 @@ use bootloader::bootinfo::*;
 use bootloader::*;
 use core::panic::PanicInfo;
 use slab_allocator::LockedHeap;
+use x86_64::instructions::random::RdRand;
 
 entry_point!(kmain);
 #[global_allocator]
@@ -27,6 +28,10 @@ fn panic(panic_information: &PanicInfo) -> ! {
 
 // Kernel entry point
 fn kmain(boot_info: &'static BootInfo) -> ! {
+    if RdRand::new().is_none() {
+        printkln!("Error: rdrand is not supported on this system, but rdrand is required");
+        kernel::idle_forever();
+    }
     printkln!("Loading kernel");
     kernel::memory::init(boot_info.physical_memory_offset, &boot_info.memory_map);
     let start_addr: u64 = 0x1000_0000_0000;

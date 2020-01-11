@@ -1,10 +1,10 @@
 use crate::interrupts::get_tick_count;
 use crate::printkln;
+use alloc::collections::linked_list::LinkedList;
 use bit_field::BitField;
 use cpuio::*;
 use lazy_static::lazy_static;
 use spin::Mutex;
-use alloc::collections::linked_list::LinkedList;
 
 const MAX_FUNCTION: usize = 8;
 const MAX_DEVICE: usize = 32;
@@ -138,7 +138,7 @@ pub struct PCIToCardBusBridgeTable {
 #[inline(always)]
 fn add_device(device: PCIDevice) {
     let mut devices = PCI_DEVICES.lock();
-devices.push_back(device);
+    devices.push_back(device);
 }
 
 /// Reads a dword from a PCI bus, device and function using the given offset and returns it.
@@ -671,5 +671,3 @@ pub extern "C" fn find_device_ex(
     }
     None
 }
-
-
