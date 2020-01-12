@@ -6,10 +6,10 @@ use cpuio::*;
 //use crate::interrupts::sleep_for;
 use crate::printkln;
 use alloc::collections::linked_list::LinkedList;
-use bit_field::BitField;
-use x86_64::instructions::hlt;
 use alloc::string::String;
 use alloc::vec::Vec;
+use bit_field::BitField;
+use x86_64::instructions::hlt;
 
 #[repr(u8)]
 pub enum ATACommand {
@@ -219,22 +219,33 @@ pub fn init() {
         return;
     }
     printkln!("ATA: identifying drive 0");
-let identification = identify_device(1);
-if identification.cmd_ft_sets.lba48 {
-printkln!("ATA: drive supports 48-bit LBA addressing");
-} else {
-printkln!("ATA: drive supports 28-bit LBA adressing");
-}
-printkln!("ATA: maximum 28-bit LBA address = {} ({:X}h)", identification.total_sectors_lba28, identification.total_sectors_lba28);
-printkln!("ATA: maximum 48-bit LBA address = {} ({:X}h)", identification.total_sectors_lba48, identification.total_sectors_lba48);
-printkln!("ATA: Drive serial number: {}", identification.sn);
-printkln!("ATA: Firmware revision: {}", identification.fw_rev);
-printkln!("ATA: model number: {}", identification.model_number);
-if identification.cmd_ft_sets.media_sn && identification.en_cmd_ft_sets.valid_media_sn {
-printkln!("ATA: media serial number: {}", identification.current_media_sn);
-} else {
-printkln!("ATA: no media serial number available");
-}
+    let identification = identify_device(1);
+    if identification.cmd_ft_sets.lba48 {
+        printkln!("ATA: drive supports 48-bit LBA addressing");
+    } else {
+        printkln!("ATA: drive supports 28-bit LBA adressing");
+    }
+    printkln!(
+        "ATA: maximum 28-bit LBA address = {} ({:X}h)",
+        identification.total_sectors_lba28,
+        identification.total_sectors_lba28
+    );
+    printkln!(
+        "ATA: maximum 48-bit LBA address = {} ({:X}h)",
+        identification.total_sectors_lba48,
+        identification.total_sectors_lba48
+    );
+    printkln!("ATA: Drive serial number: {}", identification.sn);
+    printkln!("ATA: Firmware revision: {}", identification.fw_rev);
+    printkln!("ATA: model number: {}", identification.model_number);
+    if identification.cmd_ft_sets.media_sn && identification.en_cmd_ft_sets.valid_media_sn {
+        printkln!(
+            "ATA: media serial number: {}",
+            identification.current_media_sn
+        );
+    } else {
+        printkln!("ATA: no media serial number available");
+    }
 }
 
 pub unsafe fn read_sectors_ext(drive: u8, lba: u64, count: u16) -> [u8; 512] {
@@ -366,364 +377,396 @@ pub unsafe fn identify_device_raw(drive: u8) -> Option<[u16; 256]> {
     }
 }
 
-pub fn identify_device(drive: u8)->identification::DeviceIdentification {
-// unwrap() is used here because the identify_device_raw() function will never return None
-let raw = unsafe { identify_device_raw(drive).unwrap() };
-// Assemble strings
-let sn = {
-let mut bytes: Vec<u8> = Vec::new();
-for i in 10 .. 20 {
-let part = raw[i].to_le_bytes();
-bytes.push(part[0]);
-bytes.push(part[1]);
+pub fn identify_device(drive: u8) -> identification::DeviceIdentification {
+    // unwrap() is used here because the identify_device_raw() function will never return None
+    let raw = unsafe { identify_device_raw(drive).unwrap() };
+    // Verify checksum
+    if raw[255].get_bits(0..8) as u8 == 0xA5 as u8 {
+        let mut checksum = 0u8;
+        for i in 0..255 {
+            checksum += raw[i] as u8;
+        }
+        checksum += raw[255].get_bits(0..8) as u8;
+        if checksum != raw[255].get_bits(8..16) as u8 {
+            panic!(
+                "ATA: checksum verification failure: got {}, expected {}",
+                checksum,
+                raw[255].get_bits(8..16)
+            );
+        }
+    } else {
+        printkln!("ATA: warning: cannot verify checksum: device is not ATA8 ACS compliant");
+        printkln!(
+            "ATA: warning: bits 7:0 of word 255 == {:X}, should be 0xA5",
+            raw[255].get_bits(0..8)
+        );
+    }
+    // Assemble strings
+    let sn = {
+        let mut bytes: Vec<u8> = Vec::new();
+        for i in 10..20 {
+            let part = raw[i].to_le_bytes();
+            bytes.push(part[0]);
+            bytes.push(part[1]);
+        }
+        // Swap the bytes
+        for i in (0..bytes.len()).step_by(2) {
+            let tmp = bytes[i];
+            bytes[i] = bytes[i + 1];
+            bytes[i + 1] = tmp;
+        }
+        String::from_utf8(bytes).unwrap()
+    };
+    let fw_rev = {
+        let mut bytes: Vec<u8> = Vec::new();
+        for i in 23..27 {
+            let part = raw[i].to_le_bytes();
+            bytes.push(part[0]);
+            bytes.push(part[1]);
+        }
+        // Swap the bytes
+        for i in (0..bytes.len()).step_by(2) {
+            let tmp = bytes[i];
+            bytes[i] = bytes[i + 1];
+            bytes[i + 1] = tmp;
+        }
+        String::from_utf8(bytes).unwrap()
+    };
+    let model_number = {
+        let mut bytes: Vec<u8> = Vec::new();
+        for i in 27..47 {
+            let part = raw[i].to_le_bytes();
+            bytes.push(part[0]);
+            bytes.push(part[1]);
+        }
+        // Swap the bytes
+        for i in (0..bytes.len()).step_by(2) {
+            let tmp = bytes[i];
+            bytes[i] = bytes[i + 1];
+            bytes[i + 1] = tmp;
+        }
+        String::from_utf8(bytes).unwrap()
+    };
+    let current_media_sn = {
+        let mut bytes: Vec<u8> = Vec::new();
+        for i in 176..206 {
+            let part = raw[i].to_le_bytes();
+            bytes.push(part[0]);
+            bytes.push(part[1]);
+        }
+        // Swap the bytes
+        for i in (0..bytes.len()).step_by(2) {
+            let tmp = bytes[i];
+            bytes[i] = bytes[i + 1];
+            bytes[i + 1] = tmp;
+        }
+        String::from_utf8(bytes).unwrap()
+    };
+    let gen_config = identification::GeneralConfiguration {
+        is_ata: raw[0].get_bit(15),
+        data_incomplete: raw[0].get_bit(2),
+    };
+    let capabilities = identification::Capabilities {
+        standard_standby_timer: raw[49].get_bit(15),
+        iordy_supported: raw[49].get_bit(11),
+        iordy_adjustable: raw[49].get_bit(10),
+        lba_supported: raw[49].get_bit(9),
+        dma_supported: raw[49].get_bit(8),
+        min_standby_vendor: raw[50].get_bit(0),
+    };
+    let selected_mwdma_mode = if raw[63].get_bit(10) {
+        identification::MwDmaModeSelected { dma2: true }
+    } else if raw[63].get_bit(9) {
+        identification::MwDmaModeSelected { dma1: true }
+    } else if raw[63].get_bit(8) {
+        identification::MwDmaModeSelected { dma0: true }
+    } else {
+        identification::MwDmaModeSelected { unknown: true }
+    };
+    let speed = if raw[77].get_bits(1..=3) == 1 {
+        identification::CurrentNegotiatedSpeed { gen1: true }
+    } else if raw[77].get_bits(1..=3) == 2 {
+        identification::CurrentNegotiatedSpeed { gen2: true }
+    } else if raw[77].get_bits(1..=3) == 3 {
+        identification::CurrentNegotiatedSpeed { gen3: true }
+    } else {
+        identification::CurrentNegotiatedSpeed { unknown: true }
+    };
+    let current_udma_mode = if raw[88].get_bit(14) {
+        identification::SelectedUdmaMode { udma6: true }
+    } else if raw[88].get_bit(13) {
+        identification::SelectedUdmaMode { udma5: true }
+    } else if raw[88].get_bit(12) {
+        identification::SelectedUdmaMode { udma4: true }
+    } else if raw[88].get_bit(11) {
+        identification::SelectedUdmaMode { udma3: true }
+    } else if raw[88].get_bit(10) {
+        identification::SelectedUdmaMode { udma2: true }
+    } else if raw[88].get_bit(9) {
+        identification::SelectedUdmaMode { udma1: true }
+    } else if raw[88].get_bit(8) {
+        identification::SelectedUdmaMode { udma0: true }
+    } else {
+        identification::SelectedUdmaMode { unknown: true }
+    };
+    let supported_udma_modes = identification::SupportedUdmaModes {
+        udma6: raw[88].get_bit(6),
+        udma5: raw[88].get_bit(5),
+        udma4: raw[88].get_bit(4),
+        udma3: raw[88].get_bit(3),
+        udma2: raw[88].get_bit(2),
+        udma1: raw[88].get_bit(1),
+        udma0: raw[88].get_bit(0),
+    };
+    let sata_caps = identification::SataCapabilities {
+        rlde_eq_rle: raw[76].get_bit(15),
+        device_aptst: raw[76].get_bit(14),
+        host_aptst: raw[76].get_bit(13),
+        ncq_priority_info: raw[76].get_bit(12),
+        unload_while_ncq_outstanding: raw[76].get_bit(11),
+        sata_phy: raw[76].get_bit(10),
+        partial_slumber_pm: raw[76].get_bit(9),
+        ncq: raw[76].get_bit(8),
+        gen3: raw[76].get_bit(3),
+        gen2: raw[76].get_bit(2),
+        gen1: raw[76].get_bit(1),
+        oob_management: raw[77].get_bit(9),
+        power_disable_always_enabled: raw[77].get_bit(8),
+        devsleep_to_reducedpwrstate: raw[77].get_bit(7),
+        snd_recv_queued_cmds: raw[77].get_bit(6),
+        ncq_nondata: raw[77].get_bit(5),
+        ncq_streaming: raw[77].get_bit(4),
+        negotiated_speed: speed,
+        power_disable: raw[78].get_bit(12),
+        rebuild_assist: raw[78].get_bit(11),
+        dipm_ssp: raw[78].get_bit(10),
+        hybrid_information: raw[78].get_bit(9),
+        device_sleep: raw[78].get_bit(8),
+        ncq_autosense: raw[78].get_bit(7),
+        ssp: raw[78].get_bit(6),
+        hardware_feature_control: raw[78].get_bit(5),
+        in_order_data_delivery: raw[78].get_bit(4),
+        dipm: raw[78].get_bit(3),
+        dma_setup_auto_activation: raw[78].get_bit(2),
+        nonzero_buffer_offsets: raw[78].get_bit(1),
+    };
+    let en_sata_caps = identification::EnabledSataCapabilities {
+        rebuild_assist: raw[79].get_bit(11),
+        power_disable: raw[79].get_bit(10),
+        hybrid_information: raw[79].get_bit(9),
+        device_sleep: raw[79].get_bit(8),
+        aptst: raw[79].get_bit(7),
+        ssp: raw[79].get_bit(6),
+        hardware_feature_control: raw[79].get_bit(5),
+        in_order_data_delivery: raw[79].get_bit(4),
+        dipm: raw[79].get_bit(3),
+        dma_setup_auto_activate: raw[79].get_bit(2),
+        nonzero_buffer_offsets: raw[79].get_bit(1),
+    };
+    let cmd_ft_sets = identification::SupportedCommandFeatureSets {
+        nop: raw[82].get_bit(14),
+        read_buffer: raw[82].get_bit(13),
+        write_buffer: raw[82].get_bit(12),
+        hpa: raw[82].get_bit(10),
+        device_reset: raw[82].get_bit(9),
+        service: raw[82].get_bit(8),
+        release: raw[82].get_bit(7),
+        read_lookahead: raw[82].get_bit(6),
+        volatile_write_cache: raw[82].get_bit(5),
+        atapi: raw[82].get_bit(4),
+        power_management: raw[82].get_bit(3),
+        security: raw[82].get_bit(1),
+        smart: raw[82].get_bit(0),
+        flush_cache_ext: raw[83].get_bit(13),
+        flush_cache: raw[83].get_bit(12),
+        dco: raw[83].get_bit(11),
+        lba48: raw[83].get_bit(10),
+        aam: raw[83].get_bit(9),
+        hpa_security: raw[83].get_bit(8),
+        set_features_req: raw[83].get_bit(6),
+        puis: raw[83].get_bit(5),
+        apm: raw[83].get_bit(3),
+        cfa: raw[83].get_bit(2),
+        tcq: raw[83].get_bit(1),
+        download_microcode: raw[83].get_bit(0),
+        idle_immediate_unload: raw[84].get_bit(13),
+        wwn: raw[84].get_bit(8),
+        write_dma_queued_fua_ext: raw[84].get_bit(7),
+        write_multiple_fua_ext: raw[84].get_bit(6),
+        gpl: raw[84].get_bit(5),
+        streaming: raw[84].get_bit(4),
+        media_card_passthrough: raw[84].get_bit(3),
+        media_sn: raw[84].get_bit(2),
+        smart_self_test: raw[84].get_bit(1),
+        smart_error_logging: raw[84].get_bit(0),
+        freefall_control: raw[119].get_bit(5),
+        download_microcode_offset: raw[119].get_bit(4),
+        rw_log_dma_ext: raw[119].get_bit(3),
+        write_uncorrectable_ext: raw[119].get_bit(2),
+        write_read_verify: raw[119].get_bit(1),
+    };
+    let en_cmd_ft_sets = identification::EnabledCommandFeatureSets {
+        nop: raw[85].get_bit(14),
+        read_buffer: raw[85].get_bit(13),
+        write_buffer: raw[85].get_bit(12),
+        hpa: raw[85].get_bit(10),
+        device_reset: raw[85].get_bit(9),
+        service: raw[85].get_bit(8),
+        release: raw[85].get_bit(7),
+        read_lookahead: raw[85].get_bit(6),
+        volatile_write_cache: raw[85].get_bit(5),
+        atapi: raw[85].get_bit(4),
+        power_management: raw[85].get_bit(3),
+        security: raw[85].get_bit(1),
+        smart: raw[85].get_bit(0),
+        flush_cache_ext: raw[86].get_bit(13),
+        flush_cache: raw[86].get_bit(12),
+        dco: raw[86].get_bit(11),
+        lba48: raw[86].get_bit(10),
+        aam: raw[86].get_bit(9),
+        hpa_security: raw[86].get_bit(8),
+        set_features_req: raw[86].get_bit(6),
+        puis: raw[86].get_bit(5),
+        apm: raw[86].get_bit(3),
+        cfa: raw[86].get_bit(2),
+        tcq: raw[86].get_bit(1),
+        download_microcode: raw[86].get_bit(0),
+        idle_immediate_unload: raw[87].get_bit(13),
+        wwn: raw[87].get_bit(8),
+        write_dma_queued_fua_ext: raw[87].get_bit(7),
+        write_multiple_fua_ext: raw[87].get_bit(6),
+        smart_self_test: raw[87].get_bit(5),
+        media_card_passthrough: raw[87].get_bit(3),
+        valid_media_sn: raw[87].get_bit(2),
+        smart_error_logging: raw[87].get_bit(0),
+        freefall_control: raw[120].get_bit(5),
+        download_microcode_offset: raw[120].get_bit(4),
+        rw_log_dma_ext: raw[120].get_bit(3),
+        write_uncorrectable_ext: raw[120].get_bit(2),
+        write_read_verify: raw[120].get_bit(1),
+    };
+    let security_status = identification::SecurityStatus {
+        master_pwd_cap: raw[128].get_bit(8),
+        enhanced_erase: raw[128].get_bit(5),
+        pwd_counter_exceeded: raw[128].get_bit(4),
+        frozen: raw[128].get_bit(3),
+        locked: raw[128].get_bit(2),
+    };
+    let cfa_power_mode = identification::CFAPowerMode {
+        mode1: raw[160].get_bit(1),
+        mode0: raw[160].get_bit(0),
+        rms_current: raw[160].get_bits(0..12) as u16,
+    };
+    let sct = identification::SCTCommandTransport {
+        sct_data_tables: raw[206].get_bit(5),
+        sct_feature_control: raw[206].get_bit(4),
+        sct_error_recovery: raw[206].get_bit(3),
+        sct_write_same: raw[206].get_bit(2),
+        sct_rw_long: raw[206].get_bit(1),
+        sct_supported: raw[206].get_bit(0),
+    };
+    let nvcache_caps = identification::NVCacheCapabilities {
+        nvcache_enabled: raw[214].get_bit(4),
+        nvcache_pm_enabled: raw[214].get_bit(1),
+        nvcache_power_supported: raw[214].get_bit(0),
+    };
+    let total_sectors_lba28 = {
+        let (lobytes, hibytes) = (raw[60].to_le_bytes(), raw[61].to_le_bytes());
+        u32::from_le_bytes([lobytes[0], lobytes[1], hibytes[0], hibytes[1]])
+    };
+    let total_sectors_lba48 = {
+        let (lobytes, hibytes) = (
+            [raw[100].to_le_bytes(), raw[101].to_le_bytes()],
+            [raw[102].to_le_bytes(), raw[103].to_le_bytes()],
+        );
+        u64::from_le_bytes([
+            lobytes[0][0],
+            lobytes[0][1],
+            lobytes[1][0],
+            lobytes[1][1],
+            hibytes[0][0],
+            hibytes[0][1],
+            hibytes[1][0],
+            hibytes[1][1],
+        ])
+    };
+    let stream_performance_granularity = {
+        let (lobytes, hibytes) = (raw[98].to_le_bytes(), raw[99].to_le_bytes());
+        u32::from_le_bytes([lobytes[0], lobytes[1], hibytes[0], hibytes[1]])
+    };
+    let logical_sector_size = {
+        let (lobytes, hibytes) = (raw[117].to_le_bytes(), raw[118].to_le_bytes());
+        u32::from_le_bytes([lobytes[0], lobytes[1], hibytes[0], hibytes[1]])
+    };
+    let wrv_count_mode3 = {
+        let (lobytes, hibytes) = (raw[210].to_le_bytes(), raw[211].to_le_bytes());
+        u32::from_le_bytes([lobytes[0], lobytes[1], hibytes[0], hibytes[1]])
+    };
+    let wrv_count_mode2 = {
+        let (lobytes, hibytes) = (raw[212].to_le_bytes(), raw[213].to_le_bytes());
+        u32::from_le_bytes([lobytes[0], lobytes[1], hibytes[0], hibytes[1]])
+    };
+    let nvcache_size_logical = {
+        let (lobytes, hibytes) = (raw[215].to_le_bytes(), raw[216].to_le_bytes());
+        u32::from_le_bytes([lobytes[0], lobytes[1], hibytes[0], hibytes[1]])
+    };
+    identification::DeviceIdentification {
+        gen_config,
+        spec_config: raw[2],
+        sn,
+        fw_rev,
+        model_number,
+        max_sectors_drq_blk: raw[47].get_bits(0..8) as u8,
+        tc_supported: raw[48].get_bit(0),
+        capabilities,
+        logical_sectors_rw_multiple: raw[59].get_bits(0..8) as u8,
+        total_sectors_lba28,
+        selected_mwdma_mode,
+        min_mwdma_cycle_time: raw[65],
+        recommended_mwdma_cycle_time: raw[66],
+        min_pio_cycle_time_no_iordy: raw[67],
+        min_pio_cycle_time_iordy: raw[68],
+        queue_depth: raw[75].get_bits(0..5) as u8,
+        sata_caps,
+        en_sata_caps,
+        major: raw[80],
+        minor: raw[81],
+        cmd_ft_sets,
+        en_cmd_ft_sets,
+        current_udma_mode,
+        supported_udma_modes,
+        normal_sec_erasure_time: raw[89],
+        enhanced_sec_erasure_time: raw[90],
+        current_apm_level: raw[91].get_bits(0..8) as u8,
+        master_pwd_identifier: raw[92],
+        hw_test_res: raw[93],
+        recommended_aam_level: raw[94].get_bits(8..16) as u8,
+        current_aam_level: raw[94].get_bits(0..8) as u8,
+        stream_min_req_size: raw[95],
+        dma_stream_transfer_time: raw[96],
+        stream_access_latency: raw[97],
+        stream_performance_granularity,
+        total_sectors_lba48,
+        pio_stream_transfer_time: raw[104],
+        logical_sectors_per_phys_sector: raw[106],
+        wwn: [raw[108], raw[109], raw[110], raw[111]],
+        logical_sector_size,
+        security_status,
+        cfa_power_mode,
+        nominal_form_factor: raw[168].get_bits(0..4) as u8,
+        current_media_sn,
+        sct,
+        logical_sector_alignment: raw[209],
+        wrv_count_mode3,
+        wrv_count_mode2,
+        nvcache_caps,
+        nvcache_size_logical,
+        nominal_rotation_rate: raw[217],
+        nvcache_retrieval_time: raw[219].get_bits(0..8) as u8,
+        wrv_mode: raw[220].get_bits(0..7) as u8,
+        transport_major: raw[222],
+        transport_minor: raw[223],
+        min_blocks_for_microcode: raw[234],
+        max_blocks_for_microcode: raw[235],
+    }
 }
-// Swap the bytes
-for i in (0 .. bytes.len()).step_by(2) {
-let tmp = bytes[i];
-bytes[i]= bytes[i + 1];
-bytes[i + 1] = tmp;
-}
-String::from_utf8(bytes).unwrap()
-};
-let fw_rev = {
-let mut bytes: Vec<u8> = Vec::new();
-for i in 23 .. 27 {
-let part = raw[i].to_le_bytes();
-bytes.push(part[0]);
-bytes.push(part[1]);
-}
-// Swap the bytes
-for i in (0 .. bytes.len()).step_by(2) {
-let tmp = bytes[i];
-bytes[i]= bytes[i + 1];
-bytes[i + 1] = tmp;
-}
-String::from_utf8(bytes).unwrap()
-};
-let model_number = {
-let mut bytes: Vec<u8> = Vec::new();
-for i in 27 .. 47 {
-let part = raw[i].to_le_bytes();
-bytes.push(part[0]);
-bytes.push(part[1]);
-}
-// Swap the bytes
-for i in (0 .. bytes.len()).step_by(2) {
-let tmp = bytes[i];
-bytes[i]= bytes[i + 1];
-bytes[i + 1] = tmp;
-}
-String::from_utf8(bytes).unwrap()
-};
-let current_media_sn = {
-let mut bytes: Vec<u8> = Vec::new();
-for i in 176 .. 206 {
-let part = raw[i].to_le_bytes();
-bytes.push(part[0]);
-bytes.push(part[1]);
-}
-// Swap the bytes
-for i in (0 .. bytes.len()).step_by(2) {
-let tmp = bytes[i];
-bytes[i]= bytes[i + 1];
-bytes[i + 1] = tmp;
-}
-String::from_utf8(bytes).unwrap()
-};
-let gen_config = identification::GeneralConfiguration {
-is_ata: raw[0].get_bit(15),
-data_incomplete: raw[0].get_bit(2),
-};
-let capabilities = identification::Capabilities {
-standard_standby_timer: raw[49].get_bit(15),
-iordy_supported: raw[49].get_bit(11),
-iordy_adjustable: raw[49].get_bit(10),
-lba_supported: raw[49].get_bit(9),
-dma_supported: raw[49].get_bit(8),
-min_standby_vendor: raw[50].get_bit(0),
-};
-let selected_mwdma_mode = if raw[63].get_bit(10) {
-identification::MwDmaModeSelected { dma2: true }
-} else if raw[63].get_bit(9) {
-identification::MwDmaModeSelected { dma1: true }
-} else if raw[63].get_bit(8) {
-identification::MwDmaModeSelected { dma0: true }
-} else {
-identification::MwDmaModeSelected { unknown: true }
-};
-let speed = if raw[77].get_bits(1 ..= 3) == 1 {
-identification::CurrentNegotiatedSpeed { gen1: true }
-} else if raw[77].get_bits(1 ..= 3) == 2 {
-identification::CurrentNegotiatedSpeed { gen2: true }
-} else if raw[77].get_bits(1 ..= 3) == 3 {
-identification::CurrentNegotiatedSpeed { gen3: true }
-} else {
-identification::CurrentNegotiatedSpeed { unknown: true }
-};
-let current_udma_mode = if raw[88].get_bit(14) {
-identification::SelectedUdmaMode { udma6: true }
-} else if raw[88].get_bit(13) {
-identification::SelectedUdmaMode { udma5: true }
-} else if raw[88].get_bit(12) {
-identification::SelectedUdmaMode { udma4: true }
-} else if raw[88].get_bit(11) {
-identification::SelectedUdmaMode { udma3: true }
-} else if raw[88].get_bit(10) {
-identification::SelectedUdmaMode { udma2: true }
-} else if raw[88].get_bit(9) {
-identification::SelectedUdmaMode { udma1: true }
-} else if raw[88].get_bit(8) {
-identification::SelectedUdmaMode { udma0: true }
-} else {
-identification::SelectedUdmaMode { unknown: true }
-};
-let supported_udma_modes = identification::SupportedUdmaModes {
-udma6: raw[88].get_bit(6),
-udma5: raw[88].get_bit(5),
-udma4: raw[88].get_bit(4),
-udma3: raw[88].get_bit(3),
-udma2: raw[88].get_bit(2),
-udma1:raw[88].get_bit(1),
-udma0: raw[88].get_bit(0),
-};
-let sata_caps = identification::SataCapabilities {
-rlde_eq_rle: raw[76].get_bit(15),
-device_aptst: raw[76].get_bit(14),
-host_aptst: raw[76].get_bit(13),
-ncq_priority_info: raw[76].get_bit(12),
-unload_while_ncq_outstanding: raw[76].get_bit(11),
-sata_phy: raw[76].get_bit(10),
-partial_slumber_pm: raw[76].get_bit(9),
-ncq: raw[76].get_bit(8),
-gen3: raw[76].get_bit(3),
-gen2: raw[76].get_bit(2),
-gen1: raw[76].get_bit(1),
-oob_management: raw[77].get_bit(9),
-power_disable_always_enabled: raw[77].get_bit(8),
-devsleep_to_reducedpwrstate: raw[77].get_bit(7),
-snd_recv_queued_cmds: raw[77].get_bit(6),
-ncq_nondata: raw[77].get_bit(5),
-ncq_streaming: raw[77].get_bit(4),
-negotiated_speed: speed,
-power_disable: raw[78].get_bit(12),
-rebuild_assist: raw[78].get_bit(11),
-dipm_ssp: raw[78].get_bit(10),
-hybrid_information: raw[78].get_bit(9),
-device_sleep: raw[78].get_bit(8),
-ncq_autosense: raw[78].get_bit(7),
-ssp: raw[78].get_bit(6),
-hardware_feature_control: raw[78].get_bit(5),
-in_order_data_delivery: raw[78].get_bit(4),
-dipm: raw[78].get_bit(3),
-dma_setup_auto_activation: raw[78].get_bit(2),
-nonzero_buffer_offsets: raw[78].get_bit(1),
-};
-let en_sata_caps = identification::EnabledSataCapabilities {
-rebuild_assist: raw[79].get_bit(11),
-power_disable: raw[79].get_bit(10),
-hybrid_information: raw[79].get_bit(9),
-device_sleep: raw[79].get_bit(8),
-aptst: raw[79].get_bit(7),
-ssp: raw[79].get_bit(6),
-hardware_feature_control: raw[79].get_bit(5),
-in_order_data_delivery: raw[79].get_bit(4),
-dipm: raw[79].get_bit(3),
-dma_setup_auto_activate: raw[79].get_bit(2),
-nonzero_buffer_offsets: raw[79].get_bit(1),
-};
-let cmd_ft_sets = identification::SupportedCommandFeatureSets {
-nop: raw[82].get_bit(14),
-read_buffer: raw[82].get_bit(13),
-write_buffer: raw[82].get_bit(12),
-hpa: raw[82].get_bit(10),
-device_reset: raw[82].get_bit(9),
-service: raw[82].get_bit(8),
-release: raw[82].get_bit(7),
-read_lookahead: raw[82].get_bit(6),
-volatile_write_cache: raw[82].get_bit(5),
-atapi: raw[82].get_bit(4),
-power_management: raw[82].get_bit(3),
-security: raw[82].get_bit(1),
-smart: raw[82].get_bit(0),
-flush_cache_ext: raw[83].get_bit(13),
-flush_cache: raw[83].get_bit(12),
-dco: raw[83].get_bit(11),
-lba48: raw[83].get_bit(10),
-aam: raw[83].get_bit(9),
-hpa_security: raw[83].get_bit(8),
-set_features_req: raw[83].get_bit(6),
-puis: raw[83].get_bit(5),
-apm: raw[83].get_bit(3),
-cfa: raw[83].get_bit(2),
-tcq: raw[83].get_bit(1),
-download_microcode: raw[83].get_bit(0),
-idle_immediate_unload: raw[84].get_bit(13),
-wwn: raw[84].get_bit(8),
-write_dma_queued_fua_ext: raw[84].get_bit(7),
-write_multiple_fua_ext: raw[84].get_bit(6),
-gpl: raw[84].get_bit(5),
-streaming: raw[84].get_bit(4),
-media_card_passthrough: raw[84].get_bit(3),
-media_sn: raw[84].get_bit(2),
-smart_self_test: raw[84].get_bit(1),
-smart_error_logging: raw[84].get_bit(0),
-freefall_control: raw[119].get_bit(5),
-download_microcode_offset: raw[119].get_bit(4),
-rw_log_dma_ext: raw[119].get_bit(3),
-write_uncorrectable_ext: raw[119].get_bit(2),
-write_read_verify: raw[119].get_bit(1),
-};
-let en_cmd_ft_sets = identification::EnabledCommandFeatureSets {
-nop: raw[85].get_bit(14),
-read_buffer: raw[85].get_bit(13),
-write_buffer: raw[85].get_bit(12),
-hpa: raw[85].get_bit(10),
-device_reset: raw[85].get_bit(9),
-service: raw[85].get_bit(8),
-release: raw[85].get_bit(7),
-read_lookahead: raw[85].get_bit(6),
-volatile_write_cache: raw[85].get_bit(5),
-atapi: raw[85].get_bit(4),
-power_management: raw[85].get_bit(3),
-security: raw[85].get_bit(1),
-smart: raw[85].get_bit(0),
-flush_cache_ext: raw[86].get_bit(13),
-flush_cache: raw[86].get_bit(12),
-dco: raw[86].get_bit(11),
-lba48: raw[86].get_bit(10),
-aam: raw[86].get_bit(9),
-hpa_security: raw[86].get_bit(8),
-set_features_req: raw[86].get_bit(6),
-puis: raw[86].get_bit(5),
-apm: raw[86].get_bit(3),
-cfa: raw[86].get_bit(2),
-tcq: raw[86].get_bit(1),
-download_microcode: raw[86].get_bit(0),
-idle_immediate_unload: raw[87].get_bit(13),
-wwn: raw[87].get_bit(8),
-write_dma_queued_fua_ext: raw[87].get_bit(7),
-write_multiple_fua_ext: raw[87].get_bit(6),
-smart_self_test: raw[87].get_bit(5),
-media_card_passthrough: raw[87].get_bit(3),
-valid_media_sn: raw[87].get_bit(2),
-smart_error_logging: raw[87].get_bit(0),
-freefall_control: raw[120].get_bit(5),
-download_microcode_offset: raw[120].get_bit(4),
-rw_log_dma_ext: raw[120].get_bit(3),
-write_uncorrectable_ext: raw[120].get_bit(2),
-write_read_verify: raw[120].get_bit(1),
-};
-let security_status = identification::SecurityStatus {
-master_pwd_cap: raw[128].get_bit(8),
-enhanced_erase: raw[128].get_bit(5),
-pwd_counter_exceeded: raw[128].get_bit(4),
-frozen: raw[128].get_bit(3),
-locked: raw[128].get_bit(2),
-};
-let cfa_power_mode = identification::CFAPowerMode {
-mode1: raw[160].get_bit(1),
-mode0: raw[160].get_bit(0),
-rms_current: raw[160].get_bits(0 .. 12) as u16,
-};
-let sct = identification::SCTCommandTransport {
-sct_data_tables: raw[206].get_bit(5),
-sct_feature_control: raw[206].get_bit(4),
-sct_error_recovery: raw[206].get_bit(3),
-sct_write_same: raw[206].get_bit(2),
-sct_rw_long: raw[206].get_bit(1),
-sct_supported: raw[206].get_bit(0),
-};
-let nvcache_caps = identification::NVCacheCapabilities {
-nvcache_enabled: raw[214].get_bit(4),
-nvcache_pm_enabled: raw[214].get_bit(1),
-nvcache_power_supported: raw[214].get_bit(0),
-};
-let total_sectors_lba28 = {
-let (lobytes, hibytes) = (raw[60].to_le_bytes(), raw[61].to_le_bytes());
-u32::from_le_bytes([lobytes[0], lobytes[1], hibytes[0], hibytes[1]])
-};
-let total_sectors_lba48 = {
-let (lobytes, hibytes) = ([raw[100].to_le_bytes(), raw[101].to_le_bytes()], [raw[102].to_le_bytes(), raw[103].to_le_bytes()]);
-u64::from_le_bytes([lobytes[0][0], lobytes[0][1], lobytes[1][0], lobytes[1][1], hibytes[0][0], hibytes[0][1], hibytes[1][0], hibytes[1][1]])
-};
-let stream_performance_granularity = {
-let (lobytes, hibytes) = (raw[98].to_le_bytes(), raw[99].to_le_bytes());
-u32::from_le_bytes([lobytes[0], lobytes[1], hibytes[0], hibytes[1]])
-};
-let logical_sector_size = {
-let (lobytes, hibytes) = (raw[117].to_le_bytes(), raw[118].to_le_bytes());
-u32::from_le_bytes([lobytes[0], lobytes[1], hibytes[0], hibytes[1]])
-};
-let wrv_count_mode3 = {
-let (lobytes, hibytes) = (raw[210].to_le_bytes(), raw[211].to_le_bytes());
-u32::from_le_bytes([lobytes[0], lobytes[1], hibytes[0], hibytes[1]])
-};
-let wrv_count_mode2 = {
-let (lobytes, hibytes) = (raw[212].to_le_bytes(), raw[213].to_le_bytes());
-u32::from_le_bytes([lobytes[0], lobytes[1], hibytes[0], hibytes[1]])
-};
-let nvcache_size_logical = {
-let (lobytes, hibytes) = (raw[215].to_le_bytes(), raw[216].to_le_bytes());
-u32::from_le_bytes([lobytes[0], lobytes[1], hibytes[0], hibytes[1]])
-};
-identification::DeviceIdentification {
-gen_config,
-spec_config: raw[2],
-sn,
-fw_rev,
-model_number,
-max_sectors_drq_blk: raw[47].get_bits(0 .. 8) as u8,
-tc_supported: raw[48].get_bit(0),
-capabilities,
-logical_sectors_rw_multiple: raw[59].get_bits(0 .. 8) as u8,
-total_sectors_lba28,
-selected_mwdma_mode,
-min_mwdma_cycle_time: raw[65],
-recommended_mwdma_cycle_time: raw[66],
-min_pio_cycle_time_no_iordy: raw[67],
-min_pio_cycle_time_iordy: raw[68],
-queue_depth: raw[75].get_bits(0 .. 5) as u8,
-sata_caps,
-en_sata_caps,
-major: raw[80],
-minor: raw[81],
-cmd_ft_sets,
-en_cmd_ft_sets,
-current_udma_mode,
-supported_udma_modes,
-normal_sec_erasure_time: raw[89],
-enhanced_sec_erasure_time: raw[90],
-current_apm_level: raw[91].get_bits(0 .. 8) as u8,
-master_pwd_identifier: raw[92],
-hw_test_res: raw[93],
-recommended_aam_level: raw[94].get_bits(8 .. 16) as u8,
-current_aam_level: raw[94].get_bits(0 .. 8) as u8,
-stream_min_req_size: raw[95],
-dma_stream_transfer_time: raw[96],
-stream_access_latency: raw[97],
-stream_performance_granularity,
-total_sectors_lba48,
-pio_stream_transfer_time: raw[104],
-logical_sectors_per_phys_sector: raw[106],
-wwn: [raw[108], raw[109], raw[110], raw[111]],
-logical_sector_size,
-security_status,
-cfa_power_mode,
-nominal_form_factor: raw[168].get_bits(0 .. 4) as u8,
-current_media_sn,
-sct,
-logical_sector_alignment: raw[209],
-wrv_count_mode3,
-wrv_count_mode2,
-nvcache_caps,
-nvcache_size_logical,
-nominal_rotation_rate: raw[217],
-nvcache_retrieval_time: raw[219].get_bits(0 .. 8) as u8,
-wrv_mode: raw[220].get_bits(0 .. 7) as u8,
-transport_major: raw[222],
-transport_minor: raw[223],
-min_blocks_for_microcode: raw[234],
-max_blocks_for_microcode: raw[235],
-}
-}
-
