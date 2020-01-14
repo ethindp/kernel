@@ -136,6 +136,9 @@ pub fn init() {
     drivers::sound::hda::init();
     //    drivers::storage::ahci::init();
     drivers::storage::ata::init();
+if let Some(header) = drivers::storage::gpt::read_gpt_partition_table() {
+printkln!("GPT header: {:?}", header);
+}
 }
 
 /// This function is designed as a failsafe against memory corruption if we panic.
