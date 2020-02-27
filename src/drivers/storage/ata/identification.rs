@@ -189,10 +189,9 @@ pub struct EnabledCommandFeatureSets {
     pub write_read_verify: bool,         // bit 1
 }
 
-// Word 88
+// Word 88, bits 14:8
 #[derive(Clone, Copy)]
 pub union SelectedUdmaMode {
-    // bits 14:8
     pub udma6: bool,
     pub udma5: bool,
     pub udma4: bool,
@@ -203,10 +202,9 @@ pub union SelectedUdmaMode {
     pub unknown: bool,
 }
 
-// word 88
+// word 88, bits 6:0
 #[derive(Clone, Copy)]
 pub struct SupportedUdmaModes {
-    // bits 6:0
     pub udma6: bool,
     pub udma5: bool,
     pub udma4: bool,
@@ -214,6 +212,7 @@ pub struct SupportedUdmaModes {
     pub udma2: bool,
     pub udma1: bool,
     pub udma0: bool,
+    pub unknown: bool,
 }
 
 // Word 128
@@ -254,7 +253,7 @@ pub struct NVCacheCapabilities {
 }
 
 // Full identify device structure
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct DeviceIdentification {
     pub gen_config: GeneralConfiguration,          // word 0
     pub spec_config: u16,                          // word 2

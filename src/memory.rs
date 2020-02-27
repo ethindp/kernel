@@ -1,13 +1,12 @@
-// This code was almost directly written from Writing an OS in Rust by Phil-op on github. We need to improve it though and get the kernel to fully use paging. (It wasn't written by phil-op, but by me, with a few modifications to fit the kernel.)
 use crate::printkln;
 use bootloader::bootinfo::*;
 use core::ptr::*;
 use lazy_static::lazy_static;
 use spin::Mutex;
-use x86_64::registers::control::*;
-use x86_64::structures::paging::mapper::MapToError;
-use x86_64::structures::paging::OffsetPageTable;
 use x86_64::{
+    registers::control::*,
+    structures::paging::mapper::MapToError,
+    structures::paging::OffsetPageTable,
     structures::paging::{
         FrameAllocator, Mapper, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB,
         UnusedPhysFrame,
@@ -122,6 +121,7 @@ unsafe fn get_active_l4_table(physical_memory_offset: u64) -> (&'static mut Page
 pub struct GlobalFrameAllocator {
     memory_map: &'static MemoryMap,
     next: usize,
+    frames: impl Iterator<Item = PhysFrame>,
 }
 
 impl GlobalFrameAllocator {
@@ -129,6 +129,7 @@ impl GlobalFrameAllocator {
         GlobalFrameAllocator {
             memory_map,
             next: 0,
+            frames: iter_usable_frames(),
         }
     }
 
@@ -145,7 +146,7 @@ impl GlobalFrameAllocator {
 
 unsafe impl FrameAllocator<Size4KiB> for GlobalFrameAllocator {
     fn allocate_frame(&mut self) -> Option<UnusedPhysFrame> {
-        let frame = self.iter_usable_frames().nth(self.next);
+        let frame = frames.nth(self.next);
         if let Some(f) = frame {
             let unused_frame = unsafe { UnusedPhysFrame::new(f) };
             self.next += 1;

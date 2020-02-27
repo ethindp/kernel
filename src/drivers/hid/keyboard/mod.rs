@@ -2,13 +2,13 @@ use crate::printkln;
 use cpuio::*;
 use lazy_static::lazy_static;
 use pc_keyboard::KeyCode;
-use spin::Mutex;
+use spin::RwLock;
 
 lazy_static! {
-    static ref KEY_QUEUE: Mutex<[Option<KeyCode>; 512]> = Mutex::new([None; 512]);
-    static ref CHR_QUEUE: Mutex<[Option<char>; 512]> = Mutex::new([None; 512]);
-    static ref CMD_QUEUE: Mutex<[Option<u8>; 512]> = Mutex::new([None; 512]);
-    static ref RESEND_QUEUE: Mutex<[Option<u8>; 512]> = Mutex::new([None; 512]);
+    static ref KEY_QUEUE: RwLock<[Option<KeyCode>; 512]> = RwLock::new([None; 512]);
+    static ref CHR_QUEUE: RwLock<[Option<char>; 512]> = RwLock::new([None; 512]);
+    static ref CMD_QUEUE: RwLock<[Option<u8>; 512]> = RwLock::new([None; 512]);
+    static ref RESEND_QUEUE: RwLock<[Option<u8>; 512]> = RwLock::new([None; 512]);
 }
 
 pub fn init() {
@@ -23,8 +23,8 @@ pub fn init() {
 }
 
 fn queue_command(command: u8) {
-    let mut cmdqueue = CMD_QUEUE.lock();
-    let mut rsndqueue = RESEND_QUEUE.lock();
+    let mut cmdqueue = CMD_QUEUE.write();
+    let mut rsndqueue = RESEND_QUEUE.write();
     let mut queued_in_cmdqueue = false;
     let mut queued_in_rsndqueue = false;
     for it in cmdqueue.iter_mut().zip(rsndqueue.iter_mut()) {
@@ -44,7 +44,7 @@ fn queue_command(command: u8) {
 }
 
 pub fn dequeue_command() -> Option<u8> {
-    let mut queue = CMD_QUEUE.lock();
+    let mut queue = CMD_QUEUE.write();
     for cmd in queue.iter_mut() {
         if cmd.is_some() {
             return cmd.take();
@@ -54,8 +54,8 @@ pub fn dequeue_command() -> Option<u8> {
 }
 
 pub fn notify_ack(byte: u8) {
-    let mut cmdqueue = CMD_QUEUE.lock();
-    let mut resendqueue = RESEND_QUEUE.lock();
+    let mut cmdqueue = CMD_QUEUE.write();
+    let mut resendqueue = RESEND_QUEUE.write();
     for cmd in cmdqueue.iter_mut() {
         if cmd.contains(&byte) {
             cmd.take();
@@ -72,8 +72,8 @@ pub fn notify_ack(byte: u8) {
 }
 
 pub fn notify_resend(byte: u8) {
-    let mut cmdqueue = CMD_QUEUE.lock();
-    let mut resendqueue = RESEND_QUEUE.lock();
+    let mut cmdqueue = CMD_QUEUE.write();
+    let mut resendqueue = RESEND_QUEUE.write();
     for it in cmdqueue.iter_mut().zip(resendqueue.iter_mut()) {
         let (cmdbyte, rsndbyte) = it;
         if rsndbyte.contains(&byte) {
@@ -103,7 +103,7 @@ pub fn notify_self_test_failed() {
 pub fn notify_key(key: (Option<char>, Option<KeyCode>)) {
     let (character, code) = key;
     if let Some(chr) = character {
-        let mut chrqueue = CHR_QUEUE.lock();
+        let mut chrqueue = CHR_QUEUE.write();
         for it in chrqueue.iter_mut() {
             if it.is_none() {
                 *it = Some(chr);
@@ -112,7 +112,7 @@ pub fn notify_key(key: (Option<char>, Option<KeyCode>)) {
         }
     }
     if let Some(c) = code {
-        let mut keyqueue = KEY_QUEUE.lock();
+        let mut keyqueue = KEY_QUEUE.write();
         for it in keyqueue.iter_mut() {
             if it.is_none() {
                 *it = Some(c);
@@ -387,22 +387,42 @@ pub fn enable() {
 
 /// Returns a character code that can be interpreted via the ASCII table.
 pub fn read_character() -> Option<char> {
-    let mut chrqueue = CHR_QUEUE.lock();
-    for chr in chrqueue.iter_mut() {
-        if chr.is_some() {
-            return chr.take();
+    if let Some(mut chrqueue) = CHR_QUEUE.try_write() {
+        for chr in chrqueue.iter_mut() {
+            if chr.is_some() {
+                return chr.take();
+            }
         }
+    } else {
+        None
     }
-    None
 }
 
 /// Returns a key code useful for key scanning
 pub fn read_key() -> Option<KeyCode> {
-    let mut keyqueue = KEY_QUEUE.lock();
-    for key in keyqueue.iter_mut() {
-        if key.is_some() {
-            return key.take();
+    if let Some(mut keyqueue) = KEY_QUEUE.write() {
+        for key in keyqueue.iter_mut() {
+            if key.is_some() {
+                return key.take();
+            }
         }
+    } else {
+        None
     }
-    None
+}
+
+pub fn are_keys_present(keys: &[u8]) -> bool {
+    if let Some(keyqueue) = KEY_QUEUE.try_read() {
+        if keys
+            .iter()
+            .zip(keyqueue.iter())
+            .all(|query, key| key.contains(query))
+        {
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    }
 }

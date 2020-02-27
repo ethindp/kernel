@@ -1,1 +1,1 @@
-pub mod vfs;
+pub mod ext2;

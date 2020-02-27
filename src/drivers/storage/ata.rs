@@ -246,8 +246,40 @@ pub fn init() {
     } else {
         printkln!("ATA: no media serial number available");
     }
+    printkln!(
+        "ATA: ATA version: {}.{}",
+        identification.major,
+        identification.minor
+    );
+    printkln!(
+        "ATA: transport version: {}.{}",
+        identification.transport_major,
+        identification.transport_minor
+    );
+    printkln!("ATA: ATA identification: {:?}", identification);
 }
 
+/// # Feature Set
+/// This 48-bit command is mandatory for devices implementing the 48-bit Address feature set.
+/// # Description
+/// This command reads from 1 to 65,536 logical sectors as specified in the Count field. The transfer shall begin at
+/// the logical sector specified in the LBA field.
+/// # Inputs
+/// * Feature: Reserved
+/// * Count: The number of logical sectors to be transferred. A value of 0000h indicates that 65,536 logical sectors are to be transferred
+/// * LBA: LBA of first logical sector to be transferred
+/// * Device (drive): 0/1 for primary bus drives 1 or 2, 2/3 for secondary bus drives 1/2.
+/// # Outputs
+/// Returns a 512-byte (always little endian) block of data.
+/// # Errors
+/// The validity of the data transferred is indeterminate. A device may return command completion with the Error bit
+/// set to one if an Interface CRC error has occurred. See table 147 of ATA8 ACS.
+/// NOTE: There is no defined mechanism for a device to return an Interface CRC error status that
+/// may have occurred during the last data block of a PIO-in data transfer; there may be other mechanisms
+/// in which a host may verify that an Interface CRC error occurred in these cases.
+/// In the case of an error, this function will return all zeros.
+/// # Safety
+/// Passing in invalid data may cause undefined behavior.
 pub unsafe fn read_sectors_ext(drive: u8, lba: u64, count: u16) -> [u8; 512] {
     match drive {
         0 => outb(0xE0, DRIVESEL),
@@ -284,7 +316,7 @@ pub unsafe fn read_sectors_ext(drive: u8, lba: u64, count: u16) -> [u8; 512] {
             *sector = *byte;
         }
         drop(bytes);
-        return sector;
+        sector
     } else if drive == 3 || drive == 4 {
         outb(count.get_bits(8..=15) as u8, SECTOR_COUNT2);
         outb(lba.get_bits(24..32) as u8, LBAL2);
@@ -310,12 +342,33 @@ pub unsafe fn read_sectors_ext(drive: u8, lba: u64, count: u16) -> [u8; 512] {
             *sector = *byte;
         }
         drop(bytes);
-        return sector;
+        sector
     } else {
-        return [0u8; 512];
+        [0u8; 512]
     }
 }
 
+/// # Feature Set
+/// This 28-bit command is mandatory for all devices.
+/// # Description
+/// The IDENTIFY DEVICE command specifies that the device shall send a 512-byte block of data to the host. See
+/// 7.16.7 of ATA8 ACS (INCITS 452-2009 (R 2019)) for a description of the return data.
+/// Some devices may have to read the media in order for all applicable IDENTIFY DEVICE data fields to be valid.
+/// The IDENTIFY DEVICE data contains information regarding optional feature or command support. If the host
+/// issues a command that is indicated as not supported in the IDENTIFY DEVICE data, the device shall return
+/// command aborted for the command.
+/// # Inputs
+/// * Feature: N/A
+/// * Count: N/A
+/// * LBA: N/A
+/// * Device (drive): 0 or 1 for the master or slave on the primary bus; 2 or 3 for the master or slave on the secondary bus.
+/// # Outputs (ATA only)
+/// This command will return the raw data returned by the device. Thecaller will need to manually interpret this data.
+/// # Outputs (ATAPI Only)
+/// In response to this command, ATAPI devices shall return command aborted and place the PACKET feature set
+/// signature in the appropriate fields (see table 104 of ATA8 ACS).
+/// # Safety
+/// This function has no safety implications. However, it is marked unsafe because ASM instructions are used.
 pub unsafe fn identify_device_raw(drive: u8) -> Option<[u16; 256]> {
     match drive {
         0 => outb(0xE0, DRIVESEL),
@@ -346,7 +399,7 @@ pub unsafe fn identify_device_raw(drive: u8) -> Option<[u16; 256]> {
             }
             Some(data)
         } else {
-            return None;
+            None
         }
     } else if drive == 3 || drive == 4 {
         outb(0, SECTOR_COUNT2);
@@ -370,21 +423,37 @@ pub unsafe fn identify_device_raw(drive: u8) -> Option<[u16; 256]> {
             }
             Some(data)
         } else {
-            return None;
+            None
         }
     } else {
-        return None;
+        None
     }
 }
 
+/// # Feature Set
+/// This 28-bit command is mandatory for all devices.
+/// # Description
+/// The IDENTIFY DEVICE command specifies that the device shall send a 512-byte block of data to the host. See
+/// 7.16.7 of ATA8 ACS (INCITS 452-2009 (R 2019)) for a description of the return data.
+/// Some devices may have to read the media in order for all applicable IDENTIFY DEVICE data fields to be valid.
+/// The IDENTIFY DEVICE data contains information regarding optional feature or command support. If the host
+/// issues a command that is indicated as not supported in the IDENTIFY DEVICE data, the device shall return
+/// command aborted for the command.
+/// # Inputs
+/// * Feature: N/A
+/// * Count: N/A
+/// * LBA: N/A
+/// * Device (drive): 0 or 1 for the master or slave on the primary bus; 2 or 3 for the master or slave on the secondary bus.
+/// # Outputs
+/// This command returns a data structure containing device identification information.
 pub fn identify_device(drive: u8) -> identification::DeviceIdentification {
     // unwrap() is used here because the identify_device_raw() function will never return None
     let raw = unsafe { identify_device_raw(drive).unwrap() };
     // Verify checksum
     if raw[255].get_bits(0..8) as u8 == 0xA5 as u8 {
         let mut checksum = 0u8;
-        for i in 0..255 {
-            checksum += raw[i] as u8;
+        for item in raw.iter().take(255) {
+            checksum += *item as u8;
         }
         checksum += raw[255].get_bits(0..8) as u8;
         if checksum != raw[255].get_bits(8..16) as u8 {
@@ -404,61 +473,53 @@ pub fn identify_device(drive: u8) -> identification::DeviceIdentification {
     // Assemble strings
     let sn = {
         let mut bytes: Vec<u8> = Vec::new();
-        for i in 10..20 {
-            let part = raw[i].to_le_bytes();
+        for item in raw.iter().take(20).skip(10) {
+            let part = item.to_le_bytes();
             bytes.push(part[0]);
             bytes.push(part[1]);
         }
         // Swap the bytes
         for i in (0..bytes.len()).step_by(2) {
-            let tmp = bytes[i];
-            bytes[i] = bytes[i + 1];
-            bytes[i + 1] = tmp;
+            bytes.swap(i, i + 1);
         }
         String::from_utf8(bytes).unwrap()
     };
     let fw_rev = {
         let mut bytes: Vec<u8> = Vec::new();
-        for i in 23..27 {
-            let part = raw[i].to_le_bytes();
+        for item in raw.iter().take(27).skip(23) {
+            let part = item.to_le_bytes();
             bytes.push(part[0]);
             bytes.push(part[1]);
         }
         // Swap the bytes
         for i in (0..bytes.len()).step_by(2) {
-            let tmp = bytes[i];
-            bytes[i] = bytes[i + 1];
-            bytes[i + 1] = tmp;
+            bytes.swap(i, i + 1);
         }
         String::from_utf8(bytes).unwrap()
     };
     let model_number = {
         let mut bytes: Vec<u8> = Vec::new();
-        for i in 27..47 {
-            let part = raw[i].to_le_bytes();
+        for item in raw.iter().take(47).skip(27) {
+            let part = item.to_le_bytes();
             bytes.push(part[0]);
             bytes.push(part[1]);
         }
         // Swap the bytes
         for i in (0..bytes.len()).step_by(2) {
-            let tmp = bytes[i];
-            bytes[i] = bytes[i + 1];
-            bytes[i + 1] = tmp;
+            bytes.swap(i, i + 1);
         }
         String::from_utf8(bytes).unwrap()
     };
     let current_media_sn = {
         let mut bytes: Vec<u8> = Vec::new();
-        for i in 176..206 {
-            let part = raw[i].to_le_bytes();
+        for item in raw.iter().take(206).skip(176) {
+            let part = item.to_le_bytes();
             bytes.push(part[0]);
             bytes.push(part[1]);
         }
         // Swap the bytes
         for i in (0..bytes.len()).step_by(2) {
-            let tmp = bytes[i];
-            bytes[i] = bytes[i + 1];
-            bytes[i + 1] = tmp;
+            bytes.swap(i, i + 1);
         }
         String::from_utf8(bytes).unwrap()
     };
