@@ -3,22 +3,23 @@
 #![feature(alloc_error_handler)]
 #![feature(proc_macro_hygiene)]
 #![feature(asm)]
+#![feature(const_in_array_repeat_expressions)]
 #![allow(dead_code)]
 extern crate alloc;
 extern crate uart_16550;
 extern crate x86_64;
 mod memory;
-//mod ui;
 mod vga;
 use bootloader::bootinfo::*;
 use bootloader::*;
 use core::panic::PanicInfo;
-use slab_allocator::LockedHeap;
+use linked_list_allocator::LockedHeap;
 use x86_64::instructions::random::RdRand;
 
 entry_point!(kmain);
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
+
 // Panic handler
 #[panic_handler]
 fn panic(panic_information: &PanicInfo) -> ! {
@@ -33,14 +34,36 @@ fn kmain(boot_info: &'static BootInfo) -> ! {
         kernel::idle_forever();
     }
     printkln!("Loading kernel");
-    kernel::memory::init(boot_info.physical_memory_offset, &boot_info.memory_map);
-    let start_addr: u64 = 0x1000_0000_0000;
+    let rdrand = RdRand::new().unwrap();
+    let mut start_addr: u64 = rdrand.get_u64().unwrap();
+    for region in boot_info.memory_map.iter().cycle() {
+        if region.region_type == MemoryRegionType::Usable
+            && (start_addr < region.range.start_addr()
+                || start_addr > region.range.end_addr()
+                || (start_addr + 8 * 1_048_576) > region.range.end_addr())
+        {
+            start_addr = rdrand.get_u64().unwrap();
+            continue;
+        } else if region.region_type == MemoryRegionType::Usable
+            && (start_addr >= region.range.start_addr()
+                || (start_addr + 8 * 1_048_576) < region.range.end_addr())
+        {
+            break;
+        }
+    }
     let mut end_addr = start_addr + 8 * 1_048_576;
     while ((end_addr - start_addr) % 32768) != 0 {
         end_addr -= 1;
     }
+    kernel::memory::init(
+        boot_info.physical_memory_offset,
+        &boot_info.memory_map,
+        start_addr,
+    );
     unsafe {
-        ALLOCATOR.init(start_addr as usize, (end_addr - start_addr) as usize);
+        ALLOCATOR
+            .lock()
+            .init(start_addr as usize, (end_addr - start_addr) as usize);
     }
     kernel::init();
     kernel::idle_forever();

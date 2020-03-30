@@ -11,5 +11,5 @@
 "linker": "rust-lld",
 "panic-strategy": "abort",
 "disable-redzone": true,
-"features": "-mmx,-sse,+soft-float"
+"features": "+mmx,+sse,+soft-float,+sse2,+sse3,+sse4.1,+sse4.2,+sse4a,+ssse3,+rdrnd,+rdseed,+retpoline,+retpoline-indirect-branches,+retpoline-indirect-calls"
 }

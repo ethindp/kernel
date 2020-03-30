@@ -1,9 +1,11 @@
 #![no_std]
 #![feature(abi_x86_interrupt)]
 #![feature(asm)]
-#![feature(slice_from_raw_parts)]
 #![feature(option_result_contains)]
 #![feature(const_if_match)]
+#![feature(type_alias_impl_trait)]
+#![feature(alloc_layout_extra)]
+#![feature(const_in_array_repeat_expressions)]
 #![allow(dead_code)]
 #![deny(
     array_into_iter,
@@ -27,7 +29,7 @@
     path_statements,
     private_in_public,
     proc_macro_derive_resolution_fallback,
-    redundant_semicolon,
+    redundant_semicolons,
     renamed_and_removed_lints,
     safe_packed_borrows,
     stable_features,
@@ -57,8 +59,8 @@
     where_clauses_object_safety,
     while_true,
     ambiguous_associated_items,
+    arithmetic_overflow,
     const_err,
-    exceeding_bitshifts,
     ill_formed_attribute_input,
     invalid_type_param_default,
     macro_expanded_macro_exports_accessed_by_absolute_paths,
@@ -73,8 +75,6 @@
     unknown_crate_types
 )]
 extern crate alloc;
-#[macro_use]
-extern crate derivative;
 /// The drivers module contains drivers for various hardware devices.
 pub mod drivers;
 /// The gdt module contains basic GDT functionality.

@@ -6,22 +6,23 @@ edition = "2018"
 
 
 [dependencies]
-x86_64 = "*"
-bootloader = {version="*", features=["map_physical_memory", "sse"]}
-uart_16550 = "*"
-volatile = "*"
-pic8259_simple = "*"
-pc-keyboard = "*"
-cpuio = "*"
-bit_field = "*"
-slab_allocator = "*"
-rusty-asm = {version="*", features=["proc-macro"]}
-goblin = {version = "*", default-features=false, features=["elf64", "elf32", "mach64", "mach32", "pe32", "pe64", "archive", "endian_fd"]}
+x86_64 = "0.9.6"
+bootloader = {version="0.8.9", features=["map_physical_memory", "sse"]}
+uart_16550 = "0.2.4"
+volatile = "0.2.6"
+pic8259_simple = "0.1.1"
+pc-keyboard = "0.5.0"
+cpuio = "0.2.0"
+bit_field = "0.10.0"
+rusty-asm = {version="0.2.1", features=["proc-macro"]}
+goblin = {version = "0.2.0", default-features=false, features=["elf64", "elf32", "mach64", "mach32", "pe32", "pe64", "archive", "endian_fd"]}
 zerocopy = "0.2.8"
 spin = ">= 0.5.2"
+linked_list_allocator = {version = "0.8.0", features = ["use_spin"]}
+fixedvec = "0.2.4"
 
 [dependencies.lazy_static]
-version = "*"
+version = "1.4.0"
 features = ["spin_no_std"]
 
 [profile.dev]
@@ -37,9 +38,12 @@ incremental = true
 
 [profile.release]
 panic = "abort"
+lto = "fat"
+codegen-units = 1
 
 [package.metadata.bootimage]
-run-args = ["-serial", "stdio", "-soundhw", "all", "-no-reboot", "-hdb", "disk.img", "-cpu", "max", "-s", "-m", "1G"]
+run-command = ["C:/Program Files/qemu/qemu-system-x86_64", "-drive", "format=raw,file={}"]
+run-args = ["-serial", "stdio", "-no-reboot", "-hdb", "disk.img", "-cpu", "max", "-s", "-m", "1G", "-soundhw", "all", "-machine", "type=pc,kernel_irqchip=on,vmport=on,igd-passthru=on,nvdimm=on", "-accel", "tcg,thread=multi", "-usb", "-d", "int,pcall,cpu_reset,unimp,guest_errors", "-rtc", "base=utc,clock=host", "-D", "run.log"]
 
 [package.metadata.cargo-xbuild]
 memcpy = true
