@@ -40,7 +40,7 @@ pub struct Process {
 
 #[no_mangle]
 pub extern "C" fn create_ppid(pid: u32, tid: u32) -> u64 {
-    ((pid as u64) << 32 | (tid as u64))
+    (pid as u64) << 32 | (tid as u64)
 }
 
 #[no_mangle]

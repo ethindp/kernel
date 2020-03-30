@@ -223,7 +223,7 @@ pub fn init() {
     if identification.cmd_ft_sets.lba48 {
         printkln!("ATA: drive supports 48-bit LBA addressing");
     } else {
-        printkln!("ATA: drive supports 28-bit LBA adressing");
+        printkln!("ATA: drive supports 28-bit LBA addressing");
     }
     printkln!(
         "ATA: maximum 28-bit LBA address = {} ({:X}h)",
@@ -363,7 +363,7 @@ pub unsafe fn read_sectors_ext(drive: u8, lba: u64, count: u16) -> [u8; 512] {
 /// * LBA: N/A
 /// * Device (drive): 0 or 1 for the master or slave on the primary bus; 2 or 3 for the master or slave on the secondary bus.
 /// # Outputs (ATA only)
-/// This command will return the raw data returned by the device. Thecaller will need to manually interpret this data.
+/// This command will return the raw data returned by the device. The caller will need to manually interpret this data.
 /// # Outputs (ATAPI Only)
 /// In response to this command, ATAPI devices shall return command aborted and place the PACKET feature set
 /// signature in the appropriate fields (see table 104 of ATA8 ACS).
@@ -536,39 +536,39 @@ pub fn identify_device(drive: u8) -> identification::DeviceIdentification {
         min_standby_vendor: raw[50].get_bit(0),
     };
     let selected_mwdma_mode = if raw[63].get_bit(10) {
-        identification::MwDmaModeSelected { dma2: true }
+        identification::MwDmaModeSelected::Dma2
     } else if raw[63].get_bit(9) {
-        identification::MwDmaModeSelected { dma1: true }
+        identification::MwDmaModeSelected::Dma1
     } else if raw[63].get_bit(8) {
-        identification::MwDmaModeSelected { dma0: true }
+        identification::MwDmaModeSelected::Dma0
     } else {
-        identification::MwDmaModeSelected { unknown: true }
+        identification::MwDmaModeSelected::Unknown
     };
     let speed = if raw[77].get_bits(1..=3) == 1 {
-        identification::CurrentNegotiatedSpeed { gen1: true }
+        identification::CurrentNegotiatedSpeed::Gen1
     } else if raw[77].get_bits(1..=3) == 2 {
-        identification::CurrentNegotiatedSpeed { gen2: true }
+        identification::CurrentNegotiatedSpeed::Gen2
     } else if raw[77].get_bits(1..=3) == 3 {
-        identification::CurrentNegotiatedSpeed { gen3: true }
+        identification::CurrentNegotiatedSpeed::Gen3
     } else {
-        identification::CurrentNegotiatedSpeed { unknown: true }
+        identification::CurrentNegotiatedSpeed::Unknown
     };
     let current_udma_mode = if raw[88].get_bit(14) {
-        identification::SelectedUdmaMode { udma6: true }
+        identification::SelectedUdmaMode::Udma6
     } else if raw[88].get_bit(13) {
-        identification::SelectedUdmaMode { udma5: true }
+        identification::SelectedUdmaMode::Udma5
     } else if raw[88].get_bit(12) {
-        identification::SelectedUdmaMode { udma4: true }
+        identification::SelectedUdmaMode::Udma4
     } else if raw[88].get_bit(11) {
-        identification::SelectedUdmaMode { udma3: true }
+        identification::SelectedUdmaMode::Udma3
     } else if raw[88].get_bit(10) {
-        identification::SelectedUdmaMode { udma2: true }
+        identification::SelectedUdmaMode::Udma2
     } else if raw[88].get_bit(9) {
-        identification::SelectedUdmaMode { udma1: true }
+        identification::SelectedUdmaMode::Udma1
     } else if raw[88].get_bit(8) {
-        identification::SelectedUdmaMode { udma0: true }
+        identification::SelectedUdmaMode::Udma0
     } else {
-        identification::SelectedUdmaMode { unknown: true }
+        identification::SelectedUdmaMode::Unknown
     };
     let supported_udma_modes = identification::SupportedUdmaModes {
         udma6: raw[88].get_bit(6),

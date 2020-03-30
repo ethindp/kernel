@@ -8,8 +8,8 @@ use x86_64::{
     structures::paging::mapper::MapToError,
     structures::paging::OffsetPageTable,
     structures::paging::{
-        FrameAllocator, Mapper, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB,
-        UnusedPhysFrame,
+        FrameAllocator, FrameDeallocator, Mapper, Page, PageTable, PageTableFlags, PhysFrame,
+        Size4KiB, UnusedPhysFrame,
     },
     PhysAddr, VirtAddr,
 };
@@ -35,7 +35,7 @@ fn allocate_paged_heap(
     size: u64,
     mapper: &mut impl Mapper<Size4KiB>,
     frame_allocator: &mut impl FrameAllocator<Size4KiB>,
-) -> Result<(), MapToError> {
+) -> Result<(), MapToError<Size4KiB>> {
     // Construct a page range
     let page_range = {
         // Calculate start and end
@@ -69,7 +69,7 @@ fn allocate_paged_heap(
 /// Allocates a paged heap with the specified permissions.
 /// Possible permissions are:
 /// * Writable (W): controls whether writes to the mapped frames are allowed. If this bit is unset in a level 1 page table entry, the mapped frame is read-only.
-/// If this bit is unset in a higher level page table entry the complete range of mapped pages is read-only.
+///     If this bit is unset in a higher level page table entry the complete range of mapped pages is read-only.
 /// * User accessible (UA): controls whether accesses from userspace (i.e. ring 3) are permitted.
 /// * Write-through (WT): if this bit is set, a "write-through" policy is used for the cache, else a "write-back" policy is used.
 /// * No cache (NC): Disables caching for this memory page.
@@ -83,7 +83,7 @@ fn allocate_paged_heap_with_perms(
     mapper: &mut impl Mapper<Size4KiB>,
     frame_allocator: &mut impl FrameAllocator<Size4KiB>,
     permissions: PageTableFlags,
-) -> Result<(), MapToError> {
+) -> Result<(), MapToError<Size4KiB>> {
     let page_range = {
         let heap_start = VirtAddr::new(start as u64);
         let heap_end = heap_start + size - 1u64;
@@ -120,53 +120,51 @@ unsafe fn get_active_l4_table(physical_memory_offset: u64) -> (&'static mut Page
 
 pub struct GlobalFrameAllocator {
     memory_map: &'static MemoryMap,
-    next: usize,
-    frames: impl Iterator<Item = PhysFrame>,
+    pos: usize,
+    frames: [Option<UnusedPhysFrame>; 65536],
 }
 
 impl GlobalFrameAllocator {
     pub unsafe fn init(memory_map: &'static MemoryMap) -> Self {
+        printkln!("Mem: init: locating free memory frames");
+        let frames_iter = find_usable_frames(&memory_map);
+        printkln!(
+            "Mem: init: found {} memory frames",
+            find_usable_frames(&memory_map).count()
+        );
+        let mut mframes = [None; 65536];
+        for (i, frame) in frames_iter.enumerate() {
+            mframes[i] = Some(UnusedPhysFrame::new(frame.clone()));
+        }
         GlobalFrameAllocator {
             memory_map,
-            next: 0,
-            frames: iter_usable_frames(),
+            pos: 0,
+            frames: mframes,
         }
-    }
-
-    fn iter_usable_frames(&self) -> impl Iterator<Item = PhysFrame> {
-        let regions = self.memory_map.iter();
-        let usable_regions =
-            regions.filter(|region| region.region_type == MemoryRegionType::Usable);
-        let address_ranges =
-            usable_regions.map(|region| region.range.start_addr()..region.range.end_addr());
-        let frame_addresses = address_ranges.flat_map(|region| region.step_by(4096));
-        frame_addresses.map(|address| PhysFrame::containing_address(PhysAddr::new(address)))
     }
 }
 
 unsafe impl FrameAllocator<Size4KiB> for GlobalFrameAllocator {
     fn allocate_frame(&mut self) -> Option<UnusedPhysFrame> {
-        let frame = frames.nth(self.next);
-        if let Some(f) = frame {
-            let unused_frame = unsafe { UnusedPhysFrame::new(f) };
-            self.next += 1;
-            Some(unused_frame)
-        } else {
-            None
-        }
+        let frame = self.frames[self.pos].take();
+        self.pos += 1;
+        frame
     }
 }
 
-pub fn init(physical_memory_offset: u64, memory_map: &'static MemoryMap) {
+impl FrameDeallocator<Size4KiB> for GlobalFrameAllocator {
+    fn deallocate_frame(&mut self, frame: UnusedPhysFrame<Size4KiB>) {
+        self.pos -= 1;
+        self.frames[self.pos] = Some(frame);
+    }
+}
+
+pub fn init(physical_memory_offset: u64, memory_map: &'static MemoryMap, start_addr: u64) {
     let mut mapper = MAPPER.lock();
     let mut allocator = FRAME_ALLOCATOR.lock();
     *mapper = Some(unsafe { init_mapper(physical_memory_offset) });
     *allocator = Some(unsafe { GlobalFrameAllocator::init(memory_map) });
-    let start_addr: u64 = 0x1000_0000_0000;
     let end_addr = start_addr + 8 * 1_048_576;
-    // We cannot call allocate_paged_heap here since we hold the spinlock,
-    // which would result in an endless lock acquisition attempt loop (deadlock).
-    // Instead we call the function directly here.
     match (mapper.as_mut(), allocator.as_mut()) {
         (Some(m), Some(a)) => match allocate_paged_heap(start_addr, end_addr - start_addr, m, a) {
             Ok(()) => (),
@@ -301,4 +299,13 @@ pub fn write_memory(address: u64, value: u64) {
     unsafe {
         write_volatile(addr, value);
     }
+}
+
+fn find_usable_frames(map: &'static MemoryMap) -> impl Iterator<Item = UnusedPhysFrame> {
+    let regions = map.iter();
+    let usable_regions = regions.filter(|r| r.region_type == MemoryRegionType::Usable);
+    let addr_ranges = usable_regions.map(|r| r.range.start_addr()..r.range.end_addr());
+    let frame_addrs = addr_ranges.flat_map(|r| r.step_by(4096));
+    let frames = frame_addrs.map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)));
+    frames.map(|f| unsafe { UnusedPhysFrame::new(f) })
 }

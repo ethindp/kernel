@@ -634,7 +634,7 @@ fn calculate_bar_addr(bar1: u32, bar2: u32) -> u64 {
             _ => bar1 as u64,
         }
     } else {
-        ((bar1 as u64) & 0xFFFF_FFFC)
+        (bar1 as u64) & 0xFFFF_FFFC
     }
 }
 

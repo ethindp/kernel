@@ -1,14 +1,14 @@
 use alloc::string::String;
 
 // Word 0
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct GeneralConfiguration {
     pub is_ata: bool,          // bit 15
     pub data_incomplete: bool, // bit 2
 }
 
 // Words 49-50
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Capabilities {
     // word 49
     pub standard_standby_timer: bool, // bit 15
@@ -21,24 +21,26 @@ pub struct Capabilities {
 }
 
 // Word 63
-#[derive(Clone, Copy)]
-pub union MwDmaModeSelected {
-    pub dma2: bool, // bit 10
-    pub dma1: bool, // bit 9
-    pub dma0: bool, // bit 8
-    pub unknown: bool,
+#[repr(u8)]
+#[derive(Clone, Copy, Debug)]
+pub enum MwDmaModeSelected {
+    Dma0, // bit 10
+    Dma1, // bit 9
+    Dma2, // bit 8
+    Unknown,
 }
 
-#[derive(Clone, Copy)]
-pub union CurrentNegotiatedSpeed {
-    pub gen3: bool,
-    pub gen2: bool,
-    pub gen1: bool,
-    pub unknown: bool,
+#[repr(u8)]
+#[derive(Clone, Copy, Debug)]
+pub enum CurrentNegotiatedSpeed {
+    Gen1,
+    Gen2,
+    Gen3,
+    Unknown,
 }
 
 // Words 76-78
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct SataCapabilities {
     // word 76
     // Bits 15:11 and 7:3 are reserved for SATA.
@@ -78,7 +80,7 @@ pub struct SataCapabilities {
 }
 
 // Word 79
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct EnabledSataCapabilities {
     pub rebuild_assist: bool, // bit 11, copy of the REBUILD ASSIST ENABLED bit
     pub power_disable: bool,  // bit 10, copy of the POWER DISABLE FEATURE ENABLED bit
@@ -94,7 +96,7 @@ pub struct EnabledSataCapabilities {
 }
 
 // Words 82-84 and 119
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct SupportedCommandFeatureSets {
     // word 82
     pub nop: bool,                  // bit 14
@@ -143,7 +145,7 @@ pub struct SupportedCommandFeatureSets {
 }
 
 // words 85-87 and 120
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct EnabledCommandFeatureSets {
     // word 85
     pub nop: bool,                  // bit 14
@@ -190,20 +192,21 @@ pub struct EnabledCommandFeatureSets {
 }
 
 // Word 88, bits 14:8
-#[derive(Clone, Copy)]
-pub union SelectedUdmaMode {
-    pub udma6: bool,
-    pub udma5: bool,
-    pub udma4: bool,
-    pub udma3: bool,
-    pub udma2: bool,
-    pub udma1: bool,
-    pub udma0: bool,
-    pub unknown: bool,
+#[repr(u8)]
+#[derive(Clone, Copy, Debug)]
+pub enum SelectedUdmaMode {
+    Udma0,
+    Udma1,
+    Udma2,
+    Udma3,
+    Udma4,
+    Udma5,
+    Udma6,
+    Unknown,
 }
 
 // word 88, bits 6:0
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct SupportedUdmaModes {
     pub udma6: bool,
     pub udma5: bool,
@@ -212,11 +215,10 @@ pub struct SupportedUdmaModes {
     pub udma2: bool,
     pub udma1: bool,
     pub udma0: bool,
-    pub unknown: bool,
 }
 
 // Word 128
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct SecurityStatus {
     pub master_pwd_cap: bool,       // bit 8
     pub enhanced_erase: bool,       // bit 5
@@ -226,7 +228,7 @@ pub struct SecurityStatus {
 }
 
 // Word 160
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct CFAPowerMode {
     pub mode1: bool,      // bit 13
     pub mode0: bool,      // bit 12
@@ -234,7 +236,7 @@ pub struct CFAPowerMode {
 }
 
 // Word 206
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct SCTCommandTransport {
     pub sct_data_tables: bool,     // bit 5
     pub sct_feature_control: bool, // bit 4
@@ -245,7 +247,7 @@ pub struct SCTCommandTransport {
 }
 
 // Word 214
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct NVCacheCapabilities {
     pub nvcache_enabled: bool,         // bit 4
     pub nvcache_pm_enabled: bool,      // bit 1
@@ -253,7 +255,7 @@ pub struct NVCacheCapabilities {
 }
 
 // Full identify device structure
-#[derive(Clone, Copy)]
+#[derive(Clone, Debug)]
 pub struct DeviceIdentification {
     pub gen_config: GeneralConfiguration,          // word 0
     pub spec_config: u16,                          // word 2
