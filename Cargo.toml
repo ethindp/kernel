@@ -42,8 +42,7 @@ lto = "fat"
 codegen-units = 1
 
 [package.metadata.bootimage]
-run-command = ["C:/Program Files/qemu/qemu-system-x86_64", "-drive", "format=raw,file={}"]
-run-args = ["-serial", "stdio", "-no-reboot", "-hdb", "disk.img", "-cpu", "max", "-s", "-m", "1G", "-soundhw", "all", "-machine", "type=pc,kernel_irqchip=on,vmport=on,igd-passthru=on,nvdimm=on", "-accel", "tcg,thread=multi", "-usb", "-d", "int,pcall,cpu_reset,unimp,guest_errors", "-rtc", "base=utc,clock=host", "-D", "run.log"]
+run-args = ["-serial", "stdio", "-no-reboot", "-hdb", "disk.img", "-cpu", "max", "-s", "-m", "1G", "-soundhw", "all", "-machine", "type=pc,kernel_irqchip=on,vmport=on,igd-passthru=on,nvdimm=on", "-accel", "tcg,thread=multi", "-usb", "-rtc", "base=utc,clock=host"]
 
 [package.metadata.cargo-xbuild]
 memcpy = true
