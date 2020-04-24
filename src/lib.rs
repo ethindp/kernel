@@ -6,6 +6,7 @@
 #![feature(type_alias_impl_trait)]
 #![feature(alloc_layout_extra)]
 #![feature(const_in_array_repeat_expressions)]
+#![feature(llvm_asm)]
 #![allow(dead_code)]
 #![deny(
     array_into_iter,
@@ -74,6 +75,7 @@
     soft_unstable,
     unknown_crate_types
 )]
+#![deny(clippy::all)]
 extern crate alloc;
 /// The drivers module contains drivers for various hardware devices.
 pub mod drivers;
@@ -85,6 +87,8 @@ pub mod gdt;
 pub mod interrupts;
 /// The memory module contains functions for managing memory.
 pub mod memory;
+/// The msr module contains submodules for various intel CPU MSRs
+pub mod msr;
 /// The pci module contains functions for reading from PCI devices and enumerating PCI buses via the "brute-force" method.
 /// As we add drivers that require the PCI buss in, the ::probe() function of this module will be extended to load those drivers when the probe is in progress. This will then create a "brute-force and configure" method.
 pub mod pci;
@@ -98,12 +102,6 @@ use cpuio::{inb, outb};
 
 /// Initializes the kernel and sets up required functionality.
 pub fn init() {
-    printkln!("Loading GDT");
-    gdt::init();
-    printkln!("Loading IDT and initializing interrupt controllers");
-    interrupts::init();
-    printkln!("Enabling interrupts");
-    x86_64::instructions::interrupts::enable();
     printkln!("Configuring RTC");
     // There's a very high chance we'll immediately get interrupts fired. We turn them off here to prevent crashes while we set up the RTC.
     x86_64::instructions::interrupts::without_interrupts(|| {

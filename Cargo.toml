@@ -6,23 +6,27 @@ edition = "2018"
 
 
 [dependencies]
-x86_64 = "0.9.6"
-bootloader = {version="0.8.9", features=["map_physical_memory", "sse"]}
-uart_16550 = "0.2.4"
-volatile = "0.2.6"
-pic8259_simple = "0.1.1"
-pc-keyboard = "0.5.0"
-cpuio = "0.2.0"
-bit_field = "0.10.0"
-rusty-asm = {version="0.2.1", features=["proc-macro"]}
-goblin = {version = "0.2.0", default-features=false, features=["elf64", "elf32", "mach64", "mach32", "pe32", "pe64", "archive", "endian_fd"]}
-zerocopy = "0.2.8"
+x86_64 = ">=0.9.6"
+bootloader = {version=">=0.8.9", features=["map_physical_memory", "sse"]}
+uart_16550 = ">=0.2.4"
+volatile = ">=0.2.6"
+pc-keyboard = ">=0.5.0"
+cpuio = ">=0.2.0"
+bit_field = ">=0.10.0"
+rusty-asm = {version=">=0.2.1", features=["proc-macro"]}
+goblin = {version = ">=0.2.0", default-features=false, features=["elf64", "elf32", "mach64", "mach32", "pe32", "pe64", "archive", "endian_fd"]}
+zerocopy = ">=0.2.8"
 spin = ">= 0.5.2"
-linked_list_allocator = {version = "0.8.0", features = ["use_spin"]}
-fixedvec = "0.2.4"
+linked_list_allocator = {version = ">=0.8.0", features = ["use_spin"]}
+fixedvec = ">=0.2.4"
+aes-gcm = ">=0.5.0"
+aes-gcm-siv = ">=0.4.1"
+aes-siv = ">=0.2.0"
+crypto_box = ">=0.1.0"
+raw-cpuid = ">=7.0.3"
 
 [dependencies.lazy_static]
-version = "1.4.0"
+version = ">=1.4.0"
 features = ["spin_no_std"]
 
 [profile.dev]
@@ -42,7 +46,7 @@ lto = "fat"
 codegen-units = 1
 
 [package.metadata.bootimage]
-run-args = ["-serial", "stdio", "-no-reboot", "-hdb", "disk.img", "-cpu", "max", "-s", "-m", "1G", "-soundhw", "all", "-machine", "type=pc,kernel_irqchip=on,vmport=on,igd-passthru=on,nvdimm=on", "-accel", "tcg,thread=multi", "-usb", "-rtc", "base=utc,clock=host"]
+run-args = ["-serial", "stdio", "-no-reboot", "-hdb", "disk.img", "-s", "-m", "4G", "-usb", "-rtc", "base=utc,clock=host", "-audiodev", "driver=none,id=sound", "-cpu", "EPYC-v3,+3dnow,+3dnowext,+3dnowprefetch,+abm,+ace2,+ace2-en,+acpi,+adx,+aes,+amd-no-ssb,+amd-ssbd,+amd-stibp,+apic,+arat,+arch-capabilities,+avx,+avx2,+avx512-4fmaps,+avx512-4vnniw,+avx512-bf16,+avx512-vpopcntdq,+avx512bitalg,+avx512bw,+avx512cd,+avx512dq,+avx512er,+avx512f,+avx512ifma,+avx512pf,+avx512vbmi,+avx512vbmi2,+avx512vl,+avx512vnni,+bmi1,+bmi2,+cid,+cldemote,+clflush,+clflushopt,+clwb,+clzero,+cmov,+cmp-legacy,+core-capability,+cr8legacy,+cx16,+cx8,+dca,+de,+decodeassists,+ds,+ds-cpl,+dtes64,+erms,+est,+extapic,+f16c,+flushbyasid,+fma,+fma4,+fpu,+fsgsbase,+fxsr,+fxsr-opt,+gfni,+hle,+ht,+hypervisor,+ia64,+ibpb,+ibrs-all,+ibs,+intel-pt,+invpcid,+invtsc,+kvm-asyncpf,+kvm-hint-dedicated,+kvm-mmu,+kvm-nopiodelay,+kvm-poll-control,+kvm-pv-eoi,+kvm-pv-ipi,+kvm-pv-sched-yield,+kvm-pv-tlb-flush,+kvm-pv-unhalt,+kvm-steal-time,+kvmclock,+kvmclock,+kvmclock-stable-bit,+la57,+lahf-lm,+lbrv,+lm,+lwp,+mca,+mce,+md-clear,+mds-no,+misalignsse,+mmx,+mmxext,+monitor,+movbe,+movdir64b,+movdiri,+mpx,+msr,+mtrr,+nodeid-msr,+npt,+nrip-save,+nx,+osvw,+pae,+pat,+pause-filter,+pbe,+pcid,+pclmulqdq,+pcommit,+pdcm,+pdpe1gb,+perfctr-core,+perfctr-nb,+pfthreshold,+pge,+phe,+phe-en,+pku,+pmm,+pmm-en,+pn,+pni,+popcnt,+pschange-mc-no,+pse,+pse36,+rdctl-no,+rdpid,+rdrand,+rdseed,+rdtscp,+rsba,+rtm,+sep,+sha-ni,+skinit,+skip-l1dfl-vmentry,+smap,+smep,+smx,+spec-ctrl,+split-lock-detect,+ss,+ssb-no,+ssbd,+sse,+sse2,+sse4.1,+sse4.2,+sse4a,+ssse3,+stibp,+svm,+svm-lock,+syscall,+taa-no,+tbm,+tce,+tm,+tm2,+topoext,+tsc,+tsc-adjust,+tsc-deadline,+tsc-scale,+tsx-ctrl,+umip,+vaes,+virt-ssbd,+vmcb-clean,+vme,+vmx,+vmx-activity-hlt,+vmx-activity-shutdown,+vmx-activity-wait-sipi,+vmx-apicv-register,+vmx-apicv-vid,+vmx-apicv-x2apic,+vmx-apicv-xapic,+vmx-cr3-load-noexit,+vmx-cr3-store-noexit,+vmx-cr8-load-exit,+vmx-cr8-store-exit,+vmx-desc-exit,+vmx-encls-exit,+vmx-entry-ia32e-mode,+vmx-entry-load-bndcfgs,+vmx-entry-load-efer,+vmx-entry-load-pat,+vmx-entry-load-perf-global-ctrl,+vmx-entry-load-rtit-ctl,+vmx-entry-noload-debugctl,+vmx-ept,+vmx-ept-1gb,+vmx-ept-2mb,+vmx-ept-advanced-exitinfo,+vmx-ept-execonly,+vmx-eptad,+vmx-eptp-switching,+vmx-exit-ack-intr,+vmx-exit-clear-bndcfgs,+vmx-exit-clear-rtit-ctl,+vmx-exit-load-efer,+vmx-exit-load-pat,+vmx-exit-load-perf-global-ctrl,+vmx-exit-nosave-debugctl,+vmx-exit-save-efer,+vmx-exit-save-pat,+vmx-exit-save-preemption-timer,+vmx-flexpriority,+vmx-hlt-exit,+vmx-ins-outs,+vmx-intr-exit,+vmx-invept,+vmx-invept-all-context,+vmx-invept-single-context,+vmx-invept-single-context,+vmx-invept-single-context-noglobals,+vmx-invlpg-exit,+vmx-invpcid-exit,+vmx-invvpid,+vmx-invvpid-all-context,+vmx-invvpid-single-addr,+vmx-io-bitmap,+vmx-io-exit,+vmx-monitor-exit,+vmx-movdr-exit,+vmx-msr-bitmap,+vmx-mtf,+vmx-mwait-exit,+vmx-nmi-exit,+vmx-page-walk-4,+vmx-page-walk-5,+vmx-pause-exit,+vmx-ple,+vmx-pml,+vmx-posted-intr,+vmx-preemption-timer,+vmx-rdpmc-exit,+vmx-rdrand-exit,+vmx-rdseed-exit,+vmx-rdtsc-exit,+vmx-rdtscp-exit,+vmx-secondary-ctls,+vmx-shadow-vmcs,+vmx-store-lma,+vmx-true-ctls,+vmx-tsc-offset,+vmx-unrestricted-guest,+vmx-vintr-pending,+vmx-vmfunc,+vmx-vmwrite-vmexit-fields,+vmx-vnmi,+vmx-vnmi-pending,+vmx-vpid,+vmx-wbinvd-exit,+vmx-xsaves,+vmx-zero-len-inject,+vpclmulqdq,+waitpkg,+wbnoinvd,+wdt,+x2apic,+xcrypt,+xcrypt-en,+xgetbv1,+xop,+xsave,+xsavec,+xsaveerptr,+xsaveopt,+xsaves,+xstore,+xstore-en,+xtpr", "-smp", "cpus=8"]
 
 [package.metadata.cargo-xbuild]
 memcpy = true

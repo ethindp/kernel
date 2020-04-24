@@ -5,6 +5,7 @@
 #![feature(asm)]
 #![feature(const_in_array_repeat_expressions)]
 #![allow(dead_code)]
+#![deny(clippy::all)]
 extern crate alloc;
 extern crate uart_16550;
 extern crate x86_64;
@@ -34,23 +35,7 @@ fn kmain(boot_info: &'static BootInfo) -> ! {
         kernel::idle_forever();
     }
     printkln!("Loading kernel");
-    let rdrand = RdRand::new().unwrap();
-    let mut start_addr: u64 = rdrand.get_u64().unwrap();
-    for region in boot_info.memory_map.iter().cycle() {
-        if region.region_type == MemoryRegionType::Usable
-            && (start_addr < region.range.start_addr()
-                || start_addr > region.range.end_addr()
-                || (start_addr + 8 * 1_048_576) > region.range.end_addr())
-        {
-            start_addr = rdrand.get_u64().unwrap();
-            continue;
-        } else if region.region_type == MemoryRegionType::Usable
-            && (start_addr >= region.range.start_addr()
-                || (start_addr + 8 * 1_048_576) < region.range.end_addr())
-        {
-            break;
-        }
-    }
+    let start_addr: u64 = 0x1000_0000_0000;
     let mut end_addr = start_addr + 8 * 1_048_576;
     while ((end_addr - start_addr) % 32768) != 0 {
         end_addr -= 1;
@@ -60,6 +45,9 @@ fn kmain(boot_info: &'static BootInfo) -> ! {
         &boot_info.memory_map,
         start_addr,
     );
+    printkln!("Enabling interrupts");
+    kernel::gdt::init();
+    kernel::interrupts::init();
     unsafe {
         ALLOCATOR
             .lock()
