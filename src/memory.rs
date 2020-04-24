@@ -52,14 +52,13 @@ fn allocate_paged_heap(
             None => panic!("Can't allocate frame!"),
         };
         let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
-        let frame2 = frame.clone();
+        let start_addr = frame.start_address().as_u64();
+        let end_addr = frame.start_address().as_u64() + frame.size();
         match mapper.map_to(page, frame, flags, frame_allocator) {
             Ok(f) => f.flush(),
             Err(e) => panic!(
                 "Cannot allocate frame range {:X}h-{:X}h: {:?}",
-                frame2.start_address().as_u64(),
-                frame2.start_address().as_u64() + frame2.size(),
-                e
+                start_addr, end_addr, e
             ),
         }
     }
@@ -96,14 +95,13 @@ fn allocate_paged_heap_with_perms(
             Some(f) => f,
             None => panic!("Can't allocate frame!"),
         };
-        let frame2 = frame.clone();
+        let start_addr = frame.start_address().as_u64();
+        let end_addr = frame.start_address().as_u64() + frame.size();
         match mapper.map_to(page, frame, permissions, frame_allocator) {
             Ok(f) => f.flush(),
             Err(e) => panic!(
                 "Cannot allocate frame range {:X}h-{:X}h: {:?}",
-                frame2.start_address().as_u64(),
-                frame2.start_address().as_u64() + frame2.size(),
-                e
+                start_addr, end_addr, e
             ),
         }
     }
@@ -125,6 +123,7 @@ pub struct GlobalFrameAllocator {
 }
 
 impl GlobalFrameAllocator {
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn init(memory_map: &'static MemoryMap) -> Self {
         printkln!("Mem: init: locating free memory frames");
         let frames_iter = find_usable_frames(&memory_map);
@@ -134,7 +133,7 @@ impl GlobalFrameAllocator {
         );
         let mut mframes = [None; 65536];
         for (i, frame) in frames_iter.enumerate() {
-            mframes[i] = Some(UnusedPhysFrame::new(frame.clone()));
+            mframes[i] = Some(UnusedPhysFrame::new(*frame));
         }
         GlobalFrameAllocator {
             memory_map,
@@ -298,6 +297,30 @@ pub fn write_memory(address: u64, value: u64) {
     let addr: *mut u64 = address as *mut u64;
     unsafe {
         write_volatile(addr, value);
+    }
+}
+
+pub fn read_byte(address: u64) -> u8 {
+    let addr: *const u64 = address as *const u64;
+    unsafe { read_volatile(addr) as u8 }
+}
+
+pub fn write_byte(address: u64, value: u8) {
+    let addr: *mut u64 = address as *mut u64;
+    unsafe {
+        write_volatile(addr, value.into());
+    }
+}
+
+pub fn read_dword(address: u64) -> u32 {
+    let addr: *const u64 = address as *const u64;
+    unsafe { read_volatile(addr) as u32 }
+}
+
+pub fn write_dword(address: u64, value: u32) {
+    let addr: *mut u64 = address as *mut u64;
+    unsafe {
+        write_volatile(addr, value.into());
     }
 }
 

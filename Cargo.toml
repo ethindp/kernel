@@ -20,6 +20,11 @@ zerocopy = "0.2.8"
 spin = ">= 0.5.2"
 linked_list_allocator = {version = "0.8.0", features = ["use_spin"]}
 fixedvec = "0.2.4"
+aes-gcm = "0.5.0"
+aes-gcm-siv = "0.4.1"
+aes-siv = "0.2.0"
+crypto_box = "0.1.0"
+raw-cpuid = "7.0.3"
 
 [dependencies.lazy_static]
 version = "1.4.0"
@@ -42,7 +47,7 @@ lto = "fat"
 codegen-units = 1
 
 [package.metadata.bootimage]
-run-args = ["-serial", "stdio", "-no-reboot", "-hdb", "disk.img", "-cpu", "max", "-s", "-m", "1G", "-soundhw", "all", "-machine", "type=pc,kernel_irqchip=on,vmport=on,igd-passthru=on,nvdimm=on", "-accel", "tcg,thread=multi", "-usb", "-rtc", "base=utc,clock=host"]
+run-args = ["-serial", "stdio", "-no-reboot", "-hdb", "disk.img", "-s", "-m", "4G", "-machine", "type=pc,kernel_irqchip=on,vmport=on,igd-passthru=on,nvdimm=on", "-accel", "tcg,thread=multi", "-usb", "-rtc", "base=utc,clock=host", "-audiodev", "driver=none,id=sound", "-cpu", "EPYC-v2,+apic,+acpi,+aes", "-smp", "cpus=8", "-D", "run.log", "-d", "int,cpu_reset,guest_errors"]
 
 [package.metadata.cargo-xbuild]
 memcpy = true

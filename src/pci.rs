@@ -624,7 +624,7 @@ pub fn init() {
     probe();
 }
 
-#[inline(always)]
+#[inline]
 fn calculate_bar_addr(bar1: u32, bar2: u32) -> u64 {
     if !bar1.get_bit(0) {
         match bar1.get_bits(1..=2) {
@@ -639,7 +639,7 @@ fn calculate_bar_addr(bar1: u32, bar2: u32) -> u64 {
 }
 
 #[no_mangle]
-#[inline(always)]
+#[inline]
 pub extern "C" fn find_device(class: u32, subclass: u32, interface: u32) -> Option<PCIDevice> {
     let devices = PCI_DEVICES.lock();
     for dev in devices.iter() {
@@ -651,7 +651,7 @@ pub extern "C" fn find_device(class: u32, subclass: u32, interface: u32) -> Opti
 }
 
 #[no_mangle]
-#[inline(always)]
+#[inline]
 pub extern "C" fn find_device_ex(
     class: u32,
     subclass: u32,

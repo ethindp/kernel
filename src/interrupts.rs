@@ -1,16 +1,14 @@
-use crate::drivers::hid::keyboard::*;
-use crate::gdt;
+use crate::{drivers::hid::keyboard::*, gdt};
 use cpuio::{inb, outb};
 use lazy_static::lazy_static;
 use pc_keyboard::{layouts, DecodedKey, HandleControl, Keyboard, ScancodeSet1};
-use pic8259_simple::ChainedPics;
-use spin;
-use spin::Mutex;
-use spin::RwLock;
-use x86_64::structures::idt::PageFaultErrorCode;
-use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
-
-static PICS: spin::Mutex<ChainedPics> = spin::Mutex::new(unsafe { ChainedPics::new(32, 32 + 8) });
+use raw_cpuid::*;
+use spin::{Mutex, RwLock};
+use x86_64::registers::model_specific::Msr;
+use x86_64::{
+    structures::idt::PageFaultErrorCode,
+    structures::idt::{InterruptDescriptorTable, InterruptStackFrame},
+};
 
 /// This enumeration contains a list of all IRQs.
 #[repr(u8)]
@@ -35,12 +33,12 @@ pub enum InterruptType {
 }
 
 impl InterruptType {
-    fn to_u8(self) -> u8 {
+    fn convert_to_u8(self) -> u8 {
         self as u8
     }
 
-    fn to_usize(self) -> usize {
-        usize::from(self.to_u8())
+    fn convert_to_usize(self) -> usize {
+        usize::from(self.convert_to_u8())
     }
 }
 
@@ -61,9 +59,9 @@ lazy_static! {
         idt.invalid_opcode.set_handler_fn(handle_ud);
         idt.device_not_available.set_handler_fn(handle_nm);
         idt.general_protection_fault.set_handler_fn(handle_gp);
-        idt[InterruptType::Keyboard.to_usize()].set_handler_fn(handle_keyboard);
-        idt[InterruptType::Rtc.to_usize()].set_handler_fn(handle_rtc);
-        idt[InterruptType::Timer.to_usize()].set_handler_fn(handle_timer);
+        idt[InterruptType::Keyboard.convert_to_usize()].set_handler_fn(handle_keyboard);
+        idt[InterruptType::Rtc.convert_to_usize()].set_handler_fn(handle_rtc);
+        idt[InterruptType::Timer.convert_to_usize()].set_handler_fn(handle_timer);
         idt
     };
     static ref KEYBOARD: Mutex<Keyboard<layouts::Us104Key, ScancodeSet1>> =
@@ -77,8 +75,74 @@ lazy_static! {
 }
 
 pub fn init() {
+    use crate::memory::{allocate_phys_range, read_dword, write_dword};
+    use crate::printkln;
+    printkln!("INTR: loading IDT");
     IDT.load();
-    unsafe { PICS.lock().initialize() };
+    if is_apic_available() {
+        allocate_phys_range(apic_addr(), apic_addr() + 0x530);
+        // Initialize PIC, then mask everything
+        printkln!("INTR: APIC is available and usable; configuring");
+        unsafe {
+            let saved_mask1 = inb(0x21);
+            let saved_mask2 = inb(0xA1);
+            outb(0x11, 0x20);
+            outb(0, 0x80);
+            outb(0x11, 0xA0);
+            outb(0, 0x80);
+            outb(0x20, 0x21);
+            outb(0, 0x80);
+            outb(0x28, 0xA1);
+            outb(0, 0x80);
+            outb(0x04, 0x21);
+            outb(0, 0x80);
+            outb(0x02, 0xA1);
+            outb(0, 0x80);
+            outb(0x01, 0x21);
+            outb(0, 0x80);
+            outb(0x01, 0xA1);
+            outb(0, 0x80);
+            outb(saved_mask1, 0x21);
+            outb(0, 0x80);
+            outb(saved_mask2, 0xA1);
+            outb(0, 0x80);
+            outb(0xFF, 0xA1);
+            outb(0, 0x80);
+            outb(0xFF, 0x21);
+            outb(0, 0x80);
+        }
+        write_dword(apic_addr() + 0xF0, read_dword(apic_addr() + 0xF0) | 0x100);
+        printkln!("INTR: APIC configuration complete");
+    } else {
+        printkln!("INTR: APIC not available/supported, falling back to 8259 PIC");
+        printkln!("INTR: Configuring PIC");
+        unsafe {
+            let saved_mask1 = inb(0x21);
+            let saved_mask2 = inb(0xA1);
+            outb(0x11, 0x20);
+            outb(0, 0x80);
+            outb(0x11, 0xA0);
+            outb(0, 0x80);
+            outb(0x20, 0x21);
+            outb(0, 0x80);
+            outb(0x28, 0xA1);
+            outb(0, 0x80);
+            outb(0x04, 0x21);
+            outb(0, 0x80);
+            outb(0x02, 0xA1);
+            outb(0, 0x80);
+            outb(0x01, 0x21);
+            outb(0, 0x80);
+            outb(0x01, 0xA1);
+            outb(0, 0x80);
+            outb(saved_mask1, 0x21);
+            outb(0, 0x80);
+            outb(saved_mask2, 0xA1);
+            outb(0, 0x80);
+        }
+        printkln!("INTR: PIC configuration complete");
+    }
+    x86_64::instructions::interrupts::enable();
 }
 
 extern "x86-interrupt" fn handle_bp(stack_frame: &mut InterruptStackFrame) {
@@ -92,7 +156,7 @@ extern "x86-interrupt" fn handle_bp(stack_frame: &mut InterruptStackFrame) {
 
 extern "x86-interrupt" fn handle_df(stack_frame: &mut InterruptStackFrame, error_code: u64) -> ! {
     unsafe {
-        asm!("push rax" :::: "intel");
+        llvm_asm!("push rax" :::: "intel");
     }
     panic!(
         "EXCEPTION: DOUBLE FAULT({})\n{:#?}",
@@ -110,18 +174,16 @@ extern "x86-interrupt" fn handle_timer(_: &mut InterruptStackFrame) {
             *cmd = command;
             outb(command, 0x60);
         }
-        PICS.lock()
-            .notify_end_of_interrupt(InterruptType::Timer.to_u8());
     }
+    signal_eoi(InterruptType::Timer.convert_to_u8());
 }
 
 extern "x86-interrupt" fn handle_rtc(_stack_frame: &mut InterruptStackFrame) {
+    if let Some(mut tc) = TICK_COUNT.try_write() {
+        *tc += 1;
+    }
+    signal_eoi(InterruptType::Rtc.convert_to_u8());
     unsafe {
-        if let Some(mut tc) = TICK_COUNT.try_write() {
-            *tc += 1;
-        }
-        PICS.lock()
-            .notify_end_of_interrupt(InterruptType::Rtc.to_u8());
         outb(0x0C, 0x70);
         inb(0x71);
     }
@@ -168,46 +230,42 @@ extern "x86-interrupt" fn handle_keyboard(_stack_frame: &mut InterruptStackFrame
             }
         }
     }
-    unsafe {
-        PICS.lock()
-            .notify_end_of_interrupt(InterruptType::Keyboard.to_u8());
-    }
+    signal_eoi(InterruptType::Keyboard.convert_to_u8());
 }
 
 extern "x86-interrupt" fn handle_pf(_: &mut InterruptStackFrame, error_code: PageFaultErrorCode) {
     unsafe {
-        asm!("push rax" :::: "intel");
+        llvm_asm!("push rax" :::: "intel");
     }
     use crate::idle_forever;
-    use crate::{printk, printkln};
+    use crate::printkln;
     use x86_64::registers::control::Cr2;
     let addr = Cr2::read();
     let ec = error_code.bits();
-    printk!("Page fault: ");
-    if (ec & 1) > 0 {
-        printkln!("Protection violation");
-    } else if !(ec & 1) > 0 {
-        printkln!("Page not present");
-    } else if (ec & 1 << 2) > 0 {
-        printkln!("Possible privilege violation (user mode)");
-    } else if !(ec & 1 << 2) > 0 {
-        printkln!("Possible privilege violation (kernel mode)");
-    } else if ec & 1 << 3 > 0 {
-        printkln!("Attempted read of reserved PTT entry");
-    } else if ec & 1 << 4 > 0 {
-        printkln!("Instruction fetch");
-    }
-    if ec & 1 << 1 > 0 {
-        printkln!(
-            "Possibly caused by write to memory address {:X}h",
-            addr.as_u64()
-        );
-    } else {
-        printkln!(
-            "Possibly caused by read from memory address {:X}h",
-            addr.as_u64()
-        );
-    }
+    printkln!(
+        "Page fault: {} while {} to memory address {:X}h",
+        if (ec & 1) > 0 {
+            "Protection violation"
+        } else if !(ec & 1) > 0 {
+            "Page not present"
+        } else if (ec & 1 << 2) > 0 {
+            "Possible privilege violation (user mode)"
+        } else if !(ec & 1 << 2) > 0 {
+            "Possible privilege violation (kernel mode)"
+        } else if ec & 1 << 3 > 0 {
+            "Attempted read of reserved PTT entry"
+        } else if ec & 1 << 4 > 0 {
+            "Instruction fetch"
+        } else {
+            "unknown cause"
+        },
+        if ec & 1 << 1 > 0 {
+            "writing"
+        } else {
+            "reading"
+        },
+        addr.as_u64()
+    );
     idle_forever();
 }
 
@@ -233,10 +291,50 @@ extern "x86-interrupt" fn handle_nm(stack: &mut InterruptStackFrame) {
 
 extern "x86-interrupt" fn handle_gp(_: &mut InterruptStackFrame, ec: u64) {
     unsafe {
-        asm!("push rax" :::: "intel");
+        llvm_asm!("push rax" :::: "intel");
     }
     use crate::printkln;
     printkln!("Cannot continue: protection violation, error code {}", ec,);
+}
+
+#[inline]
+fn is_apic_available() -> bool {
+    use bit_field::BitField;
+    let apic_available_in_msr = {
+        let apicbase = Msr::new(0x1B);
+        unsafe { apicbase.read().get_bit(11) }
+    };
+    apic_available_in_msr && cpuid!(1).ecx.get_bit(9)
+}
+
+#[inline]
+fn apic_addr() -> u64 {
+    use bit_field::BitField;
+    let apicbase = Msr::new(0x1B);
+    unsafe { apicbase.read().get_bits(12..52) }
+}
+
+#[inline]
+fn signal_eoi(interrupt: u8) {
+    if !is_apic_available() {
+        if 32 <= interrupt && interrupt < 32 + 8 {
+            unsafe {
+                outb(0x20, 0x20);
+            }
+        } else if 40 <= interrupt && interrupt < 40 + 8 {
+            unsafe {
+                outb(0x20, 0xA0);
+            }
+        } else {
+            unsafe {
+                outb(0x20, 0x20);
+                outb(0x20, 0xA0);
+            }
+        }
+    } else {
+        use crate::memory::write_dword;
+        write_dword(apic_addr() + 0xB0, 0);
+    }
 }
 
 /// Gets the tick count that has passed since we started counting (since the RTC was set up).
