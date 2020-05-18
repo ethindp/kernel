@@ -47,7 +47,7 @@ lto = "fat"
 codegen-units = 1
 
 [package.metadata.bootimage]
-run-args = ["-serial", "stdio", "-no-reboot", "-hdb", "disk.img", "-s", "-m", "4G", "-machine", "type=pc,kernel_irqchip=on,vmport=on,igd-passthru=on,nvdimm=on", "-accel", "tcg,thread=multi", "-usb", "-rtc", "base=utc,clock=host", "-audiodev", "driver=none,id=sound", "-cpu", "EPYC-v2,+apic,+acpi,+aes", "-smp", "cpus=8", "-D", "run.log", "-d", "int,cpu_reset,guest_errors"]
+run-args = ["-serial", "stdio", "-no-reboot", "-hdb", "disk.img", "-s", "-m", "4G", "-usb", "-rtc", "base=utc,clock=host", "-audiodev", "driver=none,id=sound", "-cpu", "EPYC-v2,+apic,+acpi", "-smp", "cpus=8"]
 
 [package.metadata.cargo-xbuild]
 memcpy = true
