@@ -9,7 +9,7 @@ use x86_64::{
     structures::paging::OffsetPageTable,
     structures::paging::{
         FrameAllocator, FrameDeallocator, Mapper, Page, PageTable, PageTableFlags, PhysFrame,
-        Size4KiB, UnusedPhysFrame,
+        Size4KiB
     },
     PhysAddr, VirtAddr,
 };
@@ -54,6 +54,7 @@ fn allocate_paged_heap(
         let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
         let start_addr = frame.start_address().as_u64();
         let end_addr = frame.start_address().as_u64() + frame.size();
+        unsafe {
         match mapper.map_to(page, frame, flags, frame_allocator) {
             Ok(f) => f.flush(),
             Err(e) => panic!(
@@ -61,6 +62,7 @@ fn allocate_paged_heap(
                 start_addr, end_addr, e
             ),
         }
+    }
     }
     Ok(())
 }
@@ -97,6 +99,7 @@ fn allocate_paged_heap_with_perms(
         };
         let start_addr = frame.start_address().as_u64();
         let end_addr = frame.start_address().as_u64() + frame.size();
+        unsafe {
         match mapper.map_to(page, frame, permissions, frame_allocator) {
             Ok(f) => f.flush(),
             Err(e) => panic!(
@@ -104,6 +107,7 @@ fn allocate_paged_heap_with_perms(
                 start_addr, end_addr, e
             ),
         }
+    }
     }
     Ok(())
 }
@@ -119,7 +123,7 @@ unsafe fn get_active_l4_table(physical_memory_offset: u64) -> (&'static mut Page
 pub struct GlobalFrameAllocator {
     memory_map: &'static MemoryMap,
     pos: usize,
-    frames: [Option<UnusedPhysFrame>; 65536],
+    frames: [Option<PhysFrame>; 65536],
 }
 
 impl GlobalFrameAllocator {
@@ -133,7 +137,7 @@ impl GlobalFrameAllocator {
         );
         let mut mframes = [None; 65536];
         for (i, frame) in frames_iter.enumerate() {
-            mframes[i] = Some(UnusedPhysFrame::new(*frame));
+            mframes[i] = Some(frame);
         }
         GlobalFrameAllocator {
             memory_map,
@@ -144,7 +148,7 @@ impl GlobalFrameAllocator {
 }
 
 unsafe impl FrameAllocator<Size4KiB> for GlobalFrameAllocator {
-    fn allocate_frame(&mut self) -> Option<UnusedPhysFrame> {
+    fn allocate_frame(&mut self) -> Option<PhysFrame> {
         let frame = self.frames[self.pos].take();
         self.pos += 1;
         frame
@@ -152,7 +156,7 @@ unsafe impl FrameAllocator<Size4KiB> for GlobalFrameAllocator {
 }
 
 impl FrameDeallocator<Size4KiB> for GlobalFrameAllocator {
-    fn deallocate_frame(&mut self, frame: UnusedPhysFrame<Size4KiB>) {
+    unsafe fn deallocate_frame(&mut self, frame: PhysFrame<Size4KiB>) {
         self.pos -= 1;
         self.frames[self.pos] = Some(frame);
     }
@@ -213,6 +217,7 @@ pub fn allocate_page_range(start: u64, end: u64) {
                     None => panic!("Can't allocate frame!"),
                 };
                 let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
+                unsafe {
                 match m.map_to(page, frame, flags, a) {
                     Ok(r) => r.flush(),
                     Err(e) => printkln!(
@@ -221,6 +226,7 @@ pub fn allocate_page_range(start: u64, end: u64) {
                         end,
                         e
                     ),
+                }
                 }
             }
         }
@@ -245,12 +251,14 @@ pub fn allocate_page_range_with_perms(start: u64, end: u64, permissions: PageTab
                     Some(f) => f,
                     None => panic!("Can't allocate frame!"),
                 };
+                unsafe {
                 match m.map_to(page, frame, permissions, a) {
                         Ok(r) => r.flush(),
                         Err(e) => printkln!(
                             "Kernel: warning: Cannot map memory page range {:X}h-{:X}h with perms {:#?}: {:#?}",
                             start, end, permissions, e
                         ),
+                    }
                     }
             }
         }
@@ -274,7 +282,7 @@ pub fn allocate_phys_range(start: u64, end: u64) {
                 let flags =
                     PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
                 unsafe {
-                    match m.identity_map(UnusedPhysFrame::new(frame), flags, a) {
+                    match m.identity_map(frame, flags, a) {
                         Ok(r) => r.flush(),
                         Err(e) => printkln!(
                             "Kernel: warning: Cannot map physical memory address range {:X}h-{:X}h: {:#?}",
@@ -324,11 +332,10 @@ pub fn write_dword(address: u64, value: u32) {
     }
 }
 
-fn find_usable_frames(map: &'static MemoryMap) -> impl Iterator<Item = UnusedPhysFrame> {
+fn find_usable_frames(map: &'static MemoryMap) -> impl Iterator<Item = PhysFrame> {
     let regions = map.iter();
     let usable_regions = regions.filter(|r| r.region_type == MemoryRegionType::Usable);
     let addr_ranges = usable_regions.map(|r| r.range.start_addr()..r.range.end_addr());
     let frame_addrs = addr_ranges.flat_map(|r| r.step_by(4096));
-    let frames = frame_addrs.map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)));
-    frames.map(|f| unsafe { UnusedPhysFrame::new(f) })
+    frame_addrs.map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
 }
