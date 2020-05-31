@@ -102,6 +102,9 @@ use cpuio::{inb, outb};
 
 /// Initializes the kernel and sets up required functionality.
 pub fn init() {
+    printkln!("Enabling interrupts, second stage");
+    gdt::init();
+    interrupts::init_stage2();
     printkln!("Configuring RTC");
     // There's a very high chance we'll immediately get interrupts fired. We turn them off here to prevent crashes while we set up the RTC.
     x86_64::instructions::interrupts::without_interrupts(|| {
