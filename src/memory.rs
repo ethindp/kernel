@@ -13,6 +13,7 @@ use x86_64::{
     },
     PhysAddr, VirtAddr,
 };
+use alloc::vec::Vec;
 
 lazy_static! {
 /// The page table mapper (PTM) used by the kernel global memory allocator.
@@ -123,7 +124,7 @@ unsafe fn get_active_l4_table(physical_memory_offset: u64) -> (&'static mut Page
 pub struct GlobalFrameAllocator {
     memory_map: &'static MemoryMap,
     pos: usize,
-    frames: [Option<PhysFrame>; 65536],
+    frames: Vec<Option<PhysFrame>>,
 }
 
 impl GlobalFrameAllocator {
@@ -135,7 +136,7 @@ impl GlobalFrameAllocator {
             "Mem: init: found {} memory frames",
             find_usable_frames(&memory_map).count()
         );
-        let mut mframes = [None; 65536];
+        let mut mframes: Vec<Option<PhysFrame>> = Vec::with_capacity(find_usable_frames(&memory_map).count());
         for (i, frame) in frames_iter.enumerate() {
             mframes[i] = Some(frame);
         }

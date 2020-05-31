@@ -74,9 +74,39 @@ lazy_static! {
     static ref KEY_CMD: Mutex<u8> = Mutex::new(0u8);
 }
 
-pub fn init() {
+pub fn init_stage1() {
+        unsafe {
+            let saved_mask1 = inb(0x21);
+            let saved_mask2 = inb(0xA1);
+            outb(0x11, 0x20);
+            outb(0, 0x80);
+            outb(0x11, 0xA0);
+            outb(0, 0x80);
+            outb(0x20, 0x21);
+            outb(0, 0x80);
+            outb(0x28, 0xA1);
+            outb(0, 0x80);
+            outb(0x04, 0x21);
+            outb(0, 0x80);
+            outb(0x02, 0xA1);
+            outb(0, 0x80);
+            outb(0x01, 0x21);
+            outb(0, 0x80);
+            outb(0x01, 0xA1);
+            outb(0, 0x80);
+            outb(saved_mask1, 0x21);
+            outb(0, 0x80);
+            outb(saved_mask2, 0xA1);
+            outb(0, 0x80);
+}
+IDT.load();
+x86_64::instructions::interrupts::enable();
+}
+
+pub fn init_stage2() {
     use crate::memory::{allocate_phys_range, read_dword, write_dword};
     use crate::printkln;
+    x86_64::instructions::interrupts::disable();
     printkln!("INTR: loading IDT");
     IDT.load();
     if is_apic_available() {

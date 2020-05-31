@@ -30,29 +30,29 @@ fn panic(panic_information: &PanicInfo) -> ! {
 
 // Kernel entry point
 fn kmain(boot_info: &'static BootInfo) -> ! {
+    let start_addr = 0x1000_0000_0000;
+    let end_addr = 0x1000_0080_0000;
     if RdRand::new().is_none() {
         printkln!("Error: rdrand is not supported on this system, but rdrand is required");
         kernel::idle_forever();
     }
     printkln!("Loading kernel");
-    let start_addr: u64 = 0x1000_0000_0000;
-    let mut end_addr = start_addr + 8 * 1_048_576;
-    while ((end_addr - start_addr) % 32768) != 0 {
-        end_addr -= 1;
-    }
-    kernel::memory::init(
-        boot_info.physical_memory_offset,
-        &boot_info.memory_map,
-        start_addr,
-    );
-    printkln!("Enabling interrupts");
-    kernel::gdt::init();
-    kernel::interrupts::init();
+    printkln!("Enabling interrupts, first stage");
+    kernel::interrupts::init_stage1();
+        printkln!("Initializing internal heap allocator");
     unsafe {
         ALLOCATOR
             .lock()
             .init(start_addr as usize, (end_addr - start_addr) as usize);
     }
+    printkln!("Internal heap allocator initialized");
+    printkln!("Configuring kernel heap");
+    kernel::memory::init(
+        boot_info.physical_memory_offset,
+        &boot_info.memory_map,
+        start_addr,
+    );
+    printkln!("Heap configured");
     kernel::init();
     kernel::idle_forever();
 }
