@@ -24,6 +24,9 @@ aes-gcm-siv = ">=0.4.1"
 aes-siv = ">=0.2.0"
 crypto_box = ">=0.1.0"
 raw-cpuid = ">=7.0.3"
+uint = {version = "0.8.3", default-features=false}
+vga = "0.2.4"
+ps2-mouse = "0.1.2"
 
 [dependencies.lazy_static]
 version = ">=1.4.0"
@@ -46,7 +49,7 @@ lto = "fat"
 codegen-units = 1
 
 [package.metadata.bootimage]
-run-args = ["-serial", "stdio", "-no-reboot", "-hdb", "disk.img", "-s", "-m", "4G", "-usb", "-rtc", "base=utc,clock=host", "-cpu", "EPYC-v3,+acpi,+apic,+rdrand,+rdseed,+sse,+sse2,+sse4.1,+sse4.2,+sse4a,+ssse3,+syscall,+x2apic", "-smp", "cpus=8", "-soundhw", "all"]
+run-args = ["-serial", "stdio", "-no-reboot", "-hdb", "disk.img", "-s", "-m", "4G", "-usb", "-rtc", "base=utc,clock=host", "-cpu", "Skylake-Client-v3,+apic", "-smp", "cpus=8", "-soundhw", "all", "-nographic"]
 
 [package.metadata.cargo-xbuild]
 memcpy = true

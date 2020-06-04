@@ -39,7 +39,7 @@ fn kmain(boot_info: &'static BootInfo) -> ! {
     printkln!("Loading kernel");
     printkln!("Enabling interrupts, first stage");
     kernel::interrupts::init_stage1();
-        printkln!("Initializing internal heap allocator");
+    printkln!("Initializing internal heap allocator");
     unsafe {
         ALLOCATOR
             .lock()

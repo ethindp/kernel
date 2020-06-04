@@ -75,32 +75,44 @@ lazy_static! {
 }
 
 pub fn init_stage1() {
-        unsafe {
-            let saved_mask1 = inb(0x21);
-            let saved_mask2 = inb(0xA1);
-            outb(0x11, 0x20);
-            outb(0, 0x80);
-            outb(0x11, 0xA0);
-            outb(0, 0x80);
-            outb(0x20, 0x21);
-            outb(0, 0x80);
-            outb(0x28, 0xA1);
-            outb(0, 0x80);
-            outb(0x04, 0x21);
-            outb(0, 0x80);
-            outb(0x02, 0xA1);
-            outb(0, 0x80);
-            outb(0x01, 0x21);
-            outb(0, 0x80);
-            outb(0x01, 0xA1);
-            outb(0, 0x80);
-            outb(saved_mask1, 0x21);
-            outb(0, 0x80);
-            outb(saved_mask2, 0xA1);
-            outb(0, 0x80);
-}
-IDT.load();
-x86_64::instructions::interrupts::enable();
+    use crate::printkln;
+    printkln!("INTR: Stage 1 initialization started");
+    unsafe {
+        printkln!("INTR: PIC: Acquiring masks");
+        let saved_mask1 = inb(0x21);
+        let saved_mask2 = inb(0xA1);
+        printkln!("INTR: PIC: Masks: {:X}h, {:X}h", saved_mask1, saved_mask2);
+        printkln!("INTR: PIC: Sending initialization command");
+        outb(0x11, 0x20);
+        outb(0, 0x80);
+        outb(0x11, 0xA0);
+        outb(0, 0x80);
+        printkln!("INTR: PIC: Setting base offsets to 20h and 28h");
+        outb(0x20, 0x21);
+        outb(0, 0x80);
+        outb(0x28, 0xA1);
+        outb(0, 0x80);
+        printkln!("INTR: PIC: Setting up chain for master and slave");
+        outb(0x04, 0x21);
+        outb(0, 0x80);
+        outb(0x02, 0xA1);
+        outb(0, 0x80);
+        printkln!("INTR: PIC: Setting mode to 1h");
+        outb(0x01, 0x21);
+        outb(0, 0x80);
+        outb(0x01, 0xA1);
+        outb(0, 0x80);
+        printkln!("INTR: PIC: Restoring PIC masks");
+        outb(saved_mask1, 0x21);
+        outb(0, 0x80);
+        outb(saved_mask2, 0xA1);
+        outb(0, 0x80);
+    }
+    printkln!("INTR: Loading IDT");
+    IDT.load();
+    printkln!("INTR: Enabling interrupts");
+    x86_64::instructions::interrupts::enable();
+    printkln!("INTR: Stage 1 initialization complete");
 }
 
 pub fn init_stage2() {
@@ -327,7 +339,6 @@ extern "x86-interrupt" fn handle_gp(_: &mut InterruptStackFrame, ec: u64) {
     printkln!("Cannot continue: protection violation, error code {}", ec,);
 }
 
-#[inline]
 fn is_apic_available() -> bool {
     use bit_field::BitField;
     let apic_available_in_msr = {
@@ -337,14 +348,12 @@ fn is_apic_available() -> bool {
     apic_available_in_msr && cpuid!(1).ecx.get_bit(9)
 }
 
-#[inline]
 fn apic_addr() -> u64 {
     use bit_field::BitField;
     let apicbase = Msr::new(0x1B);
     unsafe { apicbase.read().get_bits(12..52) }
 }
 
-#[inline]
 fn signal_eoi(interrupt: u8) {
     if !is_apic_available() {
         if 32 <= interrupt && interrupt < 32 + 8 {

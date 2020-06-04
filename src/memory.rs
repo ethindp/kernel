@@ -1,4 +1,5 @@
 use crate::printkln;
+use alloc::vec::Vec;
 use bootloader::bootinfo::*;
 use core::ptr::*;
 use lazy_static::lazy_static;
@@ -9,11 +10,10 @@ use x86_64::{
     structures::paging::OffsetPageTable,
     structures::paging::{
         FrameAllocator, FrameDeallocator, Mapper, Page, PageTable, PageTableFlags, PhysFrame,
-        Size4KiB
+        Size4KiB,
     },
     PhysAddr, VirtAddr,
 };
-use alloc::vec::Vec;
 
 lazy_static! {
 /// The page table mapper (PTM) used by the kernel global memory allocator.
@@ -56,14 +56,14 @@ fn allocate_paged_heap(
         let start_addr = frame.start_address().as_u64();
         let end_addr = frame.start_address().as_u64() + frame.size();
         unsafe {
-        match mapper.map_to(page, frame, flags, frame_allocator) {
-            Ok(f) => f.flush(),
-            Err(e) => panic!(
-                "Cannot allocate frame range {:X}h-{:X}h: {:?}",
-                start_addr, end_addr, e
-            ),
+            match mapper.map_to(page, frame, flags, frame_allocator) {
+                Ok(f) => f.flush(),
+                Err(e) => panic!(
+                    "Cannot allocate frame range {:X}h-{:X}h: {:?}",
+                    start_addr, end_addr, e
+                ),
+            }
         }
-    }
     }
     Ok(())
 }
@@ -101,14 +101,14 @@ fn allocate_paged_heap_with_perms(
         let start_addr = frame.start_address().as_u64();
         let end_addr = frame.start_address().as_u64() + frame.size();
         unsafe {
-        match mapper.map_to(page, frame, permissions, frame_allocator) {
-            Ok(f) => f.flush(),
-            Err(e) => panic!(
-                "Cannot allocate frame range {:X}h-{:X}h: {:?}",
-                start_addr, end_addr, e
-            ),
+            match mapper.map_to(page, frame, permissions, frame_allocator) {
+                Ok(f) => f.flush(),
+                Err(e) => panic!(
+                    "Cannot allocate frame range {:X}h-{:X}h: {:?}",
+                    start_addr, end_addr, e
+                ),
+            }
         }
-    }
     }
     Ok(())
 }
@@ -136,7 +136,8 @@ impl GlobalFrameAllocator {
             "Mem: init: found {} memory frames",
             find_usable_frames(&memory_map).count()
         );
-        let mut mframes: Vec<Option<PhysFrame>> = Vec::with_capacity(find_usable_frames(&memory_map).count());
+        let mut mframes: Vec<Option<PhysFrame>> =
+            Vec::with_capacity(find_usable_frames(&memory_map).count());
         for (i, frame) in frames_iter.enumerate() {
             mframes[i] = Some(frame);
         }
@@ -219,15 +220,15 @@ pub fn allocate_page_range(start: u64, end: u64) {
                 };
                 let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
                 unsafe {
-                match m.map_to(page, frame, flags, a) {
-                    Ok(r) => r.flush(),
-                    Err(e) => printkln!(
-                        "Kernel: Warning: Cannot map memory page range {:X}h-{:X}h: {:#?}",
-                        start,
-                        end,
-                        e
-                    ),
-                }
+                    match m.map_to(page, frame, flags, a) {
+                        Ok(r) => r.flush(),
+                        Err(e) => printkln!(
+                            "Kernel: Warning: Cannot map memory page range {:X}h-{:X}h: {:#?}",
+                            start,
+                            end,
+                            e
+                        ),
+                    }
                 }
             }
         }
@@ -253,14 +254,14 @@ pub fn allocate_page_range_with_perms(start: u64, end: u64, permissions: PageTab
                     None => panic!("Can't allocate frame!"),
                 };
                 unsafe {
-                match m.map_to(page, frame, permissions, a) {
+                    match m.map_to(page, frame, permissions, a) {
                         Ok(r) => r.flush(),
                         Err(e) => printkln!(
                             "Kernel: warning: Cannot map memory page range {:X}h-{:X}h with perms {:#?}: {:#?}",
                             start, end, permissions, e
                         ),
                     }
-                    }
+                }
             }
         }
         _ => panic!("Memory allocator or frame allocator are not set"),
