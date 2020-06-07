@@ -1,0 +1,30 @@
+[package]
+name = "ata"
+version = "0.1.0"
+authors = ["Ethin Probst <harlydavidsen@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+heapless = "0.5.5"
+zerocopy = "0.3.0"
+anyhow = {version = "1.0.31", default-features=false}
+static_assertions = "1.1.0"
+bitwise = "0.1.1"
+
+[profile.dev]
+panic = "abort"
+opt-level=0
+debug=true
+rpath=false
+lto=false
+debug-assertions = true
+codegen-units = 64
+overflow-checks = true
+incremental = true
+
+[profile.release]
+panic = "abort"
+lto = "fat"
+codegen-units = 1

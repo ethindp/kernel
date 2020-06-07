@@ -1,10 +1,5 @@
 [build]
 target = "x86_64-kernel-none.json"
 
-
 [net]
 git-fetch-with-cli=true
-
-[target.'cfg(target_os = "none")']
-runner = "bootimage runner"
-
