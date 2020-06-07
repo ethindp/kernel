@@ -9,6 +9,12 @@ Note that, when a release point is hit where many changes are made, these change
 
 ## [Unreleased]
 
+### 2020-06-06
+
+- drivers: move all drivers out of the main kernel compilation pipeline to make kernel configuration possible
+- part: create part library for parsing partition tables
+- Misc: remove the following kernel modules: acpi, arch, crypto, msr, bits, smbios, scheduler, tasking, ui
+
 ### 2020-06-04
 
 - Deps: update x86_64 to 0.9.6; bootloader to 0.8.9; uart_16550 to 0.2.4; pc-keyboard to 0.5.0; cpuio to 0.2.0; bit_field to 0.10.0; rusty-asm to 0.2.1; zerocopy to 0.2.8; and spin to 0.5.2

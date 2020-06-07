@@ -77,8 +77,9 @@
 )]
 #![deny(clippy::all)]
 extern crate alloc;
-/// The drivers module contains drivers for various hardware devices.
-pub mod drivers;
+/// The disk module contains bear-bones code to support reading from ATA disk drives.
+pub mod disk;
+/// The 
 /// The gdt module contains basic GDT functionality.
 /// When initialized, a separate stack is set up for the kernel to run in to ensure that the original is not compromised when double faults occur.
 pub mod gdt;
@@ -87,15 +88,9 @@ pub mod gdt;
 pub mod interrupts;
 /// The memory module contains functions for managing memory.
 pub mod memory;
-/// The msr module contains submodules for various intel CPU MSRs
-pub mod msr;
 /// The pci module contains functions for reading from PCI devices and enumerating PCI buses via the "brute-force" method.
 /// As we add drivers that require the PCI buss in, the ::probe() function of this module will be extended to load those drivers when the probe is in progress. This will then create a "brute-force and configure" method.
 pub mod pci;
-// The smbios module contains SMBIOS functions
-//pub mod smbios;
-/// The tasking module contains multitasking-related functions
-pub mod tasking;
 /// The vga module contains functions for interacting with the VGA buffer.
 pub mod vga;
 use cpuio::{inb, outb};
@@ -131,14 +126,8 @@ pub fn init() {
             outb(prev | 0x40, 0x71);
         }
     });
-    //    smbios::init();
     // Now, probe the PCI bus.
     pci::init();
-    // Request other drivers to initialize
-    drivers::hid::keyboard::init();
-    drivers::sound::hda::init();
-    //    drivers::storage::ahci::init();
-    drivers::storage::ata::init();
 }
 
 /// This function is designed as a failsafe against memory corruption if we panic.
