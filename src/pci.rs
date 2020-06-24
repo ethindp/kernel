@@ -294,7 +294,7 @@ fn get_rev(bus: u8, device: u8, function: u8) -> u32 {
 }
 
 pub fn probe() {
-    printkln!("Starting PCI scan");
+    printkln!("init: starting PCI scan");
     for bus in 0..=MAX_BUS {
         for slot in 0..MAX_DEVICE {
             for function in 0..MAX_FUNCTION {
@@ -309,13 +309,14 @@ pub fn probe() {
                 }
                 let class = get_class_id(bus as u8, slot as u8, function as u8);
                 let subclass = get_subclass_id(bus as u8, slot as u8, function as u8);
-                // This part is the longest part of this function thus far. Here we construct the PCI device structure and its linked structures, if applicable.
-                // Construction happens in this order:
-                // 1. Initialize static (easily calculable/readable) data.
-                // 2. Use "conditional initialization" to initialize dynamic data that requires extra reads.
-                // Conditional initialization is the term I use when I take advantage of conditional statements being expressions and "conditionally" initialize parts of (or entire) data structures with them, as I do here.
+                printkln!(
+                    "init: PCI device found, dev={:X}, class={:X}, subclass={:X}, if = {:X}",
+                    device,
+                    class,
+                    subclass,
+                    get_prog_if(bus as u8, slot as u8, function as u8)
+                );
                 let mut pcidev = PCIDevice {
-                    // Non-conditional initialization.
                     vendor,
                     device,
                     slot: slot as u32,
@@ -333,8 +334,6 @@ pub fn probe() {
                         .get_bits(8..=15),
                     cache_line_size: read_dword(bus as u8, slot as u8, function as u8, 0x0C)
                         .get_bits(0..=7),
-                    // Determine header type and set up appropriate structures from there
-                    // Conditional initialization.
                     gen_dev_tbl: if read_dword(bus as u8, slot as u8, function as u8, 0x0C)
                         .get_bits(16..=23)
                         == 0x00
@@ -597,7 +596,7 @@ pub fn probe() {
                             .get_bit(6)
                         {
                             if get_tick_count() >= end {
-                                printkln!("PCI: Bist failed on bus {:X}h, slot {:X}h, function {:X}h, device {:X}h, vendor {:X}h, class {:X}h, subclass {:X}h", bus as u8, slot as u8, function as u8, device, vendor, class, subclass);
+                                printkln!("init: PCI Bist failed on bus {:X}h, slot {:X}h, function {:X}h, device {:X}h, vendor {:X}h, class {:X}h, subclass {:X}h", bus as u8, slot as u8, function as u8, device, vendor, class, subclass);
                                 continue;
                             }
                         }
@@ -606,7 +605,7 @@ pub fn probe() {
                             .get_bits(0..=3)
                             > 0
                         {
-                            printkln!("PCI: Bist failed on bus {:X}h, slot {:X}h, function {:X}h, device {:X}h, vendor {:X}h, class {:X}h, subclass {:X}h", bus as u8, slot as u8, function as u8, device, vendor, class, subclass);
+                            printkln!("init: PCI Bist failed on bus {:X}h, slot {:X}h, function {:X}h, device {:X}h, vendor {:X}h, class {:X}h, subclass {:X}h", bus as u8, slot as u8, function as u8, device, vendor, class, subclass);
                             continue;
                         }
                         pcidev.bist = read_dword(bus as u8, slot as u8, function as u8, 0x0C)
@@ -617,14 +616,12 @@ pub fn probe() {
             }
         }
     }
-    printkln!("Done");
 }
 
 pub fn init() {
     probe();
 }
 
-#[inline]
 fn calculate_bar_addr(bar1: u32, bar2: u32) -> u64 {
     if !bar1.get_bit(0) {
         match bar1.get_bits(1..=2) {
@@ -639,7 +636,6 @@ fn calculate_bar_addr(bar1: u32, bar2: u32) -> u64 {
 }
 
 #[no_mangle]
-#[inline]
 pub extern "C" fn find_device(class: u32, subclass: u32, interface: u32) -> Option<PCIDevice> {
     let devices = PCI_DEVICES.lock();
     for dev in devices.iter() {
@@ -651,7 +647,6 @@ pub extern "C" fn find_device(class: u32, subclass: u32, interface: u32) -> Opti
 }
 
 #[no_mangle]
-#[inline]
 pub extern "C" fn find_device_ex(
     class: u32,
     subclass: u32,

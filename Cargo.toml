@@ -12,16 +12,18 @@ volatile = ">=0.2.6"
 pc-keyboard = ">=0.5.0"
 cpuio = ">=0.2.0"
 bit_field = ">=0.10.0"
-rusty-asm = {version=">=0.2.1", features=["proc-macro"]}
 goblin = {version = ">=0.2.0", default-features=false, features=["elf64", "elf32", "mach64", "mach32", "pe32", "pe64", "archive", "endian_fd"]}
 spin = ">= 0.5.2"
-linked_list_allocator = {version = ">=0.8.0", features = ["use_spin"]}
 raw-cpuid = ">=7.0.3"
-vga = "0.2.4"
 part = {path = "drivers/storage/part"}
 heapless = "0.5.5"
 anyhow = {version = "1.0.31", default-features=false}
-bootloader = "0.9.4"
+bootloader = {version = "0.9.4", features=["map_physical_memory", "sse"]}
+rand = {version = "0.7.3", default-features=false, features = ["alloc"]}
+bitflags = "1.2.1"
+atomic = "0.4.5"
+acpi = "1.0.0"
+buddy_system_allocator = "0.4.0"
 
 [dependencies.lazy_static]
 version = ">=1.4.0"
@@ -44,7 +46,7 @@ lto = "fat"
 codegen-units = 1
 
 [package.metadata.bootimage]
-run-args = ["-serial", "stdio", "-no-reboot", "-hdb", "disk.img", "-s", "-m", "4G", "-usb", "-rtc", "base=utc,clock=host", "-cpu", "Skylake-Client-v3,+apic", "-smp", "cpus=8", "-soundhw", "all", "-nographic"]
+run-args = ["-serial", "stdio", "-no-reboot", "-hdb", "disk.img", "-s", "-m", "4G", "-usb", "-rtc", "base=utc,clock=host", "-cpu", "EPYC-v3,+apic,+acpi", "-smp", "cpus=8", "-soundhw", "all", "-M", "q35"]
 
 [package.metadata.cargo-xbuild]
 memcpy = true
