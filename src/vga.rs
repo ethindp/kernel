@@ -11,8 +11,8 @@ const VGA_HEIGHT: usize = 25;
 const VGA_WIDTH: usize = 80;
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Color {
     Black = 0,
     Blue = 1,
@@ -32,8 +32,8 @@ pub enum Color {
     White = 15,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ColorCode(u8);
 
 impl ColorCode {
@@ -42,8 +42,8 @@ impl ColorCode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct DrawableChar {
     ascii: u8,
     color: ColorCode,

@@ -5,21 +5,21 @@
 #![feature(asm)]
 #![feature(const_in_array_repeat_expressions)]
 #![allow(dead_code)]
-#![deny(clippy::all)]
 extern crate alloc;
 extern crate uart_16550;
 extern crate x86_64;
 mod memory;
 mod vga;
+use bit_field::BitField;
 use bootloader::bootinfo::*;
 use bootloader::*;
 use core::panic::PanicInfo;
-use linked_list_allocator::LockedHeap;
+use buddy_system_allocator::LockedHeap;
 use x86_64::instructions::random::RdRand;
 
 entry_point!(kmain);
 #[global_allocator]
-static ALLOCATOR: LockedHeap = LockedHeap::empty();
+static ALLOCATOR: LockedHeap = LockedHeap::new();
 
 // Panic handler
 #[panic_handler]
@@ -30,29 +30,60 @@ fn panic(panic_information: &PanicInfo) -> ! {
 
 // Kernel entry point
 fn kmain(boot_info: &'static BootInfo) -> ! {
-    let start_addr = 0x1000_0000_0000;
-    let end_addr = 0x1000_0080_0000;
     if RdRand::new().is_none() {
         printkln!("Error: rdrand is not supported on this system, but rdrand is required");
         kernel::idle_forever();
     }
-    printkln!("Loading kernel");
-    printkln!("Enabling interrupts, first stage");
-    kernel::interrupts::init_stage1();
-    printkln!("Initializing internal heap allocator");
-    unsafe {
-        ALLOCATOR
-            .lock()
-            .init(start_addr as usize, (end_addr - start_addr) as usize);
+    printkln!("Init: kernel initialization started");
+    printkln!("Init: Locating kernel heap area, size 8 MB");
+    let rdrand = RdRand::new().unwrap();
+    let mut start_addr: u64 = 0x0100_0000_0000 + rdrand.get_u64().unwrap();
+    if start_addr.get_bits(48..64) > 0 {
+        start_addr.set_bits(48..64, 0);
     }
-    printkln!("Internal heap allocator initialized");
-    printkln!("Configuring kernel heap");
+    let mut end_addr = start_addr + 8 * 1_048_576;
+    while ((end_addr - start_addr) % 32768) != 0 {
+        end_addr -= 1;
+    }
+    printkln!("init: initializing memory manager");
     kernel::memory::init(
         boot_info.physical_memory_offset,
         &boot_info.memory_map,
         start_addr,
     );
-    printkln!("Heap configured");
+    printkln!("Init: enabling interrupts, first stage");
+    kernel::interrupts::init_stage1();
+    printkln!("init: Initializing global heap allocator");
+    unsafe {
+        ALLOCATOR.lock().init(start_addr as usize, (end_addr - start_addr) as usize);
+    }
+    printkln!("init: firmware-provided memory map:");
+    for region in boot_info.memory_map.iter() {
+        printkln!(
+            "[{:X}-{:X}] [size {}]: {}",
+            region.range.start_addr(),
+            region.range.end_addr(),
+            region.range.end_addr() - region.range.start_addr(),
+            match region.region_type {
+                MemoryRegionType::Usable => "free",
+                MemoryRegionType::InUse => "sw-reserved",
+                MemoryRegionType::Reserved => "hw-reserved",
+                MemoryRegionType::AcpiReclaimable => "ACPI reclaimable",
+                MemoryRegionType::AcpiNvs => "ACPI NVS",
+                MemoryRegionType::BadMemory => "bad",
+                MemoryRegionType::Kernel => "reserved",
+                MemoryRegionType::KernelStack => "reserved",
+                MemoryRegionType::PageTable => "reserved",
+                MemoryRegionType::Bootloader => "reserved",
+                MemoryRegionType::FrameZero => "null",
+                MemoryRegionType::Empty => "empty",
+                MemoryRegionType::BootInfo => "Boot information",
+                MemoryRegionType::Package => "pkg",
+                _ => "unknown",
+            }
+        );
+    }
+    kernel::memory::init_free_memory_map(&boot_info.memory_map);
     kernel::init();
     kernel::idle_forever();
 }

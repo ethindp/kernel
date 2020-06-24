@@ -77,9 +77,8 @@
 )]
 #![deny(clippy::all)]
 extern crate alloc;
-/// The disk module contains bear-bones code to support reading from ATA disk drives.
-pub mod disk;
-/// The 
+// The acpi module contains acpi initialization routines
+pub mod acpi;
 /// The gdt module contains basic GDT functionality.
 /// When initialized, a separate stack is set up for the kernel to run in to ensure that the original is not compromised when double faults occur.
 pub mod gdt;
@@ -97,10 +96,11 @@ use cpuio::{inb, outb};
 
 /// Initializes the kernel and sets up required functionality.
 pub fn init() {
-    printkln!("Enabling interrupts, second stage");
+    printkln!("init: initializing GDT");
     gdt::init();
+    printkln!("init: Enabling interrupts, second stage");
     interrupts::init_stage2();
-    printkln!("Configuring RTC");
+    printkln!("init: configuring RTC");
     // There's a very high chance we'll immediately get interrupts fired. We turn them off here to prevent crashes while we set up the RTC.
     x86_64::instructions::interrupts::without_interrupts(|| {
         // Enable the real time clock
@@ -126,8 +126,8 @@ pub fn init() {
             outb(prev | 0x40, 0x71);
         }
     });
-    // Now, probe the PCI bus.
-    pci::init();
+    // Initialize acpi
+    acpi::init();
 }
 
 /// This function is designed as a failsafe against memory corruption if we panic.

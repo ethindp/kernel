@@ -3,14 +3,14 @@ use alloc::vec::Vec;
 use bootloader::bootinfo::*;
 use core::ptr::*;
 use lazy_static::lazy_static;
-use spin::Mutex;
+use spin::{Mutex, RwLock};
 use x86_64::{
     registers::control::*,
     structures::paging::mapper::MapToError,
+    structures::paging::page::PageRangeInclusive,
     structures::paging::OffsetPageTable,
     structures::paging::{
-        FrameAllocator, FrameDeallocator, Mapper, Page, PageTable, PageTableFlags, PhysFrame,
-        Size4KiB,
+        FrameAllocator, Mapper, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB,
     },
     PhysAddr, VirtAddr,
 };
@@ -20,6 +20,7 @@ lazy_static! {
 static ref MAPPER: Mutex<Option<OffsetPageTable<'static>>> = Mutex::new(None);
 /// The global frame allocator (GFA); works in conjunction with the PTM.
 static ref FRAME_ALLOCATOR: Mutex<Option<GlobalFrameAllocator>> = Mutex::new(None);
+static ref MMAP: RwLock<Vec<FreeMemoryRegion>> = RwLock::new(Vec::new());
 }
 
 /// Initializes a memory heap for the global memory allocator. Requires a PMO to start with.
@@ -53,14 +54,15 @@ fn allocate_paged_heap(
             None => panic!("Can't allocate frame!"),
         };
         let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
-        let start_addr = frame.start_address().as_u64();
-        let end_addr = frame.start_address().as_u64() + frame.size();
+        let frame2 = frame.clone();
         unsafe {
             match mapper.map_to(page, frame, flags, frame_allocator) {
                 Ok(f) => f.flush(),
                 Err(e) => panic!(
                     "Cannot allocate frame range {:X}h-{:X}h: {:?}",
-                    start_addr, end_addr, e
+                    frame2.start_address().as_u64(),
+                    frame2.start_address().as_u64() + frame2.size(),
+                    e
                 ),
             }
         }
@@ -98,14 +100,15 @@ fn allocate_paged_heap_with_perms(
             Some(f) => f,
             None => panic!("Can't allocate frame!"),
         };
-        let start_addr = frame.start_address().as_u64();
-        let end_addr = frame.start_address().as_u64() + frame.size();
+        let frame2 = frame.clone();
         unsafe {
             match mapper.map_to(page, frame, permissions, frame_allocator) {
                 Ok(f) => f.flush(),
                 Err(e) => panic!(
                     "Cannot allocate frame range {:X}h-{:X}h: {:?}",
-                    start_addr, end_addr, e
+                    frame2.start_address().as_u64(),
+                    frame2.start_address().as_u64() + frame2.size(),
+                    e
                 ),
             }
         }
@@ -124,43 +127,25 @@ unsafe fn get_active_l4_table(physical_memory_offset: u64) -> (&'static mut Page
 pub struct GlobalFrameAllocator {
     memory_map: &'static MemoryMap,
     pos: usize,
-    frames: Vec<Option<PhysFrame>>,
 }
 
 impl GlobalFrameAllocator {
-    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn init(memory_map: &'static MemoryMap) -> Self {
-        printkln!("Mem: init: locating free memory frames");
-        let frames_iter = find_usable_frames(&memory_map);
-        printkln!(
-            "Mem: init: found {} memory frames",
-            find_usable_frames(&memory_map).count()
-        );
-        let mut mframes: Vec<Option<PhysFrame>> =
-            Vec::with_capacity(find_usable_frames(&memory_map).count());
-        for (i, frame) in frames_iter.enumerate() {
-            mframes[i] = Some(frame);
-        }
-        GlobalFrameAllocator {
-            memory_map,
-            pos: 0,
-            frames: mframes,
-        }
+        GlobalFrameAllocator { memory_map, pos: 0 }
     }
 }
 
 unsafe impl FrameAllocator<Size4KiB> for GlobalFrameAllocator {
     fn allocate_frame(&mut self) -> Option<PhysFrame> {
-        let frame = self.frames[self.pos].take();
+        let regions = self.memory_map.iter();
+        let usable_regions = regions.filter(|r| r.region_type == MemoryRegionType::Usable);
+        let addr_ranges = usable_regions.map(|r| r.range.start_addr()..r.range.end_addr());
+        let frame_addresses = addr_ranges.flat_map(|r| r.step_by(4096));
+        let frame = frame_addresses
+            .map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
+            .nth(self.pos);
         self.pos += 1;
         frame
-    }
-}
-
-impl FrameDeallocator<Size4KiB> for GlobalFrameAllocator {
-    unsafe fn deallocate_frame(&mut self, frame: PhysFrame<Size4KiB>) {
-        self.pos -= 1;
-        self.frames[self.pos] = Some(frame);
     }
 }
 
@@ -222,12 +207,10 @@ pub fn allocate_page_range(start: u64, end: u64) {
                 unsafe {
                     match m.map_to(page, frame, flags, a) {
                         Ok(r) => r.flush(),
-                        Err(e) => printkln!(
-                            "Kernel: Warning: Cannot map memory page range {:X}h-{:X}h: {:#?}",
-                            start,
-                            end,
-                            e
-                        ),
+                        Err(_) => {
+                            m.unmap(page).unwrap().1.flush();
+                            m.map_to(page, frame, flags, a).unwrap().flush();
+                        }
                     }
                 }
             }
@@ -256,10 +239,10 @@ pub fn allocate_page_range_with_perms(start: u64, end: u64, permissions: PageTab
                 unsafe {
                     match m.map_to(page, frame, permissions, a) {
                         Ok(r) => r.flush(),
-                        Err(e) => printkln!(
-                            "Kernel: warning: Cannot map memory page range {:X}h-{:X}h with perms {:#?}: {:#?}",
-                            start, end, permissions, e
-                        ),
+                        Err(_) => {
+                            m.unmap(page).unwrap().1.flush();
+                            m.map_to(page, frame, permissions, a).unwrap().flush();
+                        }
                     }
                 }
             }
@@ -286,12 +269,40 @@ pub fn allocate_phys_range(start: u64, end: u64) {
                 unsafe {
                     match m.identity_map(frame, flags, a) {
                         Ok(r) => r.flush(),
+                        Err(_) => {
+                            let page: Page<Size4KiB> = Page::containing_address(VirtAddr::new(
+                                frame.start_address().as_u64(),
+                            ));
+                            m.unmap(page).unwrap().1.flush();
+                            m.identity_map(frame, flags, a).unwrap().flush();
+                        }
+                    }
+                }
+            }
+        }
+        _ => panic!("Memory allocator or frame allocator are not set"),
+    }
+}
+
+pub fn free_range(start: u64, end: u64) {
+    let mut mapper = MAPPER.lock();
+    match mapper.as_mut() {
+        Some(m) => {
+            let page_range: PageRangeInclusive<Size4KiB> = {
+                let start = VirtAddr::new(start as u64);
+                let end = VirtAddr::new(end);
+                let start_page = Page::containing_address(start);
+                let end_page = Page::containing_address(end);
+                Page::range_inclusive(start_page, end_page)
+            };
+            for page in page_range {
+                match m.unmap(page) {
+                        Ok((_, r)) => r.flush(),
                         Err(e) => printkln!(
-                            "Kernel: warning: Cannot map physical memory address range {:X}h-{:X}h: {:#?}",
+                            "Kernel: warning: Cannot unmap physical memory address range {:X}h-{:X}h: {:#?}",
                             start, end, e
                         ),
                     }
-                }
             }
         }
         _ => panic!("Memory allocator or frame allocator are not set"),
@@ -310,34 +321,21 @@ pub fn write_memory(address: u64, value: u64) {
     }
 }
 
-pub fn read_byte(address: u64) -> u8 {
-    let addr: *const u64 = address as *const u64;
-    unsafe { read_volatile(addr) as u8 }
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct FreeMemoryRegion {
+    pub start: usize,
+    pub end: usize,
 }
 
-pub fn write_byte(address: u64, value: u8) {
-    let addr: *mut u64 = address as *mut u64;
-    unsafe {
-        write_volatile(addr, value.into());
+pub fn init_free_memory_map(map: &'static MemoryMap) {
+    let mut mmap = MMAP.write();
+    for region in map
+        .iter()
+        .filter(|r| r.region_type == MemoryRegionType::Usable)
+    {
+        let mut mr = FreeMemoryRegion::default();
+        mr.start = region.range.start_addr() as usize;
+        mr.end = region.range.end_addr() as usize;
+        mmap.push(mr);
     }
-}
-
-pub fn read_dword(address: u64) -> u32 {
-    let addr: *const u64 = address as *const u64;
-    unsafe { read_volatile(addr) as u32 }
-}
-
-pub fn write_dword(address: u64, value: u32) {
-    let addr: *mut u64 = address as *mut u64;
-    unsafe {
-        write_volatile(addr, value.into());
-    }
-}
-
-fn find_usable_frames(map: &'static MemoryMap) -> impl Iterator<Item = PhysFrame> {
-    let regions = map.iter();
-    let usable_regions = regions.filter(|r| r.region_type == MemoryRegionType::Usable);
-    let addr_ranges = usable_regions.map(|r| r.range.start_addr()..r.range.end_addr());
-    let frame_addrs = addr_ranges.flat_map(|r| r.step_by(4096));
-    frame_addrs.map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
 }

@@ -7,11 +7,10 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-crc = "1.8.1"
 heapless = "0.5.5"
 zerocopy = "0.3.0"
 static_assertions = "1.1.0"
-itertools = {version = "0.9.0", default-features=false}
+itertools = { version = "0.9.0", default-features = false }
 anyhow = {version = "1.0.31", default-features=false}
 uuid = {version = "0.8.1", default-features=false}
 
