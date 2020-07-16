@@ -1,6 +1,4 @@
-extern crate lazy_static;
-extern crate uart_16550;
-extern crate volatile;
+// SPDX-License-Identifier: MPL-2.0
 use core::fmt;
 use lazy_static::lazy_static;
 use spin::Mutex;
@@ -54,6 +52,7 @@ struct VgaBuffer {
     characters: [[Volatile<DrawableChar>; VGA_WIDTH]; VGA_HEIGHT],
 }
 
+#[allow(missing_debug_implementations)]
 pub struct ScreenWriter {
     pub column: usize,
     color: ColorCode,

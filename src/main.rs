@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 #![no_std]
 #![no_main]
 #![feature(alloc_error_handler)]
@@ -14,12 +15,12 @@ use bit_field::BitField;
 use bootloader::bootinfo::*;
 use bootloader::*;
 use core::panic::PanicInfo;
-use buddy_system_allocator::LockedHeap;
 use x86_64::instructions::random::RdRand;
+use linked_list_allocator::*;
 
 entry_point!(kmain);
 #[global_allocator]
-static ALLOCATOR: LockedHeap = LockedHeap::new();
+static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
 // Panic handler
 #[panic_handler]
@@ -41,15 +42,13 @@ fn kmain(boot_info: &'static BootInfo) -> ! {
     if start_addr.get_bits(48..64) > 0 {
         start_addr.set_bits(48..64, 0);
     }
-    let mut end_addr = start_addr + 8 * 1_048_576;
-    while ((end_addr - start_addr) % 32768) != 0 {
-        end_addr -= 1;
-    }
+    let end_addr = start_addr + 1_048_576;
     printkln!("init: initializing memory manager");
     kernel::memory::init(
         boot_info.physical_memory_offset,
         &boot_info.memory_map,
         start_addr,
+        1048576
     );
     printkln!("Init: enabling interrupts, first stage");
     kernel::interrupts::init_stage1();
@@ -68,14 +67,14 @@ fn kmain(boot_info: &'static BootInfo) -> ! {
                 MemoryRegionType::Usable => "free",
                 MemoryRegionType::InUse => "sw-reserved",
                 MemoryRegionType::Reserved => "hw-reserved",
-                MemoryRegionType::AcpiReclaimable => "ACPI reclaimable",
-                MemoryRegionType::AcpiNvs => "ACPI NVS",
+                MemoryRegionType::AcpiReclaimable => "ACPI, reclaimable",
+                MemoryRegionType::AcpiNvs => "ACPI, NVS",
                 MemoryRegionType::BadMemory => "bad",
-                MemoryRegionType::Kernel => "reserved",
-                MemoryRegionType::KernelStack => "reserved",
-                MemoryRegionType::PageTable => "reserved",
-                MemoryRegionType::Bootloader => "reserved",
-                MemoryRegionType::FrameZero => "null",
+                MemoryRegionType::Kernel => "Kernel area",
+                MemoryRegionType::KernelStack => "Kernel stack",
+                MemoryRegionType::PageTable => "Page table",
+                MemoryRegionType::Bootloader => "Boot loader",
+                MemoryRegionType::FrameZero => "NULL",
                 MemoryRegionType::Empty => "empty",
                 MemoryRegionType::BootInfo => "Boot information",
                 MemoryRegionType::Package => "pkg",

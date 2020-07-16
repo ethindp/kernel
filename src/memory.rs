@@ -1,5 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
 use crate::printkln;
-use alloc::vec::Vec;
 use bootloader::bootinfo::*;
 use core::ptr::*;
 use lazy_static::lazy_static;
@@ -14,13 +14,14 @@ use x86_64::{
     },
     PhysAddr, VirtAddr,
 };
+use alloc::vec::Vec as AllocatedVec;
 
 lazy_static! {
 /// The page table mapper (PTM) used by the kernel global memory allocator.
 static ref MAPPER: Mutex<Option<OffsetPageTable<'static>>> = Mutex::new(None);
 /// The global frame allocator (GFA); works in conjunction with the PTM.
 static ref FRAME_ALLOCATOR: Mutex<Option<GlobalFrameAllocator>> = Mutex::new(None);
-static ref MMAP: RwLock<Vec<FreeMemoryRegion>> = RwLock::new(Vec::new());
+static ref MMAP: RwLock<AllocatedVec<FreeMemoryRegion>> = RwLock::new(AllocatedVec::new());
 }
 
 /// Initializes a memory heap for the global memory allocator. Requires a PMO to start with.
@@ -41,7 +42,7 @@ fn allocate_paged_heap(
     // Construct a page range
     let page_range = {
         // Calculate start and end
-        let heap_start = VirtAddr::new(start as u64);
+        let heap_start = VirtAddr::new(start);
         let heap_end = heap_start + size - 1u64;
         let heap_start_page = Page::containing_address(heap_start);
         let heap_end_page = Page::containing_address(heap_end);
@@ -54,7 +55,7 @@ fn allocate_paged_heap(
             None => panic!("Can't allocate frame!"),
         };
         let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
-        let frame2 = frame.clone();
+        let frame2 = frame;
         unsafe {
             match mapper.map_to(page, frame, flags, frame_allocator) {
                 Ok(f) => f.flush(),
@@ -89,7 +90,7 @@ fn allocate_paged_heap_with_perms(
     permissions: PageTableFlags,
 ) -> Result<(), MapToError<Size4KiB>> {
     let page_range = {
-        let heap_start = VirtAddr::new(start as u64);
+        let heap_start = VirtAddr::new(start);
         let heap_end = heap_start + size - 1u64;
         let heap_start_page = Page::containing_address(heap_start);
         let heap_end_page = Page::containing_address(heap_end);
@@ -100,7 +101,7 @@ fn allocate_paged_heap_with_perms(
             Some(f) => f,
             None => panic!("Can't allocate frame!"),
         };
-        let frame2 = frame.clone();
+        let frame2 = frame;
         unsafe {
             match mapper.map_to(page, frame, permissions, frame_allocator) {
                 Ok(f) => f.flush(),
@@ -124,37 +125,35 @@ unsafe fn get_active_l4_table(physical_memory_offset: u64) -> (&'static mut Page
     (&mut *page_table_ptr, flags)
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct GlobalFrameAllocator {
     memory_map: &'static MemoryMap,
     pos: usize,
 }
 
 impl GlobalFrameAllocator {
-    pub unsafe fn init(memory_map: &'static MemoryMap) -> Self {
+    pub fn init(memory_map: &'static MemoryMap) -> Self {
         GlobalFrameAllocator { memory_map, pos: 0 }
     }
 }
 
 unsafe impl FrameAllocator<Size4KiB> for GlobalFrameAllocator {
     fn allocate_frame(&mut self) -> Option<PhysFrame> {
+    self.pos += 1;
         let regions = self.memory_map.iter();
         let usable_regions = regions.filter(|r| r.region_type == MemoryRegionType::Usable);
         let addr_ranges = usable_regions.map(|r| r.range.start_addr()..r.range.end_addr());
         let frame_addresses = addr_ranges.flat_map(|r| r.step_by(4096));
-        let frame = frame_addresses
-            .map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
-            .nth(self.pos);
-        self.pos += 1;
-        frame
+        frame_addresses.map(|addr| PhysFrame::containing_address(PhysAddr::new(addr))).nth(self.pos)
     }
 }
 
-pub fn init(physical_memory_offset: u64, memory_map: &'static MemoryMap, start_addr: u64) {
+pub fn init(physical_memory_offset: u64, memory_map: &'static MemoryMap, start_addr: u64, size: u64) {
     let mut mapper = MAPPER.lock();
     let mut allocator = FRAME_ALLOCATOR.lock();
     *mapper = Some(unsafe { init_mapper(physical_memory_offset) });
-    *allocator = Some(unsafe { GlobalFrameAllocator::init(memory_map) });
-    let end_addr = start_addr + 8 * 1_048_576;
+    *allocator = Some(GlobalFrameAllocator::init(memory_map));
+    let end_addr = start_addr + size;
     match (mapper.as_mut(), allocator.as_mut()) {
         (Some(m), Some(a)) => match allocate_paged_heap(start_addr, end_addr - start_addr, m, a) {
             Ok(()) => (),
@@ -192,7 +191,7 @@ pub fn allocate_page_range(start: u64, end: u64) {
     match (mapper.as_mut(), allocator.as_mut()) {
         (Some(m), Some(a)) => {
             let page_range = {
-                let start = VirtAddr::new(start as u64);
+                let start = VirtAddr::new(start);
                 let end = VirtAddr::new(end);
                 let start_page = Page::containing_address(start);
                 let end_page = Page::containing_address(end);
@@ -225,7 +224,7 @@ pub fn allocate_page_range_with_perms(start: u64, end: u64, permissions: PageTab
     match (mapper.as_mut(), allocator.as_mut()) {
         (Some(m), Some(a)) => {
             let page_range = {
-                let start = VirtAddr::new(start as u64);
+                let start = VirtAddr::new(start);
                 let end = VirtAddr::new(end);
                 let start_page = Page::containing_address(start);
                 let end_page = Page::containing_address(end);
@@ -257,7 +256,7 @@ pub fn allocate_phys_range(start: u64, end: u64) {
     match (mapper.as_mut(), allocator.as_mut()) {
         (Some(m), Some(a)) => {
             let frame_range = {
-                let start = PhysAddr::new(start as u64);
+                let start = PhysAddr::new(start);
                 let end = PhysAddr::new(end);
                 let start_frame = PhysFrame::<Size4KiB>::containing_address(start);
                 let end_frame = PhysFrame::<Size4KiB>::containing_address(end);
@@ -289,7 +288,7 @@ pub fn free_range(start: u64, end: u64) {
     match mapper.as_mut() {
         Some(m) => {
             let page_range: PageRangeInclusive<Size4KiB> = {
-                let start = VirtAddr::new(start as u64);
+                let start = VirtAddr::new(start);
                 let end = VirtAddr::new(end);
                 let start_page = Page::containing_address(start);
                 let end_page = Page::containing_address(end);

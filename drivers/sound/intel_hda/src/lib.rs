@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 use bitflags::bitflags;
 
 const GCAP: usize = 0x00;
