@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 /// General feature set
 ///
 /// The General feature set is the base feature set for ATA devices that conform to ATA8.

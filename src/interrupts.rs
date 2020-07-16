@@ -1,35 +1,59 @@
+// SPDX-License-Identifier: MPL-2.0
+#![allow(unused_results)]
 use crate::gdt;
 use cpuio::{inb, outb};
 use heapless::consts::*;
-use heapless::{FnvIndexMap, Vec};
+use heapless::FnvIndexMap;
+use alloc::vec::Vec;
 use lazy_static::lazy_static;
 use raw_cpuid::*;
-use spin::RwLock;
+use core::sync::atomic::{AtomicU64, AtomicBool, Ordering};
 use x86_64::registers::model_specific::Msr;
 use x86_64::{
     structures::idt::PageFaultErrorCode,
     structures::idt::{InterruptDescriptorTable, InterruptStackFrame},
 };
+use spin::RwLock;
+//use x86::apic::xapic::*;
+use x86::apic::x2apic::*;
+use bit_field::BitField;
+use x86::current::*;
+use iced_x86::*;
+
+/// Type to contain IRQ functions
+type IrqList = FnvIndexMap<u8, Vec<fn()>, U256>;
 
 /// This enumeration contains a list of all IRQs.
 #[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum InterruptType {
     Timer = 32, // IRQ 0 - system timer (cannot be changed)
     Keyboard,   // IRQ 1 - keyboard controller (cannot be changed)
-    Cascade, // IRQ 2 - cascaded signals from IRQs 8-15 (any devices configured to use IRQ 2 will actually be using IRQ 9)
-    Uart1, // IRQ 3 - serial port controller for serial port 2 (shared with serial port 4, if present)
-    Serial1, // IRQ 4 - serial port controller for serial port 1 (shared with serial port 3, if present)
+    Cascade, // IRQ 2 - cascaded signals from IRQs 8-15 (any devices configured to use IRQ 2
+    // will actually be using IRQ 9)
+    Uart1, // IRQ 3 - serial port controller for serial port 2 (shared with serial port 4,
+    // if present)
+    Serial1, // IRQ 4 - serial port controller for serial port 1 (shared with serial port 3,
+    // if present)
     Parallel, // IRQ 5 - parallel port 2 and 3  or  sound card
     Floppy,  // IRQ 6 - floppy disk controller
-    Lpt1, // IRQ 7 - parallel port 1. It is used for printers or for any parallel port if a printer is not present. It can also be potentially be shared with a secondary sound card with careful management of the port.
+    Lpt1, // IRQ 7 - parallel port 1. It is used for printers or for any parallel port if a
+    // printer is not present. It can also be potentially be shared with a secondary sound
+    // card with careful management of the port.
     Rtc,  // IRQ 8 - real-time clock (RTC)
-    Acpi, // IRQ 9 - Advanced Configuration and Power Interface (ACPI) system control interrupt on Intel chipsets.
-    // Other chipset manufacturers might use another interrupt for this purpose, or make it available for the use of peripherals (any devices configured to use IRQ 2 will actually be using IRQ 9)
-    Open1, // IRQ 10 - The Interrupt is left open for the use of peripherals (open interrupt/available, SCSI or NIC)
-    Open2, // IRQ 11 - The Interrupt is left open for the use of peripherals (open interrupt/available, SCSI or NIC)
+    Acpi, // IRQ 9 - Advanced Configuration and Power Interface (ACPI) system control
+    // interrupt on Intel chipsets. Other chipset manufacturers might use another interrupt
+    // for this purpose, or make it available for the use of peripherals (any devices
+    // configured to use IRQ 2 will actually be using IRQ 9)
+    Open1, // IRQ 10 - The Interrupt is left open for the use of peripherals (open
+    // interrupt/available, SCSI or NIC)
+    Open2, // IRQ 11 - The Interrupt is left open for the use of peripherals (open
+    // interrupt/available, SCSI or NIC)
     Mouse, // IRQ 12 - mouse on PS/2 connector
-    Coprocessor, // IRQ 13 - CPU co-processor  or  integrated floating point unit  or  inter-processor interrupt (use depends on OS)
-    PrimaryAta, // IRQ 14 - primary ATA channel (ATA interface usually serves hard disk drives and CD drives)
+    Coprocessor, // IRQ 13 - CPU co-processor  or  integrated floating point unit  or
+    // inter-processor interrupt (use depends on OS)
+    PrimaryAta, // IRQ 14 - primary ATA channel (ATA interface usually serves hard disk
+    // drives and CD drives)
     SecondaryAta, // IRQ 15 - secondary ATA channel
     // Other interrupts
     Irq48 = 48,
@@ -495,16 +519,18 @@ idt[InterruptType::Irq254.convert_to_usize()].set_handler_fn(handle_irq254);
 idt[InterruptType::Irq255.convert_to_usize()].set_handler_fn(handle_irq255);
         idt
     };
-    static ref TICK_COUNT: RwLock<u128> = RwLock::new(0u128);
-static ref IRQ_FUNCS: RwLock<FnvIndexMap<u8, Vec<fn(), U0>, U256>> = RwLock::new({
-let mut table = FnvIndexMap::<u8, Vec<fn(), U0>, U256>::new();
+    static ref TICK_COUNT: AtomicU64 = AtomicU64::new(0);
+static ref IRQ_FUNCS: RwLock<IrqList> = RwLock::new({
+let mut table = FnvIndexMap::<u8, Vec<fn()>, U256>::new();
 for i in 0 .. 256 {
-let v = Vec::<fn(), U0>::new();
+let v = Vec::<fn()>::new();
 table.insert(i as u8, v).unwrap();
 }
 table
 });
 }
+static X2APIC: AtomicBool = AtomicBool::new(false);
+static APIC: AtomicBool = AtomicBool::new(false);
 
 pub fn init_stage1() {
     use crate::memory::allocate_phys_range;
@@ -541,7 +567,14 @@ pub fn init_stage1() {
         outb(saved_mask2, 0xA1);
         outb(0, 0x80);
         if is_apic_available() {
+        APIC.swap(true, Ordering::Acquire);
+            let id = CpuId::new();
+    let feature_info = id.get_feature_info().unwrap();
+if !feature_info.has_x2apic() {
             allocate_phys_range(apic_addr(), apic_addr() + 0x530);
+            } else {
+            X2APIC.swap(true, Ordering::Acquire);
+            }
         }
     }
     printkln!("INTR: Loading IDT");
@@ -554,11 +587,13 @@ pub fn init_stage1() {
 pub fn init_stage2() {
     use crate::printkln;
     x86_64::instructions::interrupts::disable();
-    printkln!("INTR: loading IDT");
-    IDT.load();
-    if is_apic_available() {
+    if APIC.load(Ordering::Relaxed) {
         // Initialize PIC, then mask everything
-        printkln!("INTR: APIC is available and usable; configuring");
+        if X2APIC.load(Ordering::Relaxed) {
+            printkln!("INTR: X2APIC is available and usable; configuring");
+        } else {
+            printkln!("INTR: APIC is available and usable; configuring");
+            }
         unsafe {
             let saved_mask1 = inb(0x21);
             let saved_mask2 = inb(0xA1);
@@ -587,11 +622,17 @@ pub fn init_stage2() {
             outb(0xFF, 0x21);
             outb(0, 0x80);
         }
+        if X2APIC.load(Ordering::Relaxed) {
+            let mut x2apic = X2APIC::new();
+            x2apic.attach();
+            printkln!("INTR: X2APIC configuration complete");
+            } else {
         let apic_reg = (apic_addr() + 0xF0) as *mut u32;
         unsafe {
             *(apic_reg) |= 0x100;
         }
         printkln!("INTR: APIC configuration complete");
+        }
     } else {
         printkln!("INTR: APIC not available/supported, falling back to 8259 PIC");
         printkln!("INTR: Configuring PIC");
@@ -671,9 +712,7 @@ extern "x86-interrupt" fn handle_timer(_: &mut InterruptStackFrame) {
 }
 
 extern "x86-interrupt" fn handle_rtc(_stack_frame: &mut InterruptStackFrame) {
-    if let Some(mut tc) = TICK_COUNT.try_write() {
-        *tc += 1;
-    }
+    TICK_COUNT.fetch_add(1, Ordering::SeqCst);
     if let Some(tbl) = IRQ_FUNCS.try_read() {
         for func in tbl.get(&InterruptType::Rtc.convert_to_u8()).unwrap().iter() {
             (func)();
@@ -756,8 +795,27 @@ extern "x86-interrupt" fn handle_nm(stack: &mut InterruptStackFrame) {
 }
 
 extern "x86-interrupt" fn handle_gp(_: &mut InterruptStackFrame, ec: u64) {
-    use crate::{printkln, idle_forever};
-    printkln!("Cannot continue: protection violation, error code {}", ec,);
+let rip = registers::rip() as *mut u128;
+let ripaddr = registers::rip();
+let rbpaddr = registers::rbp();
+let rspaddr = registers::rsp();
+    use crate::{printkln, printk, idle_forever};
+    use alloc::string::String;
+let bytes = u128::to_le_bytes(unsafe { *rip });
+printk!("Cannot continue (GP), error code {:X}\nRegisters: RIP = {:X}\tRBP = {:X}\tRSP = {:X}\nFalty instruction: ", ec, ripaddr, rbpaddr, rspaddr);
+let mut decoder = Decoder::new(64, &bytes, DecoderOptions::AMD_BRANCHES | DecoderOptions::FORCE_RESERVED_NOP | DecoderOptions::UMOV | DecoderOptions::XBTS | DecoderOptions::CMPXCHG486A | DecoderOptions::OLD_FPU | DecoderOptions::PCOMMIT | DecoderOptions::LOADALL286 | DecoderOptions::LOADALL386 | DecoderOptions::CL1INVMB | DecoderOptions::MOV_TR | DecoderOptions::JMPE);
+decoder.set_ip(ripaddr);
+let mut formatter = GasFormatter::new();
+formatter.options_mut().set_uppercase_all(true);
+formatter.options_mut().set_uppercase_hex(true);
+let mut out = String::new();
+let mut instruction = Instruction::default();
+while decoder.can_decode() {
+decoder.decode_out(&mut instruction);
+out.clear();
+formatter.format(&instruction, &mut out);
+printkln!("{}", out);
+}
     idle_forever();
 }
 
@@ -984,7 +1042,6 @@ gen_interrupt_fn!(handle_irq254, InterruptType::Irq254);
 gen_interrupt_fn!(handle_irq255, InterruptType::Irq255);
 
 fn is_apic_available() -> bool {
-    use bit_field::BitField;
     let apic_available_in_msr = {
         let apicbase = Msr::new(0x1B);
         unsafe { apicbase.read().get_bit(11) }
@@ -993,13 +1050,22 @@ fn is_apic_available() -> bool {
 }
 
 fn apic_addr() -> u64 {
-    use bit_field::BitField;
     let apicbase = Msr::new(0x1B);
     unsafe { apicbase.read().get_bits(12..52) }
 }
 
 fn signal_eoi(interrupt: u8) {
-    if !is_apic_available() {
+if X2APIC.load(Ordering::Relaxed) {
+use x86::msr::*;
+unsafe {
+wrmsr(IA32_X2APIC_EOI, 0);
+}
+    } else if APIC.load(Ordering::Relaxed) {
+        let addr = (apic_addr() + 0xB0) as *mut u32;
+        unsafe {
+            *(addr) = 0;
+        }
+    } else {
         if 32 <= interrupt && interrupt < 32 + 8 {
             unsafe {
                 outb(0x20, 0x20);
@@ -1014,28 +1080,56 @@ fn signal_eoi(interrupt: u8) {
                 outb(0x20, 0xA0);
             }
         }
-    } else {
-        let addr = (apic_addr() + 0xB0) as *mut u32;
-        unsafe {
-            *(addr) = 0;
-        }
-    }
+}
 }
 
 /// Gets the tick count that has passed since we started counting (since the RTC was set up).
-/// Can handle up to 340282366920938463463374607431768211456 ticks,
-/// Which, if is in microseconds, is about 10 septillion 780 sextillion years
-pub fn get_tick_count() -> u128 {
-    *TICK_COUNT.read()
+pub fn get_tick_count() -> u64 {
+    TICK_COUNT.load(Ordering::SeqCst)
 }
 
 /// Sleeps for the given duration of microseconds.
-pub fn sleep_for(duration: u128) {
+pub fn sleep_for(duration: u64) {
+if X2APIC.load(Ordering::Relaxed) {
+use x86::msr::*;
+let mut bits = unsafe { rdmsr(IA32_X2APIC_LVT_TIMER) };
+bits.set_bit(16, true);
+unsafe {
+wrmsr(IA32_X2APIC_DIV_CONF, 0b111);
+wrmsr(IA32_X2APIC_INIT_COUNT, duration);
+wrmsr(IA32_X2APIC_LVT_TIMER, bits);
+}
+while unsafe { rdmsr(IA32_X2APIC_CUR_COUNT) } != 0 {
+x86_64::instructions::hlt();
+}
+bits.set_bit(16, false);
+unsafe {
+wrmsr(IA32_X2APIC_LVT_TIMER, bits);
+}
+} else if APIC.load(Ordering::Relaxed) {
+let lvt_timer = (apic_addr() + 0x320) as *mut u32;
+let init_cnt = (apic_addr() + 0x380) as *mut u32;
+let div_conf = (apic_addr() + 0x3E0) as *mut u32;
+let cur_cnt = (apic_addr() + 0x390) as *mut u32;
+let mut bits = unsafe { *lvt_timer };
+bits.set_bit(16, true);
+unsafe {
+*(lvt_timer) = bits;
+*(div_conf) = 0b111;
+*(init_cnt) = duration.get_bits(0 .. 32) as u32;
+while *(cur_cnt) != 0 {
+x86_64::instructions::hlt();
+}
+bits.set_bit(16, false);
+*(lvt_timer) = bits;
+}
+} else {
     let mut count = get_tick_count();
     let end = count + duration;
     while count != end {
         count = get_tick_count();
         x86_64::instructions::hlt();
+    }
     }
 }
 
@@ -1044,9 +1138,7 @@ pub fn register_interrupt_handler(interrupt: u8, func: fn()) {
     let mut tbl = IRQ_FUNCS.write();
     let irq = 32_u8.saturating_add(interrupt);
     if let Some(funcs) = tbl.get_mut(&irq) {
-        funcs.resize(funcs.len() + 1, || {}).unwrap();
-        funcs.pop();
-        funcs.push(func).unwrap();
+        funcs.push(func);
     }
     x86_64::instructions::interrupts::enable();
 }

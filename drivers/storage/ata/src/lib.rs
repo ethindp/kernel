@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 /// The ata library contains modules and functions for reading, writing, and managing devices that comply with the AT Attachment (ATA) standards. This library conforms to [INCITS 529-2018](https://standards.incits.org/apps/group_public/project/details.php?project_id=1643). It is useful to have the below standards available if you wish to fully understand the ATA architecture:
 ///
 /// * [INCITS 451-2008[R2018]: Information technology - AT Attachments-8 ATA/ATAPI Architecture Model (ATA8-AAM)](https://standards.incits.org/apps/group_public/project/details.php?project_id=2114)
@@ -67,7 +68,7 @@ Bit16(u16)
 
 #[derive(Clone, Copy, Hash, Eq, partialEq, Ord, PartialOrd, Debug)]
 pub enum Count {
-Bit9*u8),
+Bit8(u8),
 Bit16(u16)
 }
 

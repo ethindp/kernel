@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 extern crate alloc;
 use alloc::format;
 use anyhow::{anyhow, Result};
@@ -9,7 +10,6 @@ use core::convert::TryInto;
 use heapless::consts::*;
 use heapless::{String, Vec};
 use static_assertions::assert_eq_size;
-use uuid;
 use zerocopy::{FromBytes, LayoutVerified};
 
 const GPT_SIG: u64 = 0x5452_4150_2049_4645;
@@ -195,7 +195,7 @@ impl PartitionTable {
     /// The read function is defined as:
     ///
     ///```rust
-    /// fn read_func(lba: u64, count: u64) { ... }
+    /// fn read_func(lba: u64, count: u16) { ... }
     /// ```
     ///
     /// This function is used to read LBAs from a particular storage medium.
@@ -286,7 +286,7 @@ impl PartitionTable {
     fn compute_crc32(&mut self, buf: &[u8]) -> u32 {
         let mut crc32: u32 = !0;
         for i in buf.iter() {
-            crc32 = CRC32_TAB[(crc32 ^ *i as u32) as usize & 0xFF] ^ (crc32 as u32 >> 8);
+            crc32 = CRC32_TAB[(crc32 ^ *i as u32) as usize & 0xFF] ^ (crc32 >> 8);
         }
         crc32 ^ !0
     }

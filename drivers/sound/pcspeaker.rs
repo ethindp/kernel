@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 use cpuio::*;
 
 pub fn pc_speaker_on(freq: u16) {

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 use alloc::string::String;
 //use super::super::storage::ata;
 

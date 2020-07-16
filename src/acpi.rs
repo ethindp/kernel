@@ -1,50 +1,41 @@
-use crate::memory::{allocate_phys_range, free_range};
-use crate::printkln;
+// SPDX-License-Identifier: MPL-2.0
+use crate::memory::allocate_phys_range;
 use acpi::*;
 use core::ptr::NonNull;
 
 #[repr(C)]
-#[derive(Clone, Copy, Default, Debug, Hash, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Default)]
 struct AcpiMapper;
 
 impl handler::AcpiHandler for AcpiMapper {
     unsafe fn map_physical_region<T>(
         &mut self,
-        physical_address: usize,
-        _: usize,
+        addr: usize,
+        size: usize,
     ) -> handler::PhysicalMapping<T> {
-        let addr = physical_address & !(4096-1);
         allocate_phys_range(
             addr as u64,
-            (addr + 4095) as u64,
+            (addr + size) as u64,
         );
-        let ptr = if let Some(p) = NonNull::new(addr as *mut T) { p } else { NonNull::new_unchecked(addr as *mut T) };
         handler::PhysicalMapping {
             physical_start: addr,
-            virtual_start: ptr,
-            region_length: 4095,
-            mapped_length: 4095,
+            virtual_start: NonNull::new(addr as *mut T).unwrap(),
+            region_length: size,
+            mapped_length: size,
         }
     }
 
-    fn unmap_physical_region<T>(&mut self, region: PhysicalMapping<T>) {
+    fn unmap_physical_region<T>(&mut self, _region: PhysicalMapping<T>) {
+    /*
         free_range(
             region.physical_start as u64,
             (region.physical_start + region.mapped_length) as u64,
         );
+        */
     }
 }
 
-pub fn init() -> Option<Acpi> {
+pub fn init() -> Result<Acpi, AcpiError> {
     let mut h = AcpiMapper::default();
-    printkln!("init: Searching for ACPI tables");
-    let table = match unsafe { search_for_rsdp_bios(&mut h) } {
-        Ok(a) => a,
-        Err(e) => {
-            printkln!("init: ACPI table not found: {:?}", e);
-            return None;
-        }
-    };
-    printkln!("init: acpi rev. {} found", table.acpi_revision);
-    Some(table)
+    unsafe { search_for_rsdp_bios(&mut h) }
 }

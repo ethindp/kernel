@@ -3,27 +3,25 @@ name = "kernel"
 version = "0.1.0"
 authors = ["Ethin Probst <harlydavidsen@gmail.com>"]
 edition = "2018"
-
+license = "MPL-2.0"
+license-file = "LICENSE"
 
 [dependencies]
 x86_64 = ">=0.9.6"
 uart_16550 = ">=0.2.4"
 volatile = ">=0.2.6"
-pc-keyboard = ">=0.5.0"
 cpuio = ">=0.2.0"
 bit_field = ">=0.10.0"
-goblin = {version = ">=0.2.0", default-features=false, features=["elf64", "elf32", "mach64", "mach32", "pe32", "pe64", "archive", "endian_fd"]}
 spin = ">= 0.5.2"
 raw-cpuid = ">=7.0.3"
 part = {path = "drivers/storage/part"}
 heapless = "0.5.5"
-anyhow = {version = "1.0.31", default-features=false}
-bootloader = {version = "0.9.4", features=["map_physical_memory", "sse"]}
-rand = {version = "0.7.3", default-features=false, features = ["alloc"]}
-bitflags = "1.2.1"
-atomic = "0.4.5"
 acpi = "1.0.0"
-buddy_system_allocator = "0.4.0"
+bootloader = {version = "0.9.4", features=["map_physical_memory", "sse"]}
+x86 = "0.34.0"
+iced-x86 = {version = "1.2.0", default-features=false, features=["decoder", "encoder", "block_encoder", "op_code_info", "instr_info", "gas", "intel", "masm", "nasm", "db", "no_std", "exhaustive_enums"]}
+linked_list_allocator = "0.8.4"
+voladdress = "0.3.0"
 
 [dependencies.lazy_static]
 version = ">=1.4.0"
@@ -42,11 +40,11 @@ incremental = true
 
 [profile.release]
 panic = "abort"
-lto = "fat"
+lto = "thin"
 codegen-units = 1
 
 [package.metadata.bootimage]
-run-args = ["-serial", "stdio", "-no-reboot", "-hdb", "disk.img", "-s", "-m", "4G", "-usb", "-rtc", "base=utc,clock=host", "-cpu", "EPYC-v3,+apic,+acpi", "-smp", "cpus=8", "-soundhw", "all", "-M", "q35"]
+run-args = ["-serial", "stdio", "-no-reboot", "-hdb", "disk.img", "-s", "-m", "20G", "-usb", "-rtc", "base=utc,clock=host", "-cpu", "EPYC-v3,+apic,+acpi,+x2apic", "-smp", "cpus=8", "-soundhw", "all", "-M", "q35"]
 
 [package.metadata.cargo-xbuild]
 memcpy = true

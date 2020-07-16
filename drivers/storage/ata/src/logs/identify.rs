@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 // Log pages (see chapter 9 of ATA ACS-4)
 // We omit pages 00h (List of supported pages) and 01h (Copy of IDENTIFY DEVICE data)
 #[repr(C)]

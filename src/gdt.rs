@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 use lazy_static::lazy_static;
 use x86_64::instructions::segmentation::set_cs;
 use x86_64::instructions::tables::load_tss;
