@@ -7,34 +7,36 @@
 #![feature(alloc_layout_extra)]
 #![feature(const_in_array_repeat_expressions)]
 #![feature(llvm_asm)]
+#![feature(wake_trait)]
 #![allow(dead_code)]
-#![forbid(warnings,
-absolute_paths_not_starting_with_crate,
-anonymous_parameters,
-box_pointers,
-deprecated_in_future,
-explicit_outlives_requirements,
-indirect_structural_match,
-keyword_idents,
-macro_use_extern_crate,
-meta_variable_misuse,
-non_ascii_idents,
-private_doc_tests,
-single_use_lifetimes,
-trivial_casts,
-trivial_numeric_casts,
-unaligned_references,
-unreachable_pub,
-unused_crate_dependencies,
-unused_extern_crates,
-unused_import_braces,
-unused_lifetimes,
-variant_size_differences
+#![forbid(
+    warnings,
+    absolute_paths_not_starting_with_crate,
+    anonymous_parameters,
+    deprecated_in_future,
+    explicit_outlives_requirements,
+    indirect_structural_match,
+    keyword_idents,
+    macro_use_extern_crate,
+    meta_variable_misuse,
+    non_ascii_idents,
+    private_doc_tests,
+    single_use_lifetimes,
+    trivial_casts,
+    trivial_numeric_casts,
+    unaligned_references,
+    unreachable_pub,
+    unused_crate_dependencies,
+    unused_extern_crates,
+    unused_import_braces,
+    unused_lifetimes,
+    variant_size_differences
 )]
 #![deny(
-missing_copy_implementations,
-missing_debug_implementations,
-unused_results
+    missing_copy_implementations,
+    missing_debug_implementations,
+    unused_results,
+    box_pointers
 )]
 #![forbid(clippy::all)]
 extern crate alloc;
@@ -51,46 +53,30 @@ pub mod memory;
 /// The pci module contains functions for reading from PCI devices and enumerating PCI buses via the "brute-force" method.
 /// As we add drivers that require the PCI buss in, the ::probe() function of this module will be extended to load those drivers when the probe is in progress. This will then create a "brute-force and configure" method.
 pub mod pci;
+/// The rtc module contains RTC initialization code
+pub mod rtc;
+/// The task module controls cooperative and preemptive multitasking schedulers. The
+/// cooperative scheduler runs in the kernel while the preemptive scheduler will run in
+/// userspace once implemented.
+#[allow(missing_debug_implementations, missing_copy_implementations, box_pointers)]
+pub mod task;
 /// The vga module contains functions for interacting with the VGA buffer.
 pub mod vga;
-use cpuio::{inb, outb};
 use linked_list_allocator as _;
 use part as _;
-
+use log as _;
 
 /// Initializes the kernel and sets up required functionality.
 pub fn init() {
-    printkln!("init: initializing GDT");
-    gdt::init();
-    printkln!("init: Enabling interrupts, second stage");
-    interrupts::init_stage2();
-    printkln!("init: configuring RTC");
-    // There's a very high chance we'll immediately get interrupts fired. We turn them off here to prevent crashes while we set up the RTC.
-    x86_64::instructions::interrupts::without_interrupts(|| {
-        // Enable the real time clock
-        // We must be careful because if we mess this up, we could leave the RTC in an
-        // undefined state. Unlike the PIC timer/PIT, this will survive cold reboots and boots.
-        let rate = 3 & 0x0F;
-        unsafe {
-            // Control register A of the RTC and temporarily disable NMIs
-            outb(0x8A, 0x70);
-            // Read initial value of register A
-            let mut prev = inb(0x71);
-            // Reset index to register A
-            outb(0x8A, 0x70);
-            // Right tick freq to register A
-            outb((prev & 0xF0) | rate, 0x71);
-            // Switch to register B
-            outb(0x8B, 0x70);
-            // Read current value of register B
-            prev = inb(0x71);
-            // Re-control register B.
-            outb(0x8B, 0x70);
-            // Enable RTC
-            outb(prev | 0x40, 0x71);
-        }
-    });
-    pci::init();
+use task::AsyncTask;
+use task::cooperative::executor::Executor;
+let mut executor = Executor::new();
+executor.spawn(AsyncTask::new(gdt::init()));
+    executor.spawn(AsyncTask::new(interrupts::init_stage2()));
+    executor.spawn(AsyncTask::new(rtc::init()));
+    executor.spawn(AsyncTask::new(pci::init()));
+    executor.spawn(AsyncTask::new(init_nvme()));
+    executor.run();
 }
 
 /// This function is designed as a failsafe against memory corruption if we panic.
@@ -99,3 +85,18 @@ pub fn idle_forever() -> ! {
         x86_64::instructions::hlt();
     }
 }
+
+async fn init_nvme() {
+loop {
+if pci::find_device(0x01, 0x08, 0x02).await.is_some() {
+break;
+}
+x86_64::instructions::hlt();
+}
+let bars = [pci::get_bar(0, 0x01, 0x08, 0x02).await.unwrap() as u64, pci::get_bar(1, 0x01, 0x08, 0x02).await.unwrap() as u64, pci::get_bar(2, 0x01, 0x08, 0x02).await.unwrap() as u64, pci::get_bar(3, 0x01, 0x08, 0x02).await.unwrap() as u64, pci::get_bar(4, 0x01, 0x08, 0x02).await.unwrap() as u64, pci::get_bar(5, 0x01, 0x08, 0x02).await.unwrap() as u64];
+let controller = unsafe {
+nvme::NvMeController::new(bars, | start, size| crate::memory::allocate_phys_range(start, start + size), | start, size| crate::memory::free_range(start, start + size))
+};
+controller.init().await;
+}
+

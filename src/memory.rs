@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 use crate::printkln;
+use alloc::vec::Vec as AllocatedVec;
 use bootloader::bootinfo::*;
 use core::ptr::*;
 use lazy_static::lazy_static;
@@ -14,7 +15,6 @@ use x86_64::{
     },
     PhysAddr, VirtAddr,
 };
-use alloc::vec::Vec as AllocatedVec;
 
 lazy_static! {
 /// The page table mapper (PTM) used by the kernel global memory allocator.
@@ -139,16 +139,23 @@ impl GlobalFrameAllocator {
 
 unsafe impl FrameAllocator<Size4KiB> for GlobalFrameAllocator {
     fn allocate_frame(&mut self) -> Option<PhysFrame> {
-    self.pos += 1;
+        self.pos += 1;
         let regions = self.memory_map.iter();
         let usable_regions = regions.filter(|r| r.region_type == MemoryRegionType::Usable);
         let addr_ranges = usable_regions.map(|r| r.range.start_addr()..r.range.end_addr());
         let frame_addresses = addr_ranges.flat_map(|r| r.step_by(4096));
-        frame_addresses.map(|addr| PhysFrame::containing_address(PhysAddr::new(addr))).nth(self.pos)
+        frame_addresses
+            .map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
+            .nth(self.pos)
     }
 }
 
-pub fn init(physical_memory_offset: u64, memory_map: &'static MemoryMap, start_addr: u64, size: u64) {
+pub fn init(
+    physical_memory_offset: u64,
+    memory_map: &'static MemoryMap,
+    start_addr: u64,
+    size: u64,
+) {
     let mut mapper = MAPPER.lock();
     let mut allocator = FRAME_ALLOCATOR.lock();
     *mapper = Some(unsafe { init_mapper(physical_memory_offset) });

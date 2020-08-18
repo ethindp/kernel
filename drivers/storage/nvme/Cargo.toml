@@ -1,15 +1,14 @@
 [package]
-name = "part"
+name = "nvme"
 version = "0.1.0"
-authors = ["Ethin Probst <harlydavidsen@gmail.com>"]
+authors = ["Ethin Probst <ethindp@protonmail.com>"]
 edition = "2018"
 
 [dependencies]
-heapless = "0.5.5"
-zerocopy = "0.3.0"
-static_assertions = "1.1.0"
-anyhow = {version = "1.0.31", default-features=false}
-uuid = {version = "0.8.1", default-features=false}
+voladdress = {git = "https://github.com/rust-console/voladdress"}
+log = {version = "0.4.11", default-features=false}
+x86 = "0.34.0"
+bit_field = "0.10.0"
 
 [profile.dev]
 panic = "abort"
