@@ -6,6 +6,7 @@ use x86_64::structures::gdt::SegmentSelector;
 use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable};
 use x86_64::structures::tss::TaskStateSegment;
 use x86_64::VirtAddr;
+use crate::printkln;
 
 pub const DF_IST_IDX: u16 = 0;
 pub const BP_IST_IDX: u16 = 1;
@@ -43,10 +44,13 @@ struct Selectors {
 }
 
 /// Sets up the GDT, separate kernel stack, and TSS.
-pub fn init() {
+pub async fn init() {
+printkln!("init: gdt: loading");
     GDT.0.load();
     unsafe {
+    printkln!("Init: GDT: Setting CS");
         set_cs(GDT.1.code_selector);
+        printkln!("Init: GDT: Loading TSS");
         load_tss(GDT.1.tss_selector);
     }
 }
