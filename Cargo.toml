@@ -47,7 +47,7 @@ lto = "thin"
 codegen-units = 1
 
 [package.metadata.bootimage]
-run-args = ["-serial", "stdio", "-no-reboot", "-drive", "file=disk.img,if=none,id=NVME01", "-device", "nvme,drive=NVME01,serial=0001", "-m", "4G", "-usb", "-rtc", "base=utc,clock=host", "-cpu", "Skylake-Client-v3", "-smp", "cpus=8", "-soundhw", "all", "-M", "q35", "-name", "kernel", "-S", "-s"]
+run-args = ["-serial", "stdio", "-no-reboot", "-drive", "file=disk.img,if=none,id=NVME01", "-device", "nvme,drive=NVME01,serial=0001", "-m", "4G", "-usb", "-rtc", "base=utc,clock=host", "-cpu", "Skylake-Client-v3", "-smp", "cpus=8", "-soundhw", "all", "-M", "q35", "-name", "kernel", "-S", "-s", "-nographic"]
 
 [package.metadata.cargo-xbuild]
 memcpy = true
