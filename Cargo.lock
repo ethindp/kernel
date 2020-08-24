@@ -6,7 +6,7 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f5b1ccc3856d8d93733ae245ed34d9468cd2449891c45a2951c697754537f04"
 dependencies = [
- "bit_field 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "bit_field 0.10.1",
  "log",
 ]
 
@@ -44,9 +44,9 @@ dependencies = [
 
 [[package]]
 name = "autocfg"
-version = "1.0.0"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8aac770f1885fd7e387acedd76065302551364496e46b3dd00860b2f8359b9d"
+checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
 
 [[package]]
 name = "bit_field"
@@ -57,13 +57,13 @@ checksum = "ed8765909f9009617974ab6b7d332625b320b33c326b1e9321382ef1999b5d56"
 [[package]]
 name = "bit_field"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a165d606cf084741d4ac3a28fb6e9b1eb0bd31f6cd999098cfddb0b2ab381dc0"
+source = "git+https://github.com/ethindp/rust-bit-field#ae19a8bdc3d3ad2fa71215a4e50abbaa81971fb8"
 
 [[package]]
 name = "bit_field"
-version = "0.10.0"
-source = "git+https://github.com/ethindp/rust-bit-field#ae19a8bdc3d3ad2fa71215a4e50abbaa81971fb8"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dcb6dd1c2376d2e096796e234a70e17e94cc2d5d54ff8ce42b28cef1d0d359a4"
 
 [[package]]
 name = "bitflags"
@@ -77,7 +77,7 @@ version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ad686b9b47363de7d36c05fb6885f17d08d0f2d15b1bc782a101fe3c94a2c7c"
 dependencies = [
- "bit_field 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "bit_field 0.10.1",
 ]
 
 [[package]]
@@ -88,9 +88,9 @@ checksum = "08c48aae112d48ed9f069b33538ea9e3e90aa263cfa3d1c24309612b1f7472de"
 
 [[package]]
 name = "cc"
-version = "1.0.58"
+version = "1.0.59"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9a06fb2e53271d7c279ec1efea6ab691c35a2ae67ec0d91d7acec0caf13b518"
+checksum = "66120af515773fb005778dc07c261bd201ec8ce50bd6e7144c927753fe013381"
 
 [[package]]
 name = "cfg-if"
@@ -191,7 +191,7 @@ name = "kernel"
 version = "0.1.0"
 dependencies = [
  "acpi",
- "bit_field 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "bit_field 0.10.1",
  "bitflags",
  "bootloader",
  "cpuio",
@@ -259,7 +259,7 @@ name = "nvme"
 version = "0.1.0"
 dependencies = [
  "atomic",
- "bit_field 0.10.0 (git+https://github.com/ethindp/rust-bit-field)",
+ "bit_field 0.10.0",
  "heapless",
  "lazy_static",
  "log",
@@ -386,9 +386,9 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "syn"
-version = "1.0.38"
+version = "1.0.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e69abc24912995b3038597a7a593be5053eb0fb44f3cc5beec0deb421790c1f4"
+checksum = "891d8d6567fe7c7f8835a3a98af4208f3846fba258c1bc3c31d6e506239f11f9"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -458,7 +458,7 @@ version = "0.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c146cbc47471e076987378c159a7aa8fa434680c6fbddca59fe6f40f1591c819"
 dependencies = [
- "bit_field 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "bit_field 0.10.1",
  "bitflags",
  "raw-cpuid 8.1.1",
 ]
