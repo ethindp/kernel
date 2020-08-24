@@ -1,5 +1,6 @@
 use bitflags::bitflags;
 use cpuio::{inb, outb};
+use log::*;
 use x86_64::instructions::interrupts::without_interrupts;
 
 pub const IDX: u16 = 0x0070;
@@ -89,39 +90,46 @@ const VRAM = 1 << 7;
 }
 
 pub fn read(index: u8) -> u8 {
-let idx = index | NO_NMI;
-unsafe {
-outb(idx, IDX);
-inb(DATA)
-}
+    let idx = index | NO_NMI;
+    unsafe {
+        outb(idx, IDX);
+        inb(DATA)
+    }
 }
 
 pub fn write(index: u8, val: u8) {
-let idx = index | NO_NMI;
-unsafe {
-outb(idx, IDX);
-outb(val, DATA);
-}
+    let idx = index | NO_NMI;
+    unsafe {
+        outb(idx, IDX);
+        outb(val, DATA);
+    }
 }
 
 pub fn mask(index: u8, off: u8, on: u8) {
-let index = index | NO_NMI;
-unsafe {
-outb(index, IDX);
-let val = inb(DATA);
-outb((val & !off) | on, DATA);
-}
+    let index = index | NO_NMI;
+    unsafe {
+        outb(index, IDX);
+        let val = inb(DATA);
+        outb((val & !off) | on, DATA);
+    }
 }
 
 #[allow(unused_results)]
 pub async fn init() {
-use crate::printkln;
-printkln!("init: configuring RTC");
-without_interrupts(|| {
-write(STTSA, 0x26);
-mask(STTSB, !(1 << 0), 1 << 1);
-read(STTSC);
-read(STTSD);
-});
+    info!("configuring RTC");
+    without_interrupts(|| {
+        write(STTSA, 0x26);
+        mask(STTSB, !(1 << 0), 1 << 1);
+        read(STTSC);
+        read(STTSD);
+    });
+    info!(
+        "RTC indicates that time is {}-{}-{} {}:{}:{}",
+        read(YR),
+        read(MON),
+        read(DAYMO),
+        read(HRS),
+        read(MINS),
+        read(SECS)
+    );
 }
-

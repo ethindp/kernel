@@ -6,7 +6,7 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f5b1ccc3856d8d93733ae245ed34d9468cd2449891c45a2951c697754537f04"
 dependencies = [
- "bit_field 0.10.0",
+ "bit_field 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log",
 ]
 
@@ -34,6 +34,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "atomic"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3410529e8288c463bedb5930f82833bc0c90e5d2fe639a56582a4d09220b281"
+dependencies = [
+ "autocfg",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -52,6 +61,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a165d606cf084741d4ac3a28fb6e9b1eb0bd31f6cd999098cfddb0b2ab381dc0"
 
 [[package]]
+name = "bit_field"
+version = "0.10.0"
+source = "git+https://github.com/ethindp/rust-bit-field#ae19a8bdc3d3ad2fa71215a4e50abbaa81971fb8"
+
+[[package]]
 name = "bitflags"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -63,7 +77,7 @@ version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ad686b9b47363de7d36c05fb6885f17d08d0f2d15b1bc782a101fe3c94a2c7c"
 dependencies = [
- "bit_field 0.10.0",
+ "bit_field 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -177,7 +191,7 @@ name = "kernel"
 version = "0.1.0"
 dependencies = [
  "acpi",
- "bit_field 0.10.0",
+ "bit_field 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bitflags",
  "bootloader",
  "cpuio",
@@ -244,10 +258,16 @@ checksum = "60302e4db3a61da70c0cb7991976248362f30319e88850c487b9b95bbf059e00"
 name = "nvme"
 version = "0.1.0"
 dependencies = [
- "bit_field 0.10.0",
+ "atomic",
+ "bit_field 0.10.0 (git+https://github.com/ethindp/rust-bit-field)",
+ "heapless",
+ "lazy_static",
  "log",
+ "spin",
+ "static_assertions 1.1.0",
  "voladdress 0.3.1-alpha.0",
  "x86",
+ "zerocopy",
 ]
 
 [[package]]
@@ -438,7 +458,7 @@ version = "0.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c146cbc47471e076987378c159a7aa8fa434680c6fbddca59fe6f40f1591c819"
 dependencies = [
- "bit_field 0.10.0",
+ "bit_field 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bitflags",
  "raw-cpuid 8.1.1",
 ]

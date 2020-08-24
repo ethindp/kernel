@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 use crate::acpi;
-use crate::printkln;
 use alloc::collections::LinkedList;
 use bit_field::BitField;
 use lazy_static::lazy_static;
+use log::*;
 use spin::RwLock;
 
 const MAX_FUNCTION: usize = 8;
@@ -150,60 +150,54 @@ pub extern "C" fn write_byte(phys_addr: usize, addr: u32, value: u8) {
 }
 
 pub async fn probe() {
-    printkln!("Init: PCI scan started");
     if let Ok(table) = acpi::init() {
         if let Some(regions) = table.pci_config_regions {
-        for bus in 0 .. MAX_BUS {
+            for bus in 0..MAX_BUS {
                 for device in 0..MAX_DEVICE {
                     for function in 0..MAX_FUNCTION {
-                            if let Some(addr) = regions.physical_address(
-                                0,
-                                bus as u8,
-                                device as u8,
-                                function as u8,
-                            ) {
-                                use crate::memory::{allocate_phys_range, free_range};
-                                allocate_phys_range(addr, addr + 4096);
-                                let mut dev = PCIDevice::default();
-                                dev.segment_group = 0;
-                                dev.bus = bus as u8;
-                                dev.slot = device as u8;
-                                dev.function = function as u8;
-                                dev.phys_addr = addr;
-                                let vendev = read_dword(addr as usize, VENDOR_ID);
-                                dev.vendor = (vendev & 0xffff) as u16;
-                                dev.device = (vendev >> 16) as u16;
-                                if dev.vendor == 0xFFFF {
+                        if let Some(addr) =
+                            regions.physical_address(0, bus as u8, device as u8, function as u8)
+                        {
+                            use crate::memory::{allocate_phys_range, free_range};
+                            allocate_phys_range(addr, addr + 4096);
+                            let mut dev = PCIDevice::default();
+                            dev.segment_group = 0;
+                            dev.bus = bus as u8;
+                            dev.slot = device as u8;
+                            dev.function = function as u8;
+                            dev.phys_addr = addr;
+                            let vendev = read_dword(addr as usize, VENDOR_ID);
+                            dev.vendor = (vendev & 0xffff) as u16;
+                            dev.device = (vendev >> 16) as u16;
+                            if dev.vendor == 0xFFFF {
                                 free_range(addr, addr + 4096);
                                 drop(dev);
                                 continue;
-                                }
-                                dev.class = read_byte(addr as usize, DEV_CLASS);
-                                dev.subclass = read_byte(addr as usize, DEV_SUBCLASS);
-                                dev.prog_if = read_byte(addr as usize, PROG_IF);
-                                dev.revision = read_byte(addr as usize, REV_ID);
-                                dev.header_type = read_byte(addr as usize, HEADER_TYPE);
-                                let v = dev.header_type & 0x7F;
-                                if v == 1 || v == 2 {
-                                    // Bridge or PCI card bus
-                                    let secbus = read_byte(addr as usize, SEC_BUS);
-                                    dev.secondary_bus = secbus;
-                                }
-                                printkln!("init: PCI device {:X} (vd={:X}:{:X} c={:X} sc={:X} pi={:X} bi=0:{:X}:{:X}:{:X})", addr, dev.vendor, dev.device, dev.class, dev.subclass, dev.prog_if, bus, device, function);
-                                add_device(dev);
-                            } else {
-                                continue;
                             }
+                            dev.class = read_byte(addr as usize, DEV_CLASS);
+                            dev.subclass = read_byte(addr as usize, DEV_SUBCLASS);
+                            dev.prog_if = read_byte(addr as usize, PROG_IF);
+                            dev.revision = read_byte(addr as usize, REV_ID);
+                            dev.header_type = read_byte(addr as usize, HEADER_TYPE);
+                            let v = dev.header_type & 0x7F;
+                            if v == 1 || v == 2 {
+                                // Bridge or PCI card bus
+                                let secbus = read_byte(addr as usize, SEC_BUS);
+                                dev.secondary_bus = secbus;
+                            }
+                            info!("PCI device at addr {:X} (vd={:X}:{:X} c={:X} sc={:X} pi={:X} rev={:X} bi=0:{:X}:{:X}:{:X}) found", addr, dev.vendor, dev.device, dev.class, dev.subclass, dev.prog_if, dev.revision, bus, device, function);
+                            add_device(dev);
+                        } else {
+                            continue;
                         }
                     }
                 }
-            let devs = PCI_DEVICES.read();
-            printkln!("init: PCI scan complete; {} devices found", devs.len());
+            }
         } else {
-            printkln!("init: error: no PCI regions");
+            error!("No PCI regions");
         }
     } else {
-        printkln!("init: error: ACPI unsupported");
+        error!("ACPI unsupported");
     }
 }
 
@@ -212,22 +206,25 @@ pub async fn init() {
 }
 
 fn calculate_bar_addr(dev: &PCIDevice, addr: u32) -> usize {
-let bar1 = read_dword(dev.phys_addr as usize, addr);
+    let bar1 = read_dword(dev.phys_addr as usize, addr);
     if !bar1.get_bit(0) {
         match bar1.get_bits(1..=2) {
             0 => (bar1 & 0xFFFF_FFF0) as usize,
             1 => (bar1 & 0xFFF0) as usize,
             2 => {
-            let bar2 = read_dword(dev.phys_addr as usize, match addr {
-            BAR0 => BAR1,
-            BAR1 => BAR2,
-            BAR2 => BAR3,
-            BAR3 => BAR4,
-            BAR4 => BAR5,
-            BAR5 | _ => 0
-            });
-            (((bar1 as u64) & 0xFFFF_FFF0) + (((bar2 as u64) & 0xFFFF_FFFF) << 32)) as usize
-            },
+                let bar2 = read_dword(
+                    dev.phys_addr as usize,
+                    match addr {
+                        BAR0 => BAR1,
+                        BAR1 => BAR2,
+                        BAR2 => BAR3,
+                        BAR3 => BAR4,
+                        BAR4 => BAR5,
+                        BAR5 | _ => 0,
+                    },
+                );
+                (((bar1 as u64) & 0xFFFF_FFF0) + (((bar2 as u64) & 0xFFFF_FFFF) << 32)) as usize
+            }
             _ => bar1 as usize,
         }
     } else {
@@ -246,18 +243,17 @@ pub async fn find_device(class: u8, subclass: u8, interface: u8) -> Option<PCIDe
 }
 
 pub async fn get_bar(idx: u8, class: u8, subclass: u8, interface: u8) -> Option<usize> {
-if let Some(dev) = find_device(class, subclass, interface).await {
-match idx {
-0 => return Some(calculate_bar_addr(&dev, BAR0)),
-1 => return Some(calculate_bar_addr(&dev, BAR1)),
-2 => return Some(calculate_bar_addr(&dev, BAR2)),
-3 => return Some(calculate_bar_addr(&dev, BAR3)),
-4 => return Some(calculate_bar_addr(&dev, BAR4)),
-5 => return Some(calculate_bar_addr(&dev, BAR5)),
-_ => return None
+    if let Some(dev) = find_device(class, subclass, interface).await {
+        match idx {
+            0 => return Some(calculate_bar_addr(&dev, BAR0)),
+            1 => return Some(calculate_bar_addr(&dev, BAR1)),
+            2 => return Some(calculate_bar_addr(&dev, BAR2)),
+            3 => return Some(calculate_bar_addr(&dev, BAR3)),
+            4 => return Some(calculate_bar_addr(&dev, BAR4)),
+            5 => return Some(calculate_bar_addr(&dev, BAR5)),
+            _ => return None,
+        }
+    } else {
+        return None;
+    }
 }
-} else {
-return None;
-}
-}
-

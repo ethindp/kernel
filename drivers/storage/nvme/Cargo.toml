@@ -8,7 +8,13 @@ edition = "2018"
 voladdress = {git = "https://github.com/rust-console/voladdress"}
 log = {version = "0.4.11", default-features=false}
 x86 = "0.34.0"
-bit_field = "0.10.0"
+bit_field = {git = "https://github.com/ethindp/rust-bit-field"}
+atomic = "0.5.0"
+heapless = "0.5.5"
+zerocopy = "0.3.0"
+static_assertions = "1.1.0"
+lazy_static = {version = "1.4.0", features=["spin_no_std"]}
+spin = "0.5.2"
 
 [profile.dev]
 panic = "abort"

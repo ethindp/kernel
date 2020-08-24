@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
 use lazy_static::lazy_static;
+use log::*;
 use x86_64::instructions::segmentation::set_cs;
 use x86_64::instructions::tables::load_tss;
 use x86_64::structures::gdt::SegmentSelector;
 use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable};
 use x86_64::structures::tss::TaskStateSegment;
 use x86_64::VirtAddr;
-use crate::printkln;
 
 pub const DF_IST_IDX: u16 = 0;
 pub const BP_IST_IDX: u16 = 1;
@@ -45,12 +45,12 @@ struct Selectors {
 
 /// Sets up the GDT, separate kernel stack, and TSS.
 pub async fn init() {
-printkln!("init: gdt: loading");
+    info!("Loading GDT");
     GDT.0.load();
     unsafe {
-    printkln!("Init: GDT: Setting CS");
+        info!("Setting CS");
         set_cs(GDT.1.code_selector);
-        printkln!("Init: GDT: Loading TSS");
+        info!("Loading TSS");
         load_tss(GDT.1.tss_selector);
     }
 }

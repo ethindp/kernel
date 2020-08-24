@@ -2,6 +2,7 @@
 use crate::memory::allocate_phys_range;
 use acpi::*;
 use core::ptr::NonNull;
+use log::*;
 
 #[repr(C)]
 #[derive(Default)]
@@ -14,6 +15,12 @@ impl handler::AcpiHandler for AcpiMapper {
         size: usize,
     ) -> handler::PhysicalMapping<T> {
         allocate_phys_range(addr as u64, (addr + size) as u64);
+        debug!(
+            "Checking memory address range {:X}-{:X} of size {:X} for ACPI region",
+            addr,
+            (addr + size),
+            size
+        );
         handler::PhysicalMapping {
             physical_start: addr,
             virtual_start: NonNull::new(addr as *mut T).unwrap(),
