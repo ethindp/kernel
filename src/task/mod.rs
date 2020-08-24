@@ -1,9 +1,9 @@
 /// The cooperative module contains code for the cooperative multitasking scheduler.
 pub mod cooperative;
-use core::sync::atomic::{AtomicU64, Ordering};
-use core::pin::Pin;
 use alloc::boxed::Box;
 use core::future::Future;
+use core::pin::Pin;
+use core::sync::atomic::{AtomicU64, Ordering};
 use core::task::{Context, Poll};
 
 // Common definitions
@@ -11,26 +11,26 @@ use core::task::{Context, Poll};
 struct Tid(u64);
 
 impl Tid {
-fn new() ->Self {
-static NEXT_ID: AtomicU64 = AtomicU64::new(0);
-Tid (NEXT_ID.fetch_add(1, Ordering::Relaxed))
-}
+    fn new() -> Self {
+        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+        Tid(NEXT_ID.fetch_add(1, Ordering::Relaxed))
+    }
 }
 
 pub struct AsyncTask {
-id: Tid,
-future: Pin<Box<dyn Future<Output = ()>>>,
+    id: Tid,
+    future: Pin<Box<dyn Future<Output = ()>>>,
 }
 
 impl AsyncTask {
-pub fn new(future: impl Future<Output = ()> + 'static) -> AsyncTask {
-AsyncTask {
-id: Tid::new(),
-future: Box::pin(future)
-}
-}
+    pub fn new(future: impl Future<Output = ()> + 'static) -> AsyncTask {
+        AsyncTask {
+            id: Tid::new(),
+            future: Box::pin(future),
+        }
+    }
 
-fn poll(&mut self, context: &mut Context) -> Poll<()> {
-self.future.as_mut().poll(context)
-}
+    fn poll(&mut self, context: &mut Context) -> Poll<()> {
+        self.future.as_mut().poll(context)
+    }
 }

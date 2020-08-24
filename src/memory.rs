@@ -2,8 +2,8 @@
 use crate::printkln;
 use alloc::vec::Vec as AllocatedVec;
 use bootloader::bootinfo::*;
-use core::ptr::*;
 use lazy_static::lazy_static;
+use log::*;
 use spin::{Mutex, RwLock};
 use x86_64::{
     registers::control::*,
@@ -27,6 +27,10 @@ static ref MMAP: RwLock<AllocatedVec<FreeMemoryRegion>> = RwLock::new(AllocatedV
 /// Initializes a memory heap for the global memory allocator. Requires a PMO to start with.
 unsafe fn init_mapper(physical_memory_offset: u64) -> OffsetPageTable<'static> {
     // Get active L4 table
+    trace!(
+        "mem: Retrieving active L4 table with memoffset {:X}",
+        physical_memory_offset
+    );
     let (level_4_table, _) = get_active_l4_table(physical_memory_offset);
     // initialize the mapper
     OffsetPageTable::new(level_4_table, VirtAddr::new(physical_memory_offset))
@@ -312,18 +316,6 @@ pub fn free_range(start: u64, end: u64) {
             }
         }
         _ => panic!("Memory allocator or frame allocator are not set"),
-    }
-}
-
-pub fn read_memory(address: u64) -> u64 {
-    let addr: *const u64 = address as *const u64;
-    unsafe { read_volatile(addr) }
-}
-
-pub fn write_memory(address: u64, value: u64) {
-    let addr: *mut u64 = address as *mut u64;
-    unsafe {
-        write_volatile(addr, value);
     }
 }
 

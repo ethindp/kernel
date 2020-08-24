@@ -18,8 +18,8 @@ use core::arch::x86_64::{__cpuid, __cpuid_count};
 use core::panic::PanicInfo;
 use heapless::{consts::*, String};
 use linked_list_allocator::*;
-use x86_64::instructions::random::RdRand;
 use log::*;
+use x86_64::instructions::random::RdRand;
 
 entry_point!(kmain);
 #[global_allocator]
@@ -29,20 +29,20 @@ static LOGGER: Logger = Logger;
 // Panic handler
 #[panic_handler]
 fn panic(panic_information: &PanicInfo) -> ! {
-    printkln!("Fatal error: {}", panic_information);
+    error!("{}", panic_information);
     kernel::idle_forever();
 }
 
 // Kernel entry point
 fn kmain(boot_info: &'static BootInfo) -> ! {
-set_logger(&LOGGER).unwrap();
-set_max_level(LevelFilter::Debug);
+    set_logger(&LOGGER).unwrap();
+    set_max_level(LevelFilter::Debug);
     if RdRand::new().is_none() {
-        printkln!("Error: rdrand is not supported on this system, but rdrand is required");
+        error!("rdrand is not supported on this system, but rdrand is required");
         kernel::idle_forever();
     }
-    printkln!("Init: kernel initialization started");
-    printkln!("init: CPU identification and configuration initiated");
+    info!("Initialization started");
+    info!("CPU identification and configuration initiated");
     unsafe {
         let mut res = __cpuid_count(0, 0);
         let vs = {
@@ -83,38 +83,38 @@ set_max_level(LevelFilter::Debug);
                 }
                 buf
             };
-            printkln!("init: detected {} {} processor", vs, bs);
+            info!("Detected processor: {} {}", vs, bs);
         } else {
-            printkln!("init: detected {} processor", vs);
+            info!("Detected processor: {}", vs);
         }
     }
-    printkln!("init: Configuring processor");
-    printkln!("Init: Locating kernel heap area");
+    info!("Configuring processor");
+    info!("Locating kernel heap area");
     let rdrand = RdRand::new().unwrap();
     let mut start_addr: u64 = 0x0100_0000_0000 + rdrand.get_u64().unwrap();
     if start_addr.get_bits(48..64) > 0 {
         start_addr.set_bits(48..64, 0);
     }
     let end_addr = start_addr + 1_048_576;
-    printkln!("init: initializing memory manager");
+    info!("Initializing memory manager");
     kernel::memory::init(
         boot_info.physical_memory_offset,
         &boot_info.memory_map,
         start_addr,
         1048576,
     );
-    printkln!("Init: enabling interrupts, first stage");
+    info!("Enabling interrupts, first stage");
     kernel::interrupts::init_stage1();
-    printkln!("init: Initializing global heap allocator");
+    info!("Initializing global heap allocator");
     unsafe {
         ALLOCATOR
             .lock()
             .init(start_addr as usize, (end_addr - start_addr) as usize);
     }
-    printkln!("init: firmware-provided memory map:");
+    info!("init: firmware-provided memory map:");
     for region in boot_info.memory_map.iter() {
-        printkln!(
-            "[{:X}-{:X}] [size {}]: {}",
+        info!(
+            "[{:X}-{:X}] [size {:X}]: {}",
             region.range.start_addr(),
             region.range.end_addr(),
             region.range.end_addr() - region.range.start_addr(),
@@ -156,19 +156,23 @@ fn handle_alloc_failure(layout: core::alloc::Layout) -> ! {
 struct Logger;
 
 impl Log for Logger {
-fn enabled(&self, metadata: &Metadata) -> bool {
-true
-}
+    fn enabled(&self, metadata: &Metadata) -> bool {
+        true
+    }
 
-fn log(&self, record: &Record) {
-if self.enabled(record.metadata()) {
-use kernel::printkln;
-printkln!("[{}] [{}] {}", record.level(), record.target(), record.args());
-} else {
-return;
-}
-}
+    fn log(&self, record: &Record) {
+        if self.enabled(record.metadata()) {
+            use kernel::printkln;
+            printkln!(
+                "[{}] [{}] {}",
+                record.level(),
+                record.target(),
+                record.args()
+            );
+        } else {
+            return;
+        }
+    }
 
-fn flush(&self) { }
+    fn flush(&self) {}
 }
-
