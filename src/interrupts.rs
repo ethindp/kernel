@@ -8,6 +8,7 @@ use cpuio::{inb, outb};
 use heapless::consts::*;
 use heapless::FnvIndexMap;
 use lazy_static::lazy_static;
+use log::*;
 use raw_cpuid::*;
 use spin::RwLock;
 use x86::apic::x2apic::*;
@@ -531,34 +532,33 @@ static APIC: AtomicBool = AtomicBool::new(false);
 
 pub fn init_stage1() {
     use crate::memory::allocate_phys_range;
-    use crate::printkln;
-    printkln!("INTR: Stage 1 initialization started");
+    info!("Stage 1 initialization started");
     unsafe {
-        printkln!("INTR: PIC: Acquiring masks");
+        trace!("PIC: Acquiring masks");
         let saved_mask1 = inb(0x21);
         let saved_mask2 = inb(0xA1);
-        printkln!("INTR: PIC: Masks: {:X}h, {:X}h", saved_mask1, saved_mask2);
-        printkln!("INTR: PIC: Sending initialization command");
+        debug!("PIC: Masks: {:X}h, {:X}h", saved_mask1, saved_mask2);
+        trace!("PIC: Sending initialization command");
         outb(0x11, 0x20);
         outb(0, 0x80);
         outb(0x11, 0xA0);
         outb(0, 0x80);
-        printkln!("INTR: PIC: Setting base offsets to 20h and 28h");
+        trace!("PIC: Setting base offsets to 20h and 28h");
         outb(0x20, 0x21);
         outb(0, 0x80);
         outb(0x28, 0xA1);
         outb(0, 0x80);
-        printkln!("INTR: PIC: Setting up chain for master and slave");
+        trace!("PIC: Setting up chain for master and slave");
         outb(0x04, 0x21);
         outb(0, 0x80);
         outb(0x02, 0xA1);
         outb(0, 0x80);
-        printkln!("INTR: PIC: Setting mode to 1h");
+        trace!("PIC: Setting mode to 1h");
         outb(0x01, 0x21);
         outb(0, 0x80);
         outb(0x01, 0xA1);
         outb(0, 0x80);
-        printkln!("INTR: PIC: Restoring PIC masks");
+        trace!("PIC: Restoring PIC masks");
         outb(saved_mask1, 0x21);
         outb(0, 0x80);
         outb(saved_mask2, 0xA1);
@@ -574,31 +574,36 @@ pub fn init_stage1() {
             }
         }
     }
-    printkln!("INTR: Loading IDT");
+    info!("Loading IDT");
     IDT.load();
-    printkln!("INTR: Enabling interrupts");
+    info!("Enabling interrupts");
     x86_64::instructions::interrupts::enable();
-    printkln!("INTR: Stage 1 initialization complete");
+    info!("Stage 1 interrupt initialization complete");
 }
 
 pub async fn init_stage2() {
-    use crate::printkln;
-        printkln!("init: Enabling interrupts, second stage");
+    info!("Disabling interrupts");
     x86_64::instructions::interrupts::disable();
+    trace!("Checking for apic");
     if APIC.load(Ordering::Relaxed) {
         // Initialize PIC, then mask everything
+        trace!("Checking for x2apic");
         if X2APIC.load(Ordering::Relaxed) {
-            printkln!("INTR: X2APIC is available and usable; configuring");
+            trace!("Found x2apic");
         } else {
-            printkln!("INTR: APIC is available and usable; configuring");
+            trace!("Found apic");
         }
         unsafe {
+            trace!("PIC: Acquiring masks");
             let saved_mask1 = inb(0x21);
             let saved_mask2 = inb(0xA1);
+            debug!("PIC: Masks: {:X}h, {:X}h", saved_mask1, saved_mask2);
+            trace!("PIC: Sending initialization command");
             outb(0x11, 0x20);
             outb(0, 0x80);
             outb(0x11, 0xA0);
             outb(0, 0x80);
+            trace!("PIC: Setting up chain for master and slave");
             outb(0x20, 0x21);
             outb(0, 0x80);
             outb(0x28, 0xA1);
@@ -607,14 +612,17 @@ pub async fn init_stage2() {
             outb(0, 0x80);
             outb(0x02, 0xA1);
             outb(0, 0x80);
+            trace!("PIC: Setting mode to 1h");
             outb(0x01, 0x21);
             outb(0, 0x80);
             outb(0x01, 0xA1);
             outb(0, 0x80);
+            trace!("PIC: Restoring PIC masks");
             outb(saved_mask1, 0x21);
             outb(0, 0x80);
             outb(saved_mask2, 0xA1);
             outb(0, 0x80);
+            trace!("PIC: masking");
             outb(0xFF, 0xA1);
             outb(0, 0x80);
             outb(0xFF, 0x21);
@@ -623,17 +631,16 @@ pub async fn init_stage2() {
         if X2APIC.load(Ordering::Relaxed) {
             let mut x2apic = X2APIC::new();
             x2apic.attach();
-            printkln!("INTR: X2APIC configuration complete");
+            info!("X2apic configured");
         } else {
             let apic_reg = (apic_addr() + 0xF0) as *mut u32;
             unsafe {
                 *(apic_reg) |= 0x100;
             }
-            printkln!("INTR: APIC configuration complete");
+            info!("Apic configured");
         }
     } else {
-        printkln!("INTR: APIC not available/supported, falling back to 8259 PIC");
-        printkln!("INTR: Configuring PIC");
+        warn!("APIC not available/supported, falling back to 8259 PIC");
         unsafe {
             let saved_mask1 = inb(0x21);
             let saved_mask2 = inb(0xA1);
@@ -658,8 +665,8 @@ pub async fn init_stage2() {
             outb(saved_mask2, 0xA1);
             outb(0, 0x80);
         }
-        printkln!("INTR: PIC configuration complete");
     }
+    info!("Enabling interrupts");
     x86_64::instructions::interrupts::enable();
 }
 
@@ -667,6 +674,7 @@ pub async fn init_stage2() {
 macro_rules! gen_interrupt_fn {
     ($i:ident, $p:path) => {
         extern "x86-interrupt" fn $i(_stack_frame: &mut InterruptStackFrame) {
+            trace!("Interrupt $i received");
             if let Some(tbl) = IRQ_FUNCS.try_read() {
                 for func in tbl.get(&$p.convert_to_u8()).unwrap().iter() {
                     (func)();
@@ -1171,6 +1179,7 @@ pub fn sleep_for(duration: u64) {
 
 pub fn register_interrupt_handler(interrupt: u8, func: fn()) {
     x86_64::instructions::interrupts::disable();
+    trace!("Registering handler for int. {:X} ({:p})", interrupt, &func);
     let mut tbl = IRQ_FUNCS.write();
     let irq = 32_u8.saturating_add(interrupt);
     if let Some(funcs) = tbl.get_mut(&irq) {

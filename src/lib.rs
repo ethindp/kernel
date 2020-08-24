@@ -35,7 +35,6 @@
 #![deny(
     missing_copy_implementations,
     missing_debug_implementations,
-    unused_results,
     box_pointers
 )]
 #![forbid(clippy::all)]
@@ -58,20 +57,24 @@ pub mod rtc;
 /// The task module controls cooperative and preemptive multitasking schedulers. The
 /// cooperative scheduler runs in the kernel while the preemptive scheduler will run in
 /// userspace once implemented.
-#[allow(missing_debug_implementations, missing_copy_implementations, box_pointers)]
+#[allow(
+    missing_debug_implementations,
+    missing_copy_implementations,
+    box_pointers
+)]
 pub mod task;
 /// The vga module contains functions for interacting with the VGA buffer.
 pub mod vga;
+use bit_field::BitField;
 use linked_list_allocator as _;
 use part as _;
-use log as _;
 
 /// Initializes the kernel and sets up required functionality.
 pub fn init() {
-use task::AsyncTask;
-use task::cooperative::executor::Executor;
-let mut executor = Executor::new();
-executor.spawn(AsyncTask::new(gdt::init()));
+    use task::cooperative::executor::Executor;
+    use task::AsyncTask;
+    let mut executor = Executor::new();
+    executor.spawn(AsyncTask::new(gdt::init()));
     executor.spawn(AsyncTask::new(interrupts::init_stage2()));
     executor.spawn(AsyncTask::new(rtc::init()));
     executor.spawn(AsyncTask::new(pci::init()));
@@ -87,16 +90,38 @@ pub fn idle_forever() -> ! {
 }
 
 async fn init_nvme() {
-loop {
-if pci::find_device(0x01, 0x08, 0x02).await.is_some() {
-break;
+    loop {
+        if pci::find_device(0x01, 0x08, 0x02).await.is_some() {
+            break;
+        }
+        x86_64::instructions::hlt();
+    }
+    let mut int = 32u8;
+    {
+        let dev = pci::find_device(0x01, 0x08, 0x02).await.unwrap();
+        let mut cmd = pci::read_word(dev.phys_addr as usize, pci::COMMAND);
+        cmd.set_bit(10, false);
+        cmd.set_bit(2, true);
+        cmd.set_bit(1, true);
+        pci::write_word(dev.phys_addr as usize, pci::COMMAND, cmd);
+        int += pci::read_byte(dev.phys_addr as usize, pci::INT_LINE);
+    }
+    let bars = [
+        pci::get_bar(0, 0x01, 0x08, 0x02).await.unwrap() as u64,
+        pci::get_bar(1, 0x01, 0x08, 0x02).await.unwrap() as u64,
+        pci::get_bar(2, 0x01, 0x08, 0x02).await.unwrap() as u64,
+        pci::get_bar(3, 0x01, 0x08, 0x02).await.unwrap() as u64,
+        pci::get_bar(4, 0x01, 0x08, 0x02).await.unwrap() as u64,
+        pci::get_bar(5, 0x01, 0x08, 0x02).await.unwrap() as u64,
+    ];
+    let controller = unsafe {
+        nvme::NvMeController::new(
+            bars,
+            int,
+            |start, size| crate::memory::allocate_phys_range(start, start + size),
+            |start, size| crate::memory::free_range(start, start + size),
+            interrupts::register_interrupt_handler,
+        )
+    };
+    controller.init().await;
 }
-x86_64::instructions::hlt();
-}
-let bars = [pci::get_bar(0, 0x01, 0x08, 0x02).await.unwrap() as u64, pci::get_bar(1, 0x01, 0x08, 0x02).await.unwrap() as u64, pci::get_bar(2, 0x01, 0x08, 0x02).await.unwrap() as u64, pci::get_bar(3, 0x01, 0x08, 0x02).await.unwrap() as u64, pci::get_bar(4, 0x01, 0x08, 0x02).await.unwrap() as u64, pci::get_bar(5, 0x01, 0x08, 0x02).await.unwrap() as u64];
-let controller = unsafe {
-nvme::NvMeController::new(bars, | start, size| crate::memory::allocate_phys_range(start, start + size), | start, size| crate::memory::free_range(start, start + size))
-};
-controller.init().await;
-}
-
