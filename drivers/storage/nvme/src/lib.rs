@@ -633,10 +633,10 @@ impl NvMeController {
                 random::rdrand64(&mut acqaddr);
             }
             asqaddr.set_bits(0..12, 0);
-            asqaddr.set_bits(48..64, 0);
+            asqaddr.set_bits(47..64, 0);
             sqs.push(SubmissionQueue::new(asqaddr, aqa.get_bits(16..28) as u16)).unwrap();
             acqaddr.set_bits(0..12, 0);
-            acqaddr.set_bits(48..64, 0);
+            acqaddr.set_bits(47..64, 0);
             cqs.push(CompletionQueue::new(asqaddr, aqa.get_bits(0..12) as u16)).unwrap();
             info!("ASQ located at {:X}", asqaddr);
             self.asq.write(asqaddr);
