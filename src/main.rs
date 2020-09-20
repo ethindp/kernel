@@ -92,10 +92,9 @@ fn kmain(boot_info: &'static BootInfo) -> ! {
     info!("Locating kernel heap area");
     let rdrand = RdRand::new().unwrap();
     let mut start_addr: u64 = 0x0100_0000_0000 + rdrand.get_u64().unwrap();
-    if start_addr.get_bits(48..64) > 0 {
-        start_addr.set_bits(48..64, 0);
-    }
-    let end_addr = start_addr + 1_048_576;
+    start_addr.set_bits(47..64, 0);
+    let mut end_addr = start_addr + 1_048_576;
+    end_addr.set_bits(47 .. 64, 0);
     info!("Initializing memory manager");
     kernel::memory::init(
         boot_info.physical_memory_offset,
