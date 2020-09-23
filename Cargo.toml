@@ -53,3 +53,5 @@ run-args = ["-no-reboot", "-drive", "file=disk.img,if=none,id=NVME01", "-device"
 memcpy = true
 sysroot_path = "target/sysroot"
 
+[package.metadata.bootloader]
+kernel-stack-size = 2048

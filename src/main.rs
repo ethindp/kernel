@@ -25,6 +25,7 @@ entry_point!(kmain);
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
 static LOGGER: Logger = Logger;
+const MAX_HEAP_SIZE: u64 = 4096 * 2048;
 
 // Panic handler
 #[panic_handler]
@@ -93,14 +94,14 @@ fn kmain(boot_info: &'static BootInfo) -> ! {
     let rdrand = RdRand::new().unwrap();
     let mut start_addr: u64 = 0x0100_0000_0000 + rdrand.get_u64().unwrap();
     start_addr.set_bits(47..64, 0);
-    let mut end_addr = start_addr + 1_048_576;
+    let mut end_addr = start_addr + MAX_HEAP_SIZE;
     end_addr.set_bits(47 .. 64, 0);
     info!("Initializing memory manager");
     kernel::memory::init(
         boot_info.physical_memory_offset,
         &boot_info.memory_map,
         start_addr,
-        1048576,
+        MAX_HEAP_SIZE,
     );
     info!("Enabling interrupts, first stage");
     kernel::interrupts::init_stage1();
@@ -155,7 +156,7 @@ fn handle_alloc_failure(layout: core::alloc::Layout) -> ! {
 struct Logger;
 
 impl Log for Logger {
-    fn enabled(&self, metadata: &Metadata) -> bool {
+    fn enabled(&self, _: &Metadata) -> bool {
         true
     }
 
