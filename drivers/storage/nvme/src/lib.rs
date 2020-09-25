@@ -573,6 +573,7 @@ impl NvMeController {
             );
             return;
         }
+    debug!("VS = {:X}, {:B}", self.vs.read(), self.vs.read());
         info!("Checking command set support");
         if self.cap.read().get_bit(37) {
             info!("NVM command set supported");
@@ -584,6 +585,7 @@ impl NvMeController {
             error!("Controller supports no command sets!");
             return;
         }
+        debug!("CSS = {:X}, {:b}", self.cap.read().get_bits(37 .. 45), self.cap.read().get_bits(37 .. 45));
         let mpsmin = {
             let min: u32 = 12 + (self.cap.read().get_bits(48..52) as u32);
             2_u64.pow(min)
@@ -594,18 +596,25 @@ impl NvMeController {
             error!("device does not support 4KiB pages");
             return;
         }
+        debug!("MPSMIN = {:X}, {:b}", self.cap.read().get_bits(48 .. 52), self.cap.read().get_bits(48 .. 52));
         info!("resetting controller");
         let mut cc = self.cc.read();
+        debug!("CC = {:X}, {:b}", self.cc.read(), self.cc.read());
+        debug!("CSTS = {:X}, {:b}", self.csts.read(), self.csts.read());
         cc.set_bit(0, false);
+        debug!("CC[0] = 0");
         self.cc.write(cc);
+        debug!("CC = {:X}, {:b}", self.cc.read(), self.cc.read());
         loop {
             if !self.csts.read().get_bit(0) {
                 break;
             }
         }
+        debug!("CSTS = {:X}, {:b}", self.csts.read(), self.csts.read());
         info!("reset complete");
         info!("Configuring queues");
         let mut aqa = self.aqa.read();
+        debug!("AQA = {:X}, {:b}", self.aqa.read(), self.aqa.read());
         if self.cap.read().get_bits(0..16) > 4095 {
             info!(
                 "Max queue entry limit exceeds 4095 (is {}); restricting",
@@ -622,6 +631,7 @@ impl NvMeController {
             aqa.set_bits(0..12, self.cap.read().get_bits(0..16) as u32);
         }
         self.aqa.write(aqa);
+        debug!("AQA = {:X}, {:b}", self.aqa.read(), self.aqa.read());
         info!("AQA configured; allocating admin queue");
         {
             let mut sqs = SQS.write();
@@ -642,6 +652,8 @@ impl NvMeController {
             self.asq.write(asqaddr);
             info!("ACQ located at {:X}", acqaddr);
             self.acq.write(acqaddr);
+            debug!("Stored ASQ = {:X}, {:b}; generated ASQ = {:X}, {:b}", self.asq.read(), self.asq.read(), asqaddr, asqaddr);
+            debug!("Stored ACQ = {:X}, {:b}; generated ACQ = {:X}, {:b}", self.acq.read(), self.acq.read(), acqaddr, acqaddr);
             info!("allocating memory for ASQ");
             (self.malloc)(
                 asqaddr,
@@ -662,13 +674,19 @@ impl NvMeController {
             );
         }
         info!("enabling controller");
+        let mut cc = self.cc.read();
+        debug!("CC = {:X}, {:b}", self.cc.read(), self.cc.read());
+        debug!("CSTS = {:X}, {:b}", self.csts.read(), self.csts.read());
         cc.set_bit(0, true);
+        debug!("CC[0] = 1");
         self.cc.write(cc);
+        debug!("CC = {:X}, {:b}", self.cc.read(), self.cc.read());
         loop {
             if self.csts.read().get_bit(0) {
                 break;
             }
         }
+        debug!("CSTS = {:X}, {:b}", self.csts.read(), self.csts.read());
         info!("Controller enabled");
         if self.intmc.read() != 0 {
             info!("Unmasking all interrupts");
