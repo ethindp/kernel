@@ -37,7 +37,11 @@ fn panic(panic_information: &PanicInfo) -> ! {
 // Kernel entry point
 fn kmain(boot_info: &'static BootInfo) -> ! {
     set_logger(&LOGGER).unwrap();
-    set_max_level(LevelFilter::Debug);
+    if cfg!(debug_assertions) {
+        set_max_level(LevelFilter::Trace);
+    } else {
+        set_max_level(LevelFilter::Info);
+    }
     if RdRand::new().is_none() {
         error!("rdrand is not supported on this system, but rdrand is required");
         kernel::idle_forever();
@@ -95,7 +99,7 @@ fn kmain(boot_info: &'static BootInfo) -> ! {
     let mut start_addr: u64 = 0x0100_0000_0000 + rdrand.get_u64().unwrap();
     start_addr.set_bits(47..64, 0);
     let mut end_addr = start_addr + MAX_HEAP_SIZE;
-    end_addr.set_bits(47 .. 64, 0);
+    end_addr.set_bits(47..64, 0);
     info!("Initializing memory manager");
     kernel::memory::init(
         boot_info.physical_memory_offset,
@@ -156,7 +160,7 @@ fn handle_alloc_failure(layout: core::alloc::Layout) -> ! {
 struct Logger;
 
 impl Log for Logger {
-    fn enabled(&self, _: &Metadata) -> bool {
+    fn enabled(&self, metadata: &Metadata) -> bool {
         true
     }
 

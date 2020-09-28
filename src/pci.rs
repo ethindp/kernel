@@ -110,42 +110,42 @@ fn add_device(device: PCIDevice) {
 #[no_mangle]
 pub extern "C" fn read_dword(phys_addr: usize, addr: u32) -> u32 {
     use voladdress::VolAddress;
-    let cfgspace: VolAddress<u32> = unsafe { VolAddress::new(phys_addr).offset(addr as isize) };
+    let cfgspace: VolAddress<u32> = unsafe { VolAddress::new(phys_addr + (addr as usize)) };
     cfgspace.read()
 }
 
 #[no_mangle]
 pub extern "C" fn read_word(phys_addr: usize, addr: u32) -> u16 {
     use voladdress::VolAddress;
-    let cfgspace: VolAddress<u16> = unsafe { VolAddress::new(phys_addr).offset(addr as isize) };
+    let cfgspace: VolAddress<u16> = unsafe { VolAddress::new(phys_addr + (addr as usize)) };
     cfgspace.read()
 }
 
 #[no_mangle]
 pub extern "C" fn read_byte(phys_addr: usize, addr: u32) -> u8 {
     use voladdress::VolAddress;
-    let cfgspace: VolAddress<u8> = unsafe { VolAddress::new(phys_addr).offset(addr as isize) };
+    let cfgspace: VolAddress<u8> = unsafe { VolAddress::new(phys_addr + (addr as usize)) };
     cfgspace.read()
 }
 
 #[no_mangle]
 pub extern "C" fn write_dword(phys_addr: usize, addr: u32, value: u32) {
     use voladdress::VolAddress;
-    let cfgspace: VolAddress<u32> = unsafe { VolAddress::new(phys_addr).offset(addr as isize) };
+    let cfgspace: VolAddress<u32> = unsafe { VolAddress::new(phys_addr + (addr as usize)) };
     cfgspace.write(value);
 }
 
 #[no_mangle]
 pub extern "C" fn write_word(phys_addr: usize, addr: u32, value: u16) {
     use voladdress::VolAddress;
-    let cfgspace: VolAddress<u16> = unsafe { VolAddress::new(phys_addr).offset(addr as isize) };
+    let cfgspace: VolAddress<u16> = unsafe { VolAddress::new(phys_addr + (addr as usize)) };
     cfgspace.write(value);
 }
 
 #[no_mangle]
 pub extern "C" fn write_byte(phys_addr: usize, addr: u32, value: u8) {
     use voladdress::VolAddress;
-    let cfgspace: VolAddress<u8> = unsafe { VolAddress::new(phys_addr).offset(addr as isize) };
+    let cfgspace: VolAddress<u8> = unsafe { VolAddress::new(phys_addr + (addr as usize)) };
     cfgspace.write(value);
 }
 

@@ -534,31 +534,31 @@ pub fn init_stage1() {
     use crate::memory::allocate_phys_range;
     info!("Stage 1 initialization started");
     unsafe {
-        trace!("PIC: Acquiring masks");
+        debug!("PIC: Acquiring masks");
         let saved_mask1 = inb(0x21);
         let saved_mask2 = inb(0xA1);
         debug!("PIC: Masks: {:X}h, {:X}h", saved_mask1, saved_mask2);
-        trace!("PIC: Sending initialization command");
+        debug!("PIC: Sending initialization command");
         outb(0x11, 0x20);
         outb(0, 0x80);
         outb(0x11, 0xA0);
         outb(0, 0x80);
-        trace!("PIC: Setting base offsets to 20h and 28h");
+        debug!("PIC: Setting base offsets to 20h and 28h");
         outb(0x20, 0x21);
         outb(0, 0x80);
         outb(0x28, 0xA1);
         outb(0, 0x80);
-        trace!("PIC: Setting up chain for master and slave");
+        debug!("PIC: Setting up chain for master and slave");
         outb(0x04, 0x21);
         outb(0, 0x80);
         outb(0x02, 0xA1);
         outb(0, 0x80);
-        trace!("PIC: Setting mode to 1h");
+        debug!("PIC: Setting mode to 1h");
         outb(0x01, 0x21);
         outb(0, 0x80);
         outb(0x01, 0xA1);
         outb(0, 0x80);
-        trace!("PIC: Restoring PIC masks");
+        debug!("PIC: Restoring PIC masks");
         outb(saved_mask1, 0x21);
         outb(0, 0x80);
         outb(saved_mask2, 0xA1);
@@ -584,26 +584,26 @@ pub fn init_stage1() {
 pub async fn init_stage2() {
     info!("Disabling interrupts");
     x86_64::instructions::interrupts::disable();
-    trace!("Checking for apic");
+    debug!("Checking for apic");
     if APIC.load(Ordering::Relaxed) {
         // Initialize PIC, then mask everything
-        trace!("Checking for x2apic");
+        debug!("Checking for x2apic");
         if X2APIC.load(Ordering::Relaxed) {
-            trace!("Found x2apic");
+            debug!("Found x2apic");
         } else {
-            trace!("Found apic");
+            debug!("Found apic");
         }
         unsafe {
-            trace!("PIC: Acquiring masks");
+            debug!("PIC: Acquiring masks");
             let saved_mask1 = inb(0x21);
             let saved_mask2 = inb(0xA1);
             debug!("PIC: Masks: {:X}h, {:X}h", saved_mask1, saved_mask2);
-            trace!("PIC: Sending initialization command");
+            debug!("PIC: Sending initialization command");
             outb(0x11, 0x20);
             outb(0, 0x80);
             outb(0x11, 0xA0);
             outb(0, 0x80);
-            trace!("PIC: Setting up chain for master and slave");
+            debug!("PIC: Setting up chain for master and slave");
             outb(0x20, 0x21);
             outb(0, 0x80);
             outb(0x28, 0xA1);
@@ -612,17 +612,17 @@ pub async fn init_stage2() {
             outb(0, 0x80);
             outb(0x02, 0xA1);
             outb(0, 0x80);
-            trace!("PIC: Setting mode to 1h");
+            debug!("PIC: Setting mode to 1h");
             outb(0x01, 0x21);
             outb(0, 0x80);
             outb(0x01, 0xA1);
             outb(0, 0x80);
-            trace!("PIC: Restoring PIC masks");
+            debug!("PIC: Restoring PIC masks");
             outb(saved_mask1, 0x21);
             outb(0, 0x80);
             outb(saved_mask2, 0xA1);
             outb(0, 0x80);
-            trace!("PIC: masking");
+            debug!("PIC: masking");
             outb(0xFF, 0xA1);
             outb(0, 0x80);
             outb(0xFF, 0x21);
@@ -674,7 +674,7 @@ pub async fn init_stage2() {
 macro_rules! gen_interrupt_fn {
     ($i:ident, $p:path) => {
         extern "x86-interrupt" fn $i(_stack_frame: &mut InterruptStackFrame) {
-            trace!("Interrupt $i received");
+            debug!("Interrupt $i received");
             if let Some(tbl) = IRQ_FUNCS.try_read() {
                 for func in tbl.get(&$p.convert_to_u8()).unwrap().iter() {
                     (func)();
@@ -1179,7 +1179,7 @@ pub fn sleep_for(duration: u64) {
 
 pub fn register_interrupt_handler(interrupt: u8, func: fn()) {
     x86_64::instructions::interrupts::disable();
-    trace!("Registering handler for int. {:X} ({:p})", interrupt, &func);
+    debug!("Registering handler for int. {:X} ({:p})", interrupt, &func);
     let mut tbl = IRQ_FUNCS.write();
     let irq = 32_u8.saturating_add(interrupt);
     if let Some(funcs) = tbl.get_mut(&irq) {
