@@ -1,399 +1,26 @@
 #![no_std]
+mod math;
+mod queues;
+mod structs;
 use bit_field::BitField;
 use core::mem;
 use core::sync::atomic::{AtomicBool, Ordering};
 use heapless::consts::*;
-use heapless::spsc::Queue;
 use heapless::Vec;
 use lazy_static::lazy_static;
 use log::*;
 use spin::RwLock;
-use static_assertions::assert_eq_size;
-use voladdress::{DynamicVolBlock, VolAddress, VolBlock};
+use voladdress::{VolAddress, VolBlock};
 use x86::random;
+use x86::halt;
+use dia_semver::Semver;
 
 lazy_static! {
-    static ref CQS: RwLock<Vec<CompletionQueue, U32>> = RwLock::new(Vec::new());
-    static ref SQS: RwLock<Vec<SubmissionQueue, U32>> = RwLock::new(Vec::new());
+    static ref CQS: RwLock<Vec<queues::CompletionQueue, U32>> = RwLock::new(Vec::new());
+    static ref SQS: RwLock<Vec<queues::SubmissionQueue, U32>> = RwLock::new(Vec::new());
 }
 
 static INTR: AtomicBool = AtomicBool::new(false);
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
-struct SubmissionQueueEntry {
-    pub cdw0: u32,
-    pub nsid: u32,
-    _rsvd: [u32; 2],
-    pub mptr: u64,
-    pub prps: [u64; 2],
-    pub operands: [u32; 6],
-}
-assert_eq_size!(SubmissionQueueEntry, [u8; 64]);
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
-struct CompletionQueueEntry {
-    pub cmdret: u32,
-    _rsvd: u16,
-    pub sqhdptr: u16,
-    pub sqid: u16,
-    pub cid: u16,
-    pub phase: bool,
-    pub status: u16,
-}
-assert_eq_size!(CompletionQueueEntry, [u8; 16]);
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
-struct SubmissionQueue {
-    addr: usize,
-    sqh: u16,
-    entries: u16,
-}
-
-impl SubmissionQueue {
-    pub fn new(addr: u64, entries: u16) -> Self {
-        SubmissionQueue {
-            addr: addr as usize,
-            sqh: u16::MAX,
-            entries,
-        }
-    }
-
-    pub fn queue_command(&mut self, entry: SubmissionQueueEntry) {
-        let addr: DynamicVolBlock<u32> = unsafe {
-            DynamicVolBlock::new(self.addr, (self.entries * 16) as usize)
-            };
-        self.sqh = self.sqh.wrapping_add(1);
-        if self.sqh > self.entries {
-            self.sqh = 0;
-        }
-        // Fill in array
-        let mut cmd = [0u32; 16];
-        // Dword 0 - CDW0 (command-specific)
-        cmd[0] = entry.cdw0;
-        // Dword 1 - Namespace ID
-        cmd[1] = entry.nsid;
-        // Dwords 2-3 reserved
-        cmd[2] = 0;
-        cmd[3] = 0;
-        // Dwords 4-5 - Metadata pointer
-        cmd[4] = entry.mptr.get_bits(0..32) as u32;
-        cmd[5] = entry.mptr.get_bits(32..64) as u32;
-        // Dwords 6-9 - PRP list
-        cmd[6] = entry.prps[0].get_bits(0..32) as u32;
-        cmd[7] = entry.prps[0].get_bits(32..64) as u32;
-        cmd[8] = entry.prps[1].get_bits(0..32) as u32;
-        cmd[9] = entry.prps[1].get_bits(32..64) as u32;
-        // Dwords 10-15 - command arguments
-        cmd[10] = entry.operands[0];
-        cmd[11] = entry.operands[1];
-        cmd[12] = entry.operands[2];
-        cmd[13] = entry.operands[3];
-        cmd[14] = entry.operands[4];
-        cmd[15] = entry.operands[5];
-        for i in 0..16 {
-            addr.index((self.sqh as usize) + i).write(cmd[i]);
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
-struct CompletionQueue {
-    addr: usize,
-    cqh: u16,
-    entries: u16,
-}
-
-impl CompletionQueue {
-    pub fn new(addr: u64, entries: u16) -> Self {
-        CompletionQueue {
-            addr: addr as usize,
-            cqh: u16::MAX,
-            entries,
-        }
-    }
-
-    pub fn check_queue_for_new_entries(
-        &mut self,
-        entry_storage_queue: &mut Queue<CompletionQueueEntry, U65536>,
-    ) {
-        let addr: DynamicVolBlock<u128> = unsafe { DynamicVolBlock::new(self.addr, self.entries as usize) };
-        self.cqh = self.cqh.wrapping_add(1);
-        if self.cqh > self.entries {
-            self.cqh = 0;
-        }
-        // Find a new entry with the phase bit set
-        // Hopefully this loop should only execute once, but if we need to we loop over the entire
-        // queue just in case
-        for i in 0..self.entries as usize {
-            let entry = addr.index((self.cqh as usize) + i).read();
-            if entry.get_bit(112) {
-                // New entry; consume it
-                let mut cqe = CompletionQueueEntry::default();
-                cqe.cmdret = entry.get_bits(0..32) as u32;
-                cqe.sqhdptr = entry.get_bits(64..80) as u16;
-                cqe.sqid = entry.get_bits(80..96) as u16;
-                cqe.cid = entry.get_bits(96..112) as u16;
-                cqe.phase = entry.get_bit(112);
-                cqe.status = entry.get_bits(113..128) as u16;
-                let _ = entry_storage_queue.enqueue(cqe);
-            }
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct IdentifyNamespaceResponse {
-    // Namespace size
-    pub nsez: u64,
-    // Namespace capabilities
-    pub ncap: u64,
-    // Namespace utilization
-    pub nuse: u64,
-    // Namespace features
-    pub nsfeat: u8,
-    // No. of LBA formats
-    pub nlbaf: u8,
-    // Formatted LBA size
-    pub flbas: u8,
-    // Metadata capabilities
-    pub mc: u8,
-    // End-to-end Data Protection Capabilities
-    pub dpc: u8,
-    // End-to-end Data Protection Type Settings
-    pub dps: u8,
-    // Namespace Multi-path I/O and Namespace Sharing Capabilities
-    pub nmic: u8,
-    // Reservation Capabilities
-    pub rescap: u8,
-    // Format Progress Indicator
-    pub fpi: u8,
-    // Deallocate Logical Block Features
-    pub dlfeat: u8,
-    // Namespace Atomic Write Unit Normal
-    pub nawun: u16,
-    // Namespace Atomic Write Unit Power Fail
-    pub nawupf: u16,
-    // Namespace Atomic Compare & Write Unit
-    pub nacwu: u16,
-    // Namespace Atomic Boundary Size Normal
-    pub nabsn: u16,
-    // Namespace Atomic Boundary Offset
-    pub nabo: u16,
-    // Namespace Atomic Boundary Size Power Fail
-    pub nabspf: u16,
-    // Namespace Optimal I/O Boundary
-    pub noiob: u16,
-    // NVM Capacity
-    pub nvmcap: u128,
-    // Namespace Preferred Write Granularity
-    pub npwg: u16,
-    // Namespace Preferred Write Alignment
-    pub npwa: u16,
-    // Namespace Preferred Deallocate Granularity
-    pub npdg: u16,
-    // Namespace Preferred Deallocate Alignment
-    pub npda: u16,
-    // Namespace Optimal Write Size
-    pub nows: u16,
-    _rsvd1: [u8; 18],
-    // ANA Group Identifier
-    pub anagrpid: u32,
-    _rsvd2: [u8; 3],
-    // Namespace attributes
-    pub nsattr: u8,
-    // NVM Set Identifier
-    pub nvmsetid: u16,
-    // Endurance Group Identifier
-    pub endgid: u16,
-    // Namespace Globally Unique Identifier
-    pub nsguid: [u8; 16],
-    // IEEE Extended Unique Identifier
-    pub eui64: [u8; 8],
-    // LBA Format Support
-    pub lbaf: [u32; 16],
-    _rsvd3: [u8; 192],
-    // Vendor specific
-    pub vs: [u8; 3711],
-}
-assert_eq_size!(IdentifyNamespaceResponse, [u8; 4096]);
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct IdentifyControllerResponse {
-    // PCI Vendor ID
-    pub vid: u16,
-    // PCI Subsystem Vendor ID
-    pub svid: u16,
-    // Serial Number
-    pub sn: [u8; 20],
-    // Model Number
-    pub mn: [u8; 40],
-    // Firmware Revision
-    pub fr: [u8; 8],
-    // Recommended Arbitration Burst
-    pub rab: u8,
-    // IEEE OUI Identifier
-    pub ieee: [u8; 3],
-    // Controller Multi-Path I/O and Namespace Sharing Capabilities
-    pub cmic: u8,
-    // Maximum Data Transfer Size
-    pub mdts: u8,
-    // Controller ID
-    pub cntlid: u16,
-    // Version
-    pub ver: u32,
-    // RTD3 Resume Latency
-    pub rtd3r: u32,
-    // RTD3 Entry Latency
-    pub rtd3e: u32,
-    // Optional Asynchronous Events Supported
-    pub oaes: u32,
-    // Controller Attributes
-    pub ctratt: u32,
-    // Read Recovery Levels Supported
-    pub rrls: u16,
-    _rsvd1: [u8; 9],
-    // Controller Type
-    pub cntrltype: u8,
-    // FRU Globally Unique Identifier
-    pub fguid: [u8; 16],
-    // Command Retry Delay Times
-    pub crdt: [u16; 3],
-    _rsvd2: [u8; 119],
-    // NVM Subsystem Report
-    pub nvmsr: u8,
-    // VPD Write Cycle Information
-    pub vwci: u8,
-    // Management Endpoint Capabilities
-    pub mec: u8,
-    // Optional Admin Command Support
-    pub oacs: u16,
-    // Abort Command Limit
-    pub acl: u8,
-    // Asynchronous Event Request Limit
-    pub aerl: u8,
-    // Firmware Updates
-    pub frmw: u8,
-    // Log Page Attributes
-    pub lpa: u8,
-    // Error Log Page Entries
-    pub elpe: u8,
-    // Number of Power States Support
-    pub npss: u8,
-    // Admin Vendor Specific Command Configuration
-    pub avscc: u8,
-    // Autonomous Power State Transition Attributes
-    pub apsta: u8,
-    // Warning Composite Temperature Threshold
-    pub wctemp: u16,
-    // Critical Composite Temperature Threshold
-    pub cctemp: u16,
-    // Maximum Time for Firmware Activation
-    pub mtfa: u16,
-    // Host Memory Buffer Preferred Size
-    pub hmpre: u32,
-    // Host Memory Buffer Minimum Size
-    pub hmmin: u32,
-    // Total NVM Capacity
-    pub tnvmcap: u128,
-    // Unallocated NVM Capacity
-    pub unvmcap: u128,
-    // Replay Protected Memory Block Support
-    pub rpmbs: u32,
-    // Extended Device Self-test Time
-    pub edstt: u16,
-    // Device Self-test Options
-    pub dsto: u8,
-    // Firmware Update Granularity
-    pub fwug: u8,
-    // Keep Alive Support
-    pub kas: u16,
-    // Host Controlled Thermal Management Attributes
-    pub hctma: u16,
-    // Minimum Thermal Management Temperature
-    pub mntmt: u16,
-    // Maximum Thermal Management Temperature
-    pub mxtmt: u16,
-    // Sanitize Capabilities
-    pub sanicap: u32,
-    // Host Memory Buffer Minimum Descriptor Entry Size
-    pub hmminds: u32,
-    // Host Memory Maximum Descriptors Entries
-    pub hmmaxd: u16,
-    // NVM Set Identifier Maximum
-    pub nsetidmax: u16,
-    // Endurance Group Identifier Maximum
-    pub endgidmax: u16,
-    // ANA Transition Time
-    pub anatt: u8,
-    // Asymmetric Namespace Access Capabilities
-    pub anacap: u8,
-    // ANA Group Identifier Maximum
-    pub anagrpmax: u32,
-    // Number of ANA Group Identifiers
-    pub nanagrpid: u32,
-    // Persistent Event Log Size
-    pub pels: u32,
-    _rsvd3: [u8; 156],
-    // Submission Queue Entry Size
-    pub sqes: u8,
-    // Completion Queue Entry Size
-    pub cqes: u8,
-    // Maximum Outstanding Commands
-    pub maxcmd: u16,
-    // Number of Namespaces
-    pub nn: u32,
-    // Optional NVM Command Support
-    pub oncs: u16,
-    // Fused Operation Support
-    pub fuses: u16,
-    // Format NVM Attributes
-    pub fna: u8,
-    // Volatile Write Cache
-    pub vwc: u8,
-    // Atomic Write Unit Normal
-    pub awun: u16,
-    // Atomic Write Unit Power Fail
-    pub awupf: u16,
-    // NVM Vendor Specific Command Configuration
-    pub nvscc: u8,
-    // Namespace Write Protection Capabilities
-    pub nwpc: u8,
-    // Atomic Compare & Write Unit
-    pub acwu: u16,
-    _rsvd4: u16,
-    // SGL Support
-    pub sgls: u32,
-    // Maximum Number of Allowed Namespaces
-    pub mnan: u32,
-    _rsvd5: [u8; 224],
-    // NVM Subsystem NVMe Qualified Name
-    pub subnqn: [u8; 256],
-    _rsvd6: [u8; 768],
-    // I/O Queue Command Capsule Supported Size
-    pub ioccsz: u32,
-    // I/O Queue Response Capsule Supported Size
-    pub iorcsz: u32,
-    // In Capsule Data Offset
-    pub icdoff: u16,
-    // Fabrics Controller Attributes
-    pub fcatt: u8,
-    // Maximum SGL Data Block Descriptors
-    pub msdbd: u8,
-    // Optional Fabric Commands Support
-    pub ofcs: u16,
-    _rsvd7: [u8; 242],
-    // Power State Descriptors
-    pub psd: [[u128; 2]; 32],
-    // Vendor Specific
-    pub vs: [u8; 1024],
-}
-assert_eq_size!(IdentifyControllerResponse, [u8; 4096]);
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -448,6 +75,7 @@ enum NvmCommand {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NvMeController {
     bars: [u64; 6],
+    version: Semver,
     /// Controller Capabilities
     pub cap: VolAddress<u64>,
     /// Version
@@ -552,6 +180,7 @@ impl NvMeController {
             free,
             irr,
             iline,
+            version: Semver::new(0, 0, 0)
         };
         (dev.malloc)(bars[0], 0x1003);
         let stride = dev.cap.read().get_bits(32..36);
@@ -561,19 +190,13 @@ impl NvMeController {
         dev
     }
 
-    pub async fn init(&self) {
+    pub async fn init(&mut self) {
         info!("initializing controller");
         info!("running controller checks");
         info!("Checking controller version");
-        if self.vs.read().get_bits(16..32) < 1 && self.vs.read().get_bits(8..16) < 4 {
-            error!(
-                "version incompatible; required version: 1.4, available version: {}.{}",
-                self.vs.read().get_bits(16..32),
-                self.vs.read().get_bits(8..16)
-            );
-            return;
-        }
-    debug!("VS = {:X}, {:B}", self.vs.read(), self.vs.read());
+        let vs = self.vs.read();
+        self.version = Semver::new(vs.get_bits(16 .. 32) as u64, vs.get_bits(8 .. 16) as u64, vs.get_bits(0 .. 8) as u64);
+        info!("NVMe version: {}", self.version);
         info!("Checking command set support");
         if self.cap.read().get_bit(37) {
             info!("NVM command set supported");
@@ -581,40 +204,48 @@ impl NvMeController {
             warn!("Controller only supports administrative commands");
         } else if self.cap.read().get_bit(37) && self.cap.read().get_bit(44) {
             info!("Device supports both NVM and admin-only command sets");
-        } else if self.cap.read().get_bits(37..45) == 0 {
-            error!("Controller supports no command sets!");
-            return;
-        }
-        debug!("CSS = {:X}, {:b}", self.cap.read().get_bits(37 .. 45), self.cap.read().get_bits(37 .. 45));
+            }
         let mpsmin = {
             let min: u32 = 12 + (self.cap.read().get_bits(48..52) as u32);
             2_u64.pow(min)
         };
-        if mpsmin >= 4096 {
+        if mpsmin == 4096 {
             info!("device supports 4KiB pages");
         } else {
             error!("device does not support 4KiB pages");
             return;
         }
-        debug!("MPSMIN = {:X}, {:b}", self.cap.read().get_bits(48 .. 52), self.cap.read().get_bits(48 .. 52));
+        let mut nvme_error_count = 0;
+        'nvme_init:
+        loop {
+                if nvme_error_count > 2 {
+        error!("Critical controller reset failure; aborting initialization");
+        return;
+        }
         info!("resetting controller");
         let mut cc = self.cc.read();
-        debug!("CC = {:X}, {:b}", self.cc.read(), self.cc.read());
-        debug!("CSTS = {:X}, {:b}", self.csts.read(), self.csts.read());
+        if cc.get_bit(0) {
         cc.set_bit(0, false);
-        debug!("CC[0] = 0");
+        }
         self.cc.write(cc);
-        debug!("CC = {:X}, {:b}", self.cc.read(), self.cc.read());
+        let mut asqaddr = 0u64;
+        let mut acqaddr = 0u64;
         loop {
             if !self.csts.read().get_bit(0) {
                 break;
             }
+            if self.csts.read().get_bit(1) {
+            warn!("Fatal controller error; attempting reset");
+            nvme_error_count += 1;
+            continue 'nvme_init;
+}
+            unsafe {
+            halt();
+            }
         }
-        debug!("CSTS = {:X}, {:b}", self.csts.read(), self.csts.read());
         info!("reset complete");
         info!("Configuring queues");
         let mut aqa = self.aqa.read();
-        debug!("AQA = {:X}, {:b}", self.aqa.read(), self.aqa.read());
         if self.cap.read().get_bits(0..16) > 4095 {
             info!(
                 "Max queue entry limit exceeds 4095 (is {}); restricting",
@@ -631,29 +262,24 @@ impl NvMeController {
             aqa.set_bits(0..12, self.cap.read().get_bits(0..16) as u32);
         }
         self.aqa.write(aqa);
-        debug!("AQA = {:X}, {:b}", self.aqa.read(), self.aqa.read());
         info!("AQA configured; allocating admin queue");
         {
             let mut sqs = SQS.write();
             let mut cqs = CQS.write();
-            let mut asqaddr: u64 = 0;
-            let mut acqaddr: u64 = 0;
             unsafe {
                 random::rdrand64(&mut asqaddr);
                 random::rdrand64(&mut acqaddr);
             }
             asqaddr.set_bits(0..12, 0);
             asqaddr.set_bits(47..64, 0);
-            sqs.push(SubmissionQueue::new(asqaddr, aqa.get_bits(16..28) as u16)).unwrap();
+            sqs.push(queues::SubmissionQueue::new(asqaddr, aqa.get_bits(16..28) as u16)).unwrap();
             acqaddr.set_bits(0..12, 0);
             acqaddr.set_bits(47..64, 0);
-            cqs.push(CompletionQueue::new(asqaddr, aqa.get_bits(0..12) as u16)).unwrap();
+            cqs.push(queues::CompletionQueue::new(asqaddr, aqa.get_bits(0..12) as u16)).unwrap();
             info!("ASQ located at {:X}", asqaddr);
             self.asq.write(asqaddr);
             info!("ACQ located at {:X}", acqaddr);
             self.acq.write(acqaddr);
-            debug!("Stored ASQ = {:X}, {:b}; generated ASQ = {:X}, {:b}", self.asq.read(), self.asq.read(), asqaddr, asqaddr);
-            debug!("Stored ACQ = {:X}, {:b}; generated ACQ = {:X}, {:b}", self.acq.read(), self.acq.read(), acqaddr, acqaddr);
             info!("allocating memory for ASQ");
             (self.malloc)(
                 asqaddr,
@@ -675,18 +301,51 @@ impl NvMeController {
         }
         info!("enabling controller");
         let mut cc = self.cc.read();
-        debug!("CC = {:X}, {:b}", self.cc.read(), self.cc.read());
-        debug!("CSTS = {:X}, {:b}", self.csts.read(), self.csts.read());
+        cc.set_bits(11..14, 0);
+        cc.set_bits(7..11, 0);
+        if self.cap.read().get_bit(37) {
+            cc.set_bits(4 .. 7, 0);
+        } else if self.cap.read().get_bit(44) {
+            cc.set_bits(4 .. 7, 7);
+            }
+            let mut mqes = self.cap.read().get_bits(0 .. 16);
+            debug!("MQES = {} entries", mqes);
+            mqes = math::log2(mqes);
+            debug!("log2(mqes) = {}", mqes);
+        cc.set_bits(20 .. 24, mqes as u32);
+        cc.set_bits(16 .. 20, mqes as u32);
         cc.set_bit(0, true);
-        debug!("CC[0] = 1");
         self.cc.write(cc);
-        debug!("CC = {:X}, {:b}", self.cc.read(), self.cc.read());
         loop {
             if self.csts.read().get_bit(0) {
-                break;
+                break 'nvme_init;
+            }
+            if self.csts.read().get_bit(1) {
+            warn!("Fatal controller error; attempting reset");
+            (self.free)(
+                asqaddr,
+                if self.cap.read().get_bits(0..16) > 4095 {
+                    0x3FFC0
+                } else {
+                    self.cap.read().get_bits(0..16) - 1
+                },
+            );
+            (self.free)(
+                acqaddr,
+                if self.cap.read().get_bits(0..16) > 4095 {
+                    0xFFF0
+                } else {
+                    self.cap.read().get_bits(0..16) - 1
+                },
+            );
+            nvme_error_count += 1;
+            continue 'nvme_init;
+            }
+            unsafe {
+            halt();
             }
         }
-        debug!("CSTS = {:X}, {:b}", self.csts.read(), self.csts.read());
+        }
         info!("Controller enabled");
         if self.intmc.read() != 0 {
             info!("Unmasking all interrupts");
@@ -699,7 +358,7 @@ impl NvMeController {
         info!("Sending identify command");
         {
             let mut sqs = SQS.write();
-            let mut entry = SubmissionQueueEntry::default();
+            let mut entry = queues::SubmissionQueueEntry::default();
             entry.cdw0.set_bits(0..8, AdminCommand::Identify as u32);
             entry.cdw0.set_bits(8..10, 0);
             entry.cdw0.set_bits(10..14, 0);
@@ -721,6 +380,9 @@ impl NvMeController {
                     info!("Identify command returned data");
                     break;
                 }
+                unsafe {
+                halt();
+                }
             }
             INTR.store(false, Ordering::SeqCst);
             // Read data structure
@@ -731,7 +393,8 @@ impl NvMeController {
                     data[i] = addr.index(i).read();
                 }
             }
-            let response: IdentifyControllerResponse = unsafe { mem::transmute(data) };
+            (self.free)(output, output + 4096);
+            let response: structs::IdentifyControllerResponse = unsafe { mem::transmute(data) };
             info!(
                 "Controller is {}",
                 match response.cntrltype {

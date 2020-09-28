@@ -114,7 +114,7 @@ async fn init_nvme() {
         pci::get_bar(4, 0x01, 0x08, 0x02).await.unwrap() as u64,
         pci::get_bar(5, 0x01, 0x08, 0x02).await.unwrap() as u64,
     ];
-    let controller = unsafe {
+    let mut controller = unsafe {
         nvme::NvMeController::new(
             bars,
             int,
