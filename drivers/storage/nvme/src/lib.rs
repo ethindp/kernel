@@ -5,15 +5,15 @@ mod structs;
 use bit_field::BitField;
 use core::mem;
 use core::sync::atomic::{AtomicBool, Ordering};
+use dia_semver::Semver;
 use heapless::consts::*;
 use heapless::Vec;
 use lazy_static::lazy_static;
 use log::*;
 use spin::RwLock;
 use voladdress::{VolAddress, VolBlock};
-use x86::random;
 use x86::halt;
-use dia_semver::Semver;
+use x86::random;
 
 lazy_static! {
     static ref CQS: RwLock<Vec<queues::CompletionQueue, U32>> = RwLock::new(Vec::new());
@@ -180,7 +180,7 @@ impl NvMeController {
             free,
             irr,
             iline,
-            version: Semver::new(0, 0, 0)
+            version: Semver::new(0, 0, 0),
         };
         (dev.malloc)(bars[0], 0x1003);
         let stride = dev.cap.read().get_bits(32..36);
@@ -195,7 +195,11 @@ impl NvMeController {
         info!("running controller checks");
         info!("Checking controller version");
         let vs = self.vs.read();
-        self.version = Semver::new(vs.get_bits(16 .. 32) as u64, vs.get_bits(8 .. 16) as u64, vs.get_bits(0 .. 8) as u64);
+        self.version = Semver::new(
+            vs.get_bits(16..32) as u64,
+            vs.get_bits(8..16) as u64,
+            vs.get_bits(0..8) as u64,
+        );
         info!("NVMe version: {}", self.version);
         info!("Checking command set support");
         if self.cap.read().get_bit(37) {
@@ -204,7 +208,7 @@ impl NvMeController {
             warn!("Controller only supports administrative commands");
         } else if self.cap.read().get_bit(37) && self.cap.read().get_bit(44) {
             info!("Device supports both NVM and admin-only command sets");
-            }
+        }
         let mpsmin = {
             let min: u32 = 12 + (self.cap.read().get_bits(48..52) as u32);
             2_u64.pow(min)
@@ -216,135 +220,139 @@ impl NvMeController {
             return;
         }
         let mut nvme_error_count = 0;
-        'nvme_init:
-        loop {
-                if nvme_error_count > 2 {
-        error!("Critical controller reset failure; aborting initialization");
-        return;
-        }
-        info!("resetting controller");
-        let mut cc = self.cc.read();
-        if cc.get_bit(0) {
-        cc.set_bit(0, false);
-        }
-        self.cc.write(cc);
-        let mut asqaddr = 0u64;
-        let mut acqaddr = 0u64;
-        loop {
-            if !self.csts.read().get_bit(0) {
-                break;
+        'nvme_init: loop {
+            if nvme_error_count > 2 {
+                error!("Critical controller reset failure; aborting initialization");
+                return;
             }
-            if self.csts.read().get_bit(1) {
-            warn!("Fatal controller error; attempting reset");
-            nvme_error_count += 1;
-            continue 'nvme_init;
-}
-            unsafe {
-            halt();
+            info!("resetting controller");
+            let mut cc = self.cc.read();
+            if cc.get_bit(0) {
+                cc.set_bit(0, false);
             }
-        }
-        info!("reset complete");
-        info!("Configuring queues");
-        let mut aqa = self.aqa.read();
-        if self.cap.read().get_bits(0..16) > 4095 {
-            info!(
-                "Max queue entry limit exceeds 4095 (is {}); restricting",
-                self.cap.read().get_bits(0..16)
-            );
-            aqa.set_bits(16..29, 4095);
-            aqa.set_bits(0..12, 4095);
-        } else {
-            info!(
-                "Max queue entry limit for admin queue is {}",
-                self.cap.read().get_bits(0..16)
-            );
-            aqa.set_bits(16..28, self.cap.read().get_bits(0..16) as u32);
-            aqa.set_bits(0..12, self.cap.read().get_bits(0..16) as u32);
-        }
-        self.aqa.write(aqa);
-        info!("AQA configured; allocating admin queue");
-        {
-            let mut sqs = SQS.write();
-            let mut cqs = CQS.write();
-            unsafe {
-                random::rdrand64(&mut asqaddr);
-                random::rdrand64(&mut acqaddr);
+            self.cc.write(cc);
+            let mut asqaddr = 0u64;
+            let mut acqaddr = 0u64;
+            loop {
+                if !self.csts.read().get_bit(0) {
+                    break;
+                }
+                if self.csts.read().get_bit(1) {
+                    warn!("Fatal controller error; attempting reset");
+                    nvme_error_count += 1;
+                    continue 'nvme_init;
+                }
+                unsafe {
+                    halt();
+                }
             }
-            asqaddr.set_bits(0..12, 0);
-            asqaddr.set_bits(47..64, 0);
-            sqs.push(queues::SubmissionQueue::new(asqaddr, aqa.get_bits(16..28) as u16)).unwrap();
-            acqaddr.set_bits(0..12, 0);
-            acqaddr.set_bits(47..64, 0);
-            cqs.push(queues::CompletionQueue::new(asqaddr, aqa.get_bits(0..12) as u16)).unwrap();
-            info!("ASQ located at {:X}", asqaddr);
-            self.asq.write(asqaddr);
-            info!("ACQ located at {:X}", acqaddr);
-            self.acq.write(acqaddr);
-            info!("allocating memory for ASQ");
-            (self.malloc)(
-                asqaddr,
-                if self.cap.read().get_bits(0..16) > 4095 {
-                    0x3FFC0
-                } else {
-                    self.cap.read().get_bits(0..16) - 1
-                },
-            );
-            info!("Allocating memory for ACQ");
-            (self.malloc)(
-                acqaddr,
-                if self.cap.read().get_bits(0..16) > 4095 {
-                    0xFFF0
-                } else {
-                    self.cap.read().get_bits(0..16) - 1
-                },
-            );
-        }
-        info!("enabling controller");
-        let mut cc = self.cc.read();
-        cc.set_bits(11..14, 0);
-        cc.set_bits(7..11, 0);
-        if self.cap.read().get_bit(37) {
-            cc.set_bits(4 .. 7, 0);
-        } else if self.cap.read().get_bit(44) {
-            cc.set_bits(4 .. 7, 7);
+            info!("reset complete");
+            info!("Configuring queues");
+            let mut aqa = self.aqa.read();
+            if self.cap.read().get_bits(0..16) > 4095 {
+                info!(
+                    "Max queue entry limit exceeds 4095 (is {}); restricting",
+                    self.cap.read().get_bits(0..16)
+                );
+                aqa.set_bits(16..29, 4095);
+                aqa.set_bits(0..12, 4095);
+            } else {
+                info!(
+                    "Max queue entry limit for admin queue is {}",
+                    self.cap.read().get_bits(0..16)
+                );
+                aqa.set_bits(16..28, self.cap.read().get_bits(0..16) as u32);
+                aqa.set_bits(0..12, self.cap.read().get_bits(0..16) as u32);
             }
-            let mut mqes = self.cap.read().get_bits(0 .. 16);
-            debug!("MQES = {} entries", mqes);
-            mqes = math::log2(mqes);
-            debug!("log2(mqes) = {}", mqes);
-        cc.set_bits(20 .. 24, mqes as u32);
-        cc.set_bits(16 .. 20, mqes as u32);
-        cc.set_bit(0, true);
-        self.cc.write(cc);
-        loop {
-            if self.csts.read().get_bit(0) {
-                break 'nvme_init;
+            self.aqa.write(aqa);
+            info!("AQA configured; allocating admin queue");
+            {
+                let mut sqs = SQS.write();
+                let mut cqs = CQS.write();
+                unsafe {
+                    random::rdrand64(&mut asqaddr);
+                    random::rdrand64(&mut acqaddr);
+                }
+                asqaddr.set_bits(0..12, 0);
+                asqaddr.set_bits(47..64, 0);
+                sqs.push(queues::SubmissionQueue::new(
+                    asqaddr,
+                    aqa.get_bits(16..28) as u16,
+                ))
+                .unwrap();
+                acqaddr.set_bits(0..12, 0);
+                acqaddr.set_bits(47..64, 0);
+                cqs.push(queues::CompletionQueue::new(
+                    asqaddr,
+                    aqa.get_bits(0..12) as u16,
+                ))
+                .unwrap();
+                info!("ASQ located at {:X}", asqaddr);
+                self.asq.write(asqaddr);
+                info!("ACQ located at {:X}", acqaddr);
+                self.acq.write(acqaddr);
+                info!("allocating memory for ASQ");
+                (self.malloc)(
+                    asqaddr,
+                    if self.cap.read().get_bits(0..16) > 4095 {
+                        0x3FFC0
+                    } else {
+                        self.cap.read().get_bits(0..16) - 1
+                    },
+                );
+                info!("Allocating memory for ACQ");
+                (self.malloc)(
+                    acqaddr,
+                    if self.cap.read().get_bits(0..16) > 4095 {
+                        0xFFF0
+                    } else {
+                        self.cap.read().get_bits(0..16) - 1
+                    },
+                );
             }
-            if self.csts.read().get_bit(1) {
-            warn!("Fatal controller error; attempting reset");
-            (self.free)(
-                asqaddr,
-                if self.cap.read().get_bits(0..16) > 4095 {
-                    0x3FFC0
-                } else {
-                    self.cap.read().get_bits(0..16) - 1
-                },
-            );
-            (self.free)(
-                acqaddr,
-                if self.cap.read().get_bits(0..16) > 4095 {
-                    0xFFF0
-                } else {
-                    self.cap.read().get_bits(0..16) - 1
-                },
-            );
-            nvme_error_count += 1;
-            continue 'nvme_init;
+            info!("enabling controller");
+            let mut cc = self.cc.read();
+            cc.set_bits(11..14, 0);
+            cc.set_bits(7..11, 0);
+            cc.set_bits(14 .. 16, 0);
+            if self.cap.read().get_bit(37) {
+                cc.set_bits(4..7, 0);
+            } else if self.cap.read().get_bit(44) {
+                cc.set_bits(4..7, 7);
             }
-            unsafe {
-            halt();
+            cc.set_bits(20..24, 6);
+            cc.set_bits(16..20, 4);
+            cc.set_bit(0, true);
+            self.cc.write(cc);
+            loop {
+                if self.csts.read().get_bit(0) {
+                    break 'nvme_init;
+                }
+                if self.csts.read().get_bit(1) {
+                    warn!("Fatal controller error; attempting reset");
+                    (self.free)(
+                        asqaddr,
+                        if self.cap.read().get_bits(0..16) > 4095 {
+                            0x3FFC0
+                        } else {
+                            self.cap.read().get_bits(0..16) - 1
+                        },
+                    );
+                    (self.free)(
+                        acqaddr,
+                        if self.cap.read().get_bits(0..16) > 4095 {
+                            0xFFF0
+                        } else {
+                            self.cap.read().get_bits(0..16) - 1
+                        },
+                    );
+                    nvme_error_count += 1;
+                    continue 'nvme_init;
+                }
+                unsafe {
+                    halt();
+                }
             }
-        }
         }
         info!("Controller enabled");
         if self.intmc.read() != 0 {
@@ -381,7 +389,7 @@ impl NvMeController {
                     break;
                 }
                 unsafe {
-                halt();
+                    halt();
                 }
             }
             INTR.store(false, Ordering::SeqCst);

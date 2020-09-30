@@ -1,7 +1,7 @@
-use voladdress::DynamicVolBlock;
 use bit_field::BitField;
+use heapless::{consts::*, spsc::Queue};
 use static_assertions::assert_eq_size;
-use heapless::{spsc::Queue, consts::*};
+use voladdress::DynamicVolBlock;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
@@ -46,9 +46,8 @@ impl SubmissionQueue {
     }
 
     pub fn queue_command(&mut self, entry: SubmissionQueueEntry) {
-        let addr: DynamicVolBlock<u32> = unsafe {
-            DynamicVolBlock::new(self.addr, (self.entries * 16) as usize)
-            };
+        let addr: DynamicVolBlock<u32> =
+            unsafe { DynamicVolBlock::new(self.addr, (self.entries * 16) as usize) };
         self.sqh = self.sqh.wrapping_add(1);
         if self.sqh > self.entries {
             self.sqh = 0;
@@ -104,7 +103,8 @@ impl CompletionQueue {
         &mut self,
         entry_storage_queue: &mut Queue<CompletionQueueEntry, U65536>,
     ) {
-        let addr: DynamicVolBlock<u128> = unsafe { DynamicVolBlock::new(self.addr, self.entries as usize) };
+        let addr: DynamicVolBlock<u128> =
+            unsafe { DynamicVolBlock::new(self.addr, self.entries as usize) };
         self.cqh = self.cqh.wrapping_add(1);
         if self.cqh > self.entries {
             self.cqh = 0;
