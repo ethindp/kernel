@@ -74,9 +74,9 @@ checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 
 [[package]]
 name = "bootloader"
-version = "0.9.10"
+version = "0.9.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c5c959bf675ba4d842740373760b2aeb5b8f5457451cd18370b4c339d4926e9"
+checksum = "83732ad599045a978528e4311539fdcb20c30e406b66d1d08cd4089d4fc8d90f"
 dependencies = [
  "bit_field 0.10.1",
 ]
@@ -226,7 +226,7 @@ dependencies = [
  "voladdress 0.3.0",
  "volatile",
  "x86",
- "x86_64 0.11.8",
+ "x86_64 0.12.2 (git+https://github.com/rust-osdev/x86_64)",
 ]
 
 [[package]]
@@ -301,9 +301,9 @@ dependencies = [
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.23"
+version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51ef7cd2518ead700af67bf9d1a658d90b6037d77110fd9c0445429d0ba1c6c9"
+checksum = "1e0704ee1a7e00d7bb417d0770ea303c1bccbabf0ef1667dae92b5967f5f8a71"
 dependencies = [
  "unicode-xid",
 ]
@@ -433,12 +433,12 @@ checksum = "373c8a200f9e67a0c95e62a4f52fbf80c23b4381c05a17845531982fa99e6b33"
 
 [[package]]
 name = "uart_16550"
-version = "0.2.8"
+version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74cba8625e8a1ec064fc6440aef7921ff21b06f1ed60dd603cb1b1d5e0dfcd46"
+checksum = "afb00b16a4c8acbfc4eb8cfeda1f9c0507c7e87c6563edce64a236af93acf70c"
 dependencies = [
  "bitflags",
- "x86_64 0.12.1",
+ "x86_64 0.12.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -489,9 +489,9 @@ dependencies = [
 
 [[package]]
 name = "x86_64"
-version = "0.11.8"
+version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fa1f02f6b33489502afe477f7d428cfa1eee22d4a10966e95dfeed96c523d46"
+checksum = "d5b4b42dbabe13b69023e1a1407d395f1a1a33df76e9a9efdbe303acc907e292"
 dependencies = [
  "bit_field 0.9.0",
  "bitflags",
@@ -499,9 +499,8 @@ dependencies = [
 
 [[package]]
 name = "x86_64"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "238a5798f77641af3c4f242bf985807f312a480cd4e35ed7255fad4b2ccb9d4f"
+version = "0.12.2"
+source = "git+https://github.com/rust-osdev/x86_64#0afc070ce63d7272b48e92c9a54422c9af88ddf4"
 dependencies = [
  "bit_field 0.9.0",
  "bitflags",

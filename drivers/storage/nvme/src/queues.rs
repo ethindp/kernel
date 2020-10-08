@@ -2,6 +2,7 @@ use bit_field::BitField;
 use heapless::{consts::*, spsc::Queue};
 use static_assertions::assert_eq_size;
 use voladdress::DynamicVolBlock;
+use log::*;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
@@ -48,7 +49,9 @@ impl SubmissionQueue {
     pub fn queue_command(&mut self, entry: SubmissionQueueEntry) {
         let addr: DynamicVolBlock<u32> =
             unsafe { DynamicVolBlock::new(self.addr, (self.entries * 16) as usize) };
+            debug!("Current SQH: {}", self.sqh);
         self.sqh = self.sqh.wrapping_add(1);
+        debug!("New SQH: {}", self.sqh);
         if self.sqh > self.entries {
             self.sqh = 0;
         }
@@ -76,7 +79,9 @@ impl SubmissionQueue {
         cmd[13] = entry.operands[3];
         cmd[14] = entry.operands[4];
         cmd[15] = entry.operands[5];
+        debug!("Entry data: CDW0 = {:X}, NSID = {:X}, MPTR = ({:X}, {:X}), PRP list = ({:X}, {:X}, {:X}, {:X}), ARGS = ({:X}, {:X}, {:X}, {:X}, {:X}, {:X})", cmd[0], cmd[1], cmd[4], cmd[5], cmd[6], cmd[7], cmd[8], cmd[9], cmd[10], cmd[11], cmd[12], cmd[13], cmd[14], cmd[15]);
         for i in 0..16 {
+        debug!("Writing dword {:X}, offset {:X}", i, (self.sqh as usize) + i);
             addr.index((self.sqh as usize) + i).write(cmd[i]);
         }
     }
@@ -105,7 +110,11 @@ impl CompletionQueue {
     ) {
         let addr: DynamicVolBlock<u128> =
             unsafe { DynamicVolBlock::new(self.addr, self.entries as usize) };
+            if self.cqh != u16::MAX {
         self.cqh = self.cqh.wrapping_add(1);
+        } else {
+        self.cqh = 0;
+        }
         if self.cqh > self.entries {
             self.cqh = 0;
         }

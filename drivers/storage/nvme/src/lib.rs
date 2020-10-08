@@ -136,13 +136,17 @@ pub struct NvMeController {
     free: fn(u64, u64),
     /// Interrupt registration routine (IRR)
     irr: fn(u8, fn()),
-    iline: u8,
+    /// Interrupt line
+    intline: u8,
+    /// 16KiB ring buffer for controller writes
+    resp_buffer: VolBlock<u8, 16384>,
+    resp_buffer_addr: u64,
 }
 
 impl NvMeController {
     pub unsafe fn new(
         bars: [u64; 6],
-        iline: u8,
+        intline: u8,
         malloc: fn(u64, u64),
         free: fn(u64, u64),
         irr: fn(u8, fn()),
@@ -179,14 +183,22 @@ impl NvMeController {
             malloc,
             free,
             irr,
-            iline,
+            intline,
             version: Semver::new(0, 0, 0),
+            resp_buffer: VolBlock::new(0x0),
+            resp_buffer_addr: 0,
         };
         (dev.malloc)(bars[0], 0x1003);
         let stride = dev.cap.read().get_bits(32..36);
         dev.adm_comp_queue_doorbell =
             VolAddress::new((bars[0] as usize) + (0x1003 + (1 * (4 << stride))));
         (dev.malloc)(bars[0], 0x1003 + (1 * (4 << stride)));
+        let mut buf_loc = 0u64;
+        random::rdrand64(&mut buf_loc);
+        buf_loc.set_bits(47 .. 64, 0);
+        dev.resp_buffer = VolBlock::new(buf_loc as usize);
+        (dev.malloc)(buf_loc, buf_loc + 16384);
+        dev.resp_buffer_addr = buf_loc;
         dev
     }
 
@@ -312,17 +324,20 @@ impl NvMeController {
             }
             info!("enabling controller");
             let mut cc = self.cc.read();
-            cc.set_bits(11..14, 0);
-            cc.set_bits(7..11, 0);
-            cc.set_bits(14 .. 16, 0);
+            cc.set_bits(24 .. 32, 0); // Reserved
+            cc.set_bits(20 .. 24, 4); // I/O Completion Queue Entry Size, 1 << 4 = 16
+            cc.set_bits(16 .. 20, 6); // I/O Submission Queue Entry Size, 1 << 6 = 64
+            cc.set_bits(14 .. 16, 0); // Shutdown Notification, 0 = no notification
+            cc.set_bits(11 .. 14, 0); // Arbitration Mechanism Selected, 0 = round-robin
+            cc.set_bits(7 .. 11, 0); // Memory Page Size, 0 = (2^(12+0)) = 4096
+            // I/O Command Set Selected
             if self.cap.read().get_bit(37) {
-                cc.set_bits(4..7, 0);
+                cc.set_bits(4..7, 0); // 0 = NVM command set
             } else if self.cap.read().get_bit(44) {
-                cc.set_bits(4..7, 7);
+                cc.set_bits(4..7, 7); // 7 = Admin command set only
             }
-            cc.set_bits(20..24, 6);
-            cc.set_bits(16..20, 4);
-            cc.set_bit(0, true);
+            cc.set_bits(1 .. 4, 0); // reserved
+            cc.set_bit(0, true); // Enable
             self.cc.write(cc);
             loop {
                 if self.csts.read().get_bit(0) {
@@ -360,25 +375,24 @@ impl NvMeController {
             self.intmc.write(0);
         }
         info!("Registering interrupt handler");
-        (self.irr)(self.iline, || {
+        (self.irr)(self.intline, || {
             INTR.store(true, Ordering::SeqCst);
         });
         info!("Sending identify command");
         {
+        debug!("Locking SQS");
             let mut sqs = SQS.write();
+            debug!("Creating default entry");
             let mut entry = queues::SubmissionQueueEntry::default();
             entry.cdw0.set_bits(0..8, AdminCommand::Identify as u32);
+            debug!("Setting CDW0[7:0] to {:X}", AdminCommand::Identify as u32);
             entry.cdw0.set_bits(8..10, 0);
             entry.cdw0.set_bits(10..14, 0);
             entry.cdw0.set_bits(14..16, 0);
             entry.cdw0.set_bits(16..32, 0);
+            debug!("Setting CDW0[8:32] to 0");
             entry.nsid = 0;
-            let mut output: u64 = 0;
-            unsafe {
-                random::rdrand64(&mut output);
-            }
-            (self.malloc)(output, output + 4096);
-            entry.prps[0] = output;
+            entry.prps[0] = self.resp_buffer_addr;
             entry.operands[0].set_bits(16..31, 0);
             entry.operands[0].set_bits(0..8, 1);
             sqs[0].queue_command(entry);
@@ -395,13 +409,12 @@ impl NvMeController {
             INTR.store(false, Ordering::SeqCst);
             // Read data structure
             let mut data = [0u8; 4096];
-            {
-                let addr: VolBlock<u8, 4096> = unsafe { VolBlock::new(output as usize) };
                 for i in 0..4096 {
-                    data[i] = addr.index(i).read();
+                    data[i] = self.resp_buffer.index(i).read();
                 }
-            }
-            (self.free)(output, output + 4096);
+                for i in 0..4096 {
+                    self.resp_buffer.index(i).write(0);
+                }
             let response: structs::IdentifyControllerResponse = unsafe { mem::transmute(data) };
             info!(
                 "Controller is {}",
