@@ -118,7 +118,7 @@ async fn init_nvme() {
         nvme::NvMeController::new(
             bars,
             int,
-            |start, size| crate::memory::allocate_phys_range(start, start + size),
+            |start, size| crate::memory::allocate_phys_range_trace(start, start + size),
             |start, size| crate::memory::free_range(start, start + size),
             interrupts::register_interrupt_handler,
         )

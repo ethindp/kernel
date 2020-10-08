@@ -217,11 +217,12 @@ pub fn allocate_page_range(start: u64, end: u64) {
                 unsafe {
                     match m.map_to(page, frame, flags, a) {
                         Ok(r) => r.flush(),
-                        Err(_) => {
-                            m.unmap(page).unwrap().1.flush();
-                            m.map_to(page, frame, flags, a).unwrap().flush();
-                        }
-                    }
+                        Err(e) => match e {
+                        MapToError::PageAlreadyMapped(_) => continue,
+MapToError::FrameAllocationFailed => panic!("Cannot map frame at addr {:X} of size {}: no more frames", frame.clone().start_address(), frame.size()),
+MapToError::ParentEntryHugePage => continue,
+}
+}
                 }
             }
         }
@@ -249,11 +250,12 @@ pub fn allocate_page_range_with_perms(start: u64, end: u64, permissions: PageTab
                 unsafe {
                     match m.map_to(page, frame, permissions, a) {
                         Ok(r) => r.flush(),
-                        Err(_) => {
-                            m.unmap(page).unwrap().1.flush();
-                            m.map_to(page, frame, permissions, a).unwrap().flush();
-                        }
-                    }
+                        Err(e) => match e {
+                        MapToError::PageAlreadyMapped(_) => continue,
+MapToError::FrameAllocationFailed => panic!("Cannot map frame at addr {:X} of size {}: no more frames", frame.clone().start_address(), frame.size()),
+MapToError::ParentEntryHugePage => continue,
+}
+}
                 }
             }
         }
@@ -279,17 +281,51 @@ pub fn allocate_phys_range(start: u64, end: u64) {
                 unsafe {
                     match m.identity_map(frame, flags, a) {
                         Ok(r) => r.flush(),
-                        Err(_) => {
-                            let page: Page<Size4KiB> = Page::containing_address(VirtAddr::new(
-                                frame.start_address().as_u64(),
-                            ));
-                            m.unmap(page).unwrap().1.flush();
-                            m.identity_map(frame, flags, a).unwrap().flush();
+                        Err(e) => match e {
+                        MapToError::PageAlreadyMapped(_) => continue,
+MapToError::FrameAllocationFailed => panic!("Cannot map frame at addr {:X} of size {}: no more frames", frame.clone().start_address(), frame.size()),
+MapToError::ParentEntryHugePage => continue,
+}
+}
                         }
                     }
                 }
-            }
-        }
+        _ => panic!("Memory allocator or frame allocator are not set"),
+    }
+}
+
+#[cfg(debug_assertions)]
+pub fn allocate_phys_range_trace(start: u64, end: u64) {
+    trace!("Acquiring mapper lock");
+    let mut mapper = MAPPER.lock();
+    trace!("Acquiring frame allocator lock");
+    let mut allocator = FRAME_ALLOCATOR.lock();
+    match (mapper.as_mut(), allocator.as_mut()) {
+        (Some(m), Some(a)) => {
+        trace!("Locks and references acquired; building frame range");
+            let frame_range = {
+                let start = PhysAddr::new(start);
+                let end = PhysAddr::new(end);
+                let start_frame = PhysFrame::<Size4KiB>::containing_address(start);
+                let end_frame = PhysFrame::<Size4KiB>::containing_address(end);
+                PhysFrame::range_inclusive(start_frame, end_frame)
+            };
+            for (i, frame) in frame_range.enumerate() {
+            trace!("Allocating frame {}: start addr={:X}, size={}, flags={:X}", i, frame.clone().start_address(), frame.clone().size(), (PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE).bits());
+                let flags =
+                    PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
+                unsafe {
+                    match m.identity_map(frame, flags, a) {
+                        Ok(r) => r.flush(),
+                        Err(e) => match e {
+                        MapToError::PageAlreadyMapped(_) => continue,
+MapToError::FrameAllocationFailed => panic!("Cannot map frame at addr {:X} of size {}: no more frames", frame.clone().start_address(), frame.size()),
+MapToError::ParentEntryHugePage => continue,
+}
+}
+                        }
+                    }
+                }
         _ => panic!("Memory allocator or frame allocator are not set"),
     }
 }
@@ -337,3 +373,5 @@ pub fn init_free_memory_map(map: &'static MemoryMap) {
         mmap.push(mr);
     }
 }
+
+
