@@ -1,3 +1,4 @@
+use bit_field::BitField;
 use bitflags::bitflags;
 use cpuio::{inb, outb};
 use log::*;
@@ -40,9 +41,11 @@ pub const HIMEM_LO: u8 = 0x5B;
 pub const HIMEM_MID: u8 = 0x5C;
 pub const HIMEM_HI: u8 = 0x5D;
 pub const BIOS_SMP_CNT: u8 = 0x5F;
+const CURYR: u128 = 2020;
 
 bitflags! {
 pub struct StatusA: u8 {
+/// Update in progress
 const UIP = 0x80;
 }
 }
@@ -114,22 +117,88 @@ pub fn mask(index: u8, off: u8, on: u8) {
     }
 }
 
-#[allow(unused_results)]
 pub async fn init() {
     info!("configuring RTC");
     without_interrupts(|| {
         write(STTSA, 0x26);
         mask(STTSB, !(1 << 0), 1 << 1);
-        read(STTSC);
-        read(STTSD);
+        let _ = read(STTSC);
+        let _ = read(STTSD);
+        let prev = read(STTSB);
+        write(STTSB, prev | 0x40);
     });
+    let (year, month, day, hour, minute, second, _) = current_time();
     info!(
-        "RTC indicates that time is {}-{}-{} {}:{}:{}",
-        read(YR),
-        read(MON),
-        read(DAYMO),
-        read(HRS),
-        read(MINS),
-        read(SECS)
+        "Current time: {}-{}-{} {}:{}:{}",
+        year, month, day, hour, minute, second
     );
+}
+
+pub fn current_time() -> (u128, u128, u128, u128, u128, u128, u128) {
+    loop {
+        if !StatusA::from_bits_truncate(read(STTSA)).contains(StatusA::UIP) {
+            break;
+        }
+    }
+    let mut second = read(SECS) as u128;
+    let mut minute = read(MINS) as u128;
+    let mut hour = read(HRS) as u128;
+    let mut day = read(DAYMO) as u128;
+    let mut month = read(MON) as u128;
+    let mut year = read(YR) as u128;
+    let mut century = read(CENT) as u128;
+    let (mut lsec, mut lmin, mut lhr, mut lday, mut lmo, mut lyr, mut lcent);
+    loop {
+        lsec = second;
+        lmin = minute;
+        lhr = hour;
+        lday = day;
+        lmo = month;
+        lyr = year;
+        lcent = century;
+        loop {
+            if !StatusA::from_bits_truncate(read(STTSA)).contains(StatusA::UIP) {
+                break;
+            }
+        }
+        second = read(SECS) as u128;
+        minute = read(MINS) as u128;
+        hour = read(HRS) as u128;
+        day = read(DAYMO) as u128;
+        month = read(MON) as u128;
+        year = read(YR) as u128;
+        century = read(CENT) as u128;
+        if (lsec != second)
+            || (lmin != minute)
+            || (lhr != hour)
+            || (lday != day)
+            || (lmo != month)
+            || (lyr != year)
+            || (lcent != century)
+        {
+            break;
+        }
+    }
+    let sttsb = StatusB::from_bits(read(STTSB)).unwrap();
+    if sttsb.contains(StatusB::DATMD) {
+        second = (second & 0x0F) + ((second / 16) * 10);
+        minute = (minute & 0x0F) + ((minute / 16) * 10);
+        hour = ((hour & 0x0F) + (((hour & 0x70) / 16) * 10)) | (hour & 0x80);
+        day = (day & 0x0F) + ((day / 16) * 10);
+        month = (month & 0x0F) + ((month / 16) * 10);
+        year = (year & 0x0F) + ((year / 16) * 10);
+        century = (century & 0x0F) + ((century / 16) * 10);
+        if sttsb.contains(StatusB::HR24) && hour.get_bit(7) {
+            hour = ((hour & 0x7F) + 12) % 24;
+        }
+    }
+    if century * 100 == CURYR {
+        year += century * 100;
+    } else {
+        year += (CURYR / 100) * 100;
+        if year < CURYR {
+            year += 100;
+        }
+    }
+    (year, month, day, hour, minute, second, century)
 }

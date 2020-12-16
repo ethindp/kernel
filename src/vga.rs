@@ -3,64 +3,21 @@ use core::fmt;
 use lazy_static::lazy_static;
 use spin::Mutex;
 use uart_16550::SerialPort;
-use volatile::Volatile;
+use vga::colors::{Color16, TextModeColor};
+use vga::writers::{ScreenCharacter, Text80x25, TextWriter};
 
 const VGA_HEIGHT: usize = 25;
 const VGA_WIDTH: usize = 80;
 
-#[allow(dead_code)]
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Color {
-    Black = 0,
-    Blue = 1,
-    Green = 2,
-    Cyan = 3,
-    Red = 4,
-    Magenta = 5,
-    Brown = 6,
-    LightGray = 7,
-    DarkGray = 8,
-    LightBlue = 9,
-    LightGreen = 10,
-    LightCyan = 11,
-    LightRed = 12,
-    Pink = 13,
-    Yellow = 14,
-    White = 15,
-}
-
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ColorCode(u8);
-
-impl ColorCode {
-    fn new(fg: Color, bg: Color) -> ColorCode {
-        ColorCode((bg as u8) << 4 | (fg as u8))
-    }
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct DrawableChar {
-    ascii: u8,
-    color: ColorCode,
-}
-
-#[repr(transparent)]
-struct VgaBuffer {
-    characters: [[Volatile<DrawableChar>; VGA_WIDTH]; VGA_HEIGHT],
-}
-
 #[allow(missing_debug_implementations)]
-pub struct ScreenWriter {
-    pub column: usize,
-    color: ColorCode,
-    buffer: &'static mut VgaBuffer,
+pub(crate) struct ScreenWriter {
+    pub(crate) column: usize,
+    pub(crate) color: (Color16, Color16),
+    pub(crate) buffer: Text80x25,
 }
 
 impl ScreenWriter {
-    pub fn write_char(&mut self, character: u8) {
+    pub(crate) fn write_char(&mut self, character: u8) {
         match character {
             b'\n' => self.write_newline(),
             character => {
@@ -70,37 +27,34 @@ impl ScreenWriter {
                 let row = VGA_HEIGHT - 1;
                 let col = self.column;
                 let color = self.color;
-                self.buffer.characters[row][col].write(DrawableChar {
-                    ascii: character,
-                    color,
-                });
+                let color = TextModeColor::new(color.0, color.1);
+                let schar = ScreenCharacter::new(character, color);
+                self.buffer.write_character(row, col, schar);
                 self.column += 1;
             }
         }
     }
 
-    pub fn write_newline(&mut self) {
+    pub(crate) fn write_newline(&mut self) {
         for row in 1..VGA_HEIGHT {
             for col in 0..VGA_WIDTH {
-                let character = self.buffer.characters[row][col].read();
-                self.buffer.characters[row - 1][col].write(character);
+                let character = self.buffer.read_character(row, col);
+                self.buffer.write_character(row - 1, col, character);
             }
         }
         self.clear_row(VGA_HEIGHT - 1);
         self.column = 0;
     }
 
-    pub fn clear_row(&mut self, row: usize) {
-        let nothing = DrawableChar {
-            ascii: b' ',
-            color: self.color,
-        };
+    pub(crate) fn clear_row(&mut self, row: usize) {
+        let color = TextModeColor::new(Color16::Black, Color16::Black);
+        let schar = ScreenCharacter::new(b' ', color);
         for col in 0..VGA_WIDTH {
-            self.buffer.characters[row][col].write(nothing);
+            self.buffer.write_character(row, col, schar);
         }
     }
 
-    pub fn write(&mut self, what: &str) {
+    pub(crate) fn write(&mut self, what: &str) {
         for byte in what.bytes() {
             match byte {
                 0x20..=0x7e | b'\n' => self.write_char(byte),
@@ -112,12 +66,17 @@ impl ScreenWriter {
 }
 
 lazy_static! {
-    pub static ref WRITER: Mutex<ScreenWriter> = Mutex::new(ScreenWriter {
-        column: 0,
-        color: ColorCode::new(Color::White, Color::Black),
-        buffer: unsafe { &mut *(0xb8000 as *mut VgaBuffer) },
+    pub(crate) static ref WRITER: Mutex<ScreenWriter> = Mutex::new({
+        let text_mode = Text80x25::new();
+        text_mode.set_mode();
+        text_mode.clear_screen();
+        ScreenWriter {
+            column: 0,
+            color: (Color16::White, Color16::Black),
+            buffer: text_mode,
+        }
     });
-    pub static ref SERIAL_WRITER: Mutex<SerialPort> = Mutex::new({
+    pub(crate) static ref SERIAL_WRITER: Mutex<SerialPort> = Mutex::new({
         let mut serial_port = unsafe { SerialPort::new(0x3F8) };
         serial_port.init();
         serial_port
@@ -171,7 +130,7 @@ macro_rules! printkln {
 }
 
 #[doc(hidden)]
-pub fn _print(args: fmt::Arguments) {
+pub(crate) fn _print(args: fmt::Arguments) {
     use core::fmt::Write;
     use x86_64::instructions::interrupts;
     interrupts::without_interrupts(|| {
@@ -180,7 +139,7 @@ pub fn _print(args: fmt::Arguments) {
 }
 
 #[doc(hidden)]
-pub fn _sprint(args: ::core::fmt::Arguments) {
+pub(crate) fn _sprint(args: ::core::fmt::Arguments) {
     use core::fmt::Write;
     use x86_64::instructions::interrupts;
     interrupts::without_interrupts(|| {

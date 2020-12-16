@@ -16,19 +16,4 @@ static_assertions = "^1.1.0"
 lazy_static = {version = "^1.4.0", features=["spin_no_std"]}
 spin = "^0.5.2"
 dia-semver = "^8.0.1"
-
-[profile.dev]
-panic = "abort"
-opt-level=0
-debug=true
-rpath=false
-lto=false
-debug-assertions = true
-codegen-units = 64
-overflow-checks = true
-incremental = true
-
-[profile.release]
-panic = "abort"
-lto = "thin"
-codegen-units = 1
+libk = {path = "../../../libk"}

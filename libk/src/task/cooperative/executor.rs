@@ -42,14 +42,14 @@ impl Executor {
             task_queue,
             waker_cache,
         } = self;
-        while let Ok(task_id) = task_queue.pop() {
+        while let Some(task_id) = task_queue.pop() {
             let task = match tasks.get_mut(&task_id) {
                 Some(task) => task,
                 None => continue,
             };
             let waker = waker_cache
                 .entry(task_id)
-                .or_insert_with(|| TaskWaker::new(task_id, task_queue.clone()));
+                .or_insert_with(|| TaskWaker::new_task(task_id, task_queue.clone()));
             let mut context = Context::from_waker(waker);
             match task.poll(&mut context) {
                 Poll::Ready(()) => {
@@ -69,18 +69,24 @@ impl Executor {
     }
 
     fn sleep_if_idle(&self) {
-        use x86_64::instructions::interrupts::{self, enable_interrupts_and_hlt};
+        use x86_64::instructions::interrupts::{self, enable_and_hlt};
         interrupts::disable();
         if self.task_queue.is_empty() {
-            enable_interrupts_and_hlt();
+            enable_and_hlt();
         } else {
             interrupts::enable();
         }
     }
 }
 
+impl Default for Executor {
+fn default() -> Self {
+Self::new()
+}
+}
+
 impl TaskWaker {
-    fn new(task_id: Tid, task_queue: Arc<ArrayQueue<Tid>>) -> Waker {
+    fn new_task(task_id: Tid, task_queue: Arc<ArrayQueue<Tid>>) -> Waker {
         Waker::from(Arc::new(TaskWaker {
             task_id,
             task_queue,
