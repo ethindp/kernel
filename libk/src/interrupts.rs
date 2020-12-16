@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 #![allow(unused_results)]
 use crate::gdt;
-use alloc::vec::Vec;
 use bit_field::BitField;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use cpuio::{inb, outb};
@@ -15,11 +14,12 @@ use x86::apic::x2apic::*;
 use x86_64::registers::model_specific::Msr;
 use x86_64::{
     structures::idt::PageFaultErrorCode,
-    structures::idt::{InterruptDescriptorTable, InterruptStackFrame},
+    structures::idt::{InterruptDescriptorTable, InterruptStackFrame, InterruptStackFrameValue},
 };
+use minivec::MiniVec;
 
 /// Type to contain IRQ functions
-type IrqList = FnvIndexMap<u8, Vec<fn()>, U256>;
+type IrqList = FnvIndexMap<u8, MiniVec<fn(InterruptStackFrameValue)>, U256>;
 
 /// This enumeration contains a list of all IRQs.
 #[repr(u8)]
@@ -519,11 +519,11 @@ idt[InterruptType::Irq255.convert_to_usize()].set_handler_fn(handle_irq255);
     };
     static ref TICK_COUNT: AtomicU64 = AtomicU64::new(0);
 static ref IRQ_FUNCS: RwLock<IrqList> = RwLock::new({
-let mut table = FnvIndexMap::<u8, Vec<fn()>, U256>::new();
-for i in 0 .. 256 {
-let v = Vec::<fn()>::new();
-table.insert(i as u8, v).unwrap();
-}
+let mut table = IrqList::new();
+(0 .. u8::MAX).for_each(|i| {
+let v = MiniVec::<fn(InterruptStackFrameValue)>::new();
+table.insert(i, v).unwrap();
+});
 table
 });
 }
@@ -673,12 +673,12 @@ pub async fn init_stage2() {
 // Macro to generate interrupt functions
 macro_rules! gen_interrupt_fn {
     ($i:ident, $p:path) => {
-        extern "x86-interrupt" fn $i(_stack_frame: &mut InterruptStackFrame) {
-            debug!("Interrupt $i received");
+        extern "x86-interrupt" fn $i(stack_frame: &mut InterruptStackFrame) {
             if let Some(tbl) = IRQ_FUNCS.try_read() {
-                for func in tbl.get(&$p.convert_to_u8()).unwrap().iter() {
-                    (func)();
-                }
+                tbl.get(&$p.convert_to_u8())
+                    .unwrap()
+                    .iter()
+                    .for_each(|func| (func)(stack_frame.clone()));
             }
             signal_eoi($p.convert_to_u8());
         }
@@ -687,8 +687,7 @@ macro_rules! gen_interrupt_fn {
 
 extern "x86-interrupt" fn handle_bp(stack_frame: &mut InterruptStackFrame) {
     // All we do here is notify the user and continue on.
-    use crate::printkln;
-    printkln!(
+    info!(
         "Hardware breakpoint interrupt received:\n{:#?}",
         stack_frame
     );
@@ -704,25 +703,23 @@ extern "x86-interrupt" fn handle_df(stack_frame: &mut InterruptStackFrame, error
     );
 }
 
-extern "x86-interrupt" fn handle_timer(_: &mut InterruptStackFrame) {
+extern "x86-interrupt" fn handle_timer(s: &mut InterruptStackFrame) {
+    TICK_COUNT.fetch_add(1, Ordering::SeqCst);
     if let Some(tbl) = IRQ_FUNCS.try_read() {
-        for func in tbl
-            .get(&InterruptType::Timer.convert_to_u8())
+        tbl.get(&InterruptType::Timer.convert_to_u8())
             .unwrap()
             .iter()
-        {
-            (func)();
-        }
+            .for_each(|func| (func)(s.clone()));
     }
     signal_eoi(InterruptType::Timer.convert_to_u8());
 }
 
-extern "x86-interrupt" fn handle_rtc(_stack_frame: &mut InterruptStackFrame) {
-    TICK_COUNT.fetch_add(1, Ordering::SeqCst);
+extern "x86-interrupt" fn handle_rtc(stack_frame: &mut InterruptStackFrame) {
     if let Some(tbl) = IRQ_FUNCS.try_read() {
-        for func in tbl.get(&InterruptType::Rtc.convert_to_u8()).unwrap().iter() {
-            (func)();
-        }
+        tbl.get(&InterruptType::Rtc.convert_to_u8())
+            .unwrap()
+            .iter()
+            .for_each(|func| (func)(stack_frame.clone()));
     }
     signal_eoi(InterruptType::Rtc.convert_to_u8());
     unsafe {
@@ -731,15 +728,12 @@ extern "x86-interrupt" fn handle_rtc(_stack_frame: &mut InterruptStackFrame) {
     }
 }
 
-extern "x86-interrupt" fn handle_keyboard(_stack_frame: &mut InterruptStackFrame) {
+extern "x86-interrupt" fn handle_keyboard(stack_frame: &mut InterruptStackFrame) {
     if let Some(tbl) = IRQ_FUNCS.try_read() {
-        for func in tbl
-            .get(&InterruptType::Keyboard.convert_to_u8())
+        tbl.get(&InterruptType::Keyboard.convert_to_u8())
             .unwrap()
             .iter()
-        {
-            (func)();
-        }
+            .for_each(|func| (func)(stack_frame.clone()));
     }
     signal_eoi(InterruptType::Keyboard.convert_to_u8());
 }
@@ -752,14 +746,14 @@ extern "x86-interrupt" fn handle_pf(
         llvm_asm!("push rax" :::: "intel");
     }
     use crate::idle_forever;
-    use crate::printkln;
+    use alloc::string::{String, ToString};
     use heapless::{consts::*, Vec};
     use iced_x86::*;
     use voladdress::VolSeries;
     use x86_64::registers::control::Cr2;
     let addr = Cr2::read();
     let ec = error_code.bits();
-    printkln!(
+    error!(
         "Page fault: {} while {} memory address {:X}h",
         if (ec & 1) > 0 {
             "Protection violation"
@@ -783,7 +777,7 @@ extern "x86-interrupt" fn handle_pf(
         },
         addr.as_u64()
     );
-    printkln!(
+    error!(
         "Details:\nRegisters: RIP = {:X}\tCS = {:X}\tflags = {:X}\tRSP = {:X}\tSS = {:X}",
         frame.instruction_pointer.as_u64(),
         frame.code_segment,
@@ -791,15 +785,15 @@ extern "x86-interrupt" fn handle_pf(
         frame.stack_pointer.as_u64(),
         frame.stack_segment
     );
-    printkln!("Attempting instruction disassembly... ");
+    info!("Attempting instruction disassembly... ");
     let rip: VolSeries<u128, 64, 16> =
         unsafe { VolSeries::new(frame.instruction_pointer.as_u64() as usize) };
     let mut bytes: Vec<u8, U1024> = Vec::new();
-    for i in 0..64 {
-        for j in u128::to_le_bytes(rip.index(i).read()).iter() {
-            bytes.push(*j).unwrap();
-        }
-    }
+    (0..64).for_each(|i| {
+        u128::to_le_bytes(rip.index(i).read())
+            .iter()
+            .for_each(|j| bytes.push(*j).unwrap())
+    });
     let mut decoder = Decoder::new(
         64,
         &bytes,
@@ -819,16 +813,21 @@ extern "x86-interrupt" fn handle_pf(
     );
     decoder.set_ip(frame.instruction_pointer.as_u64());
     let mut instruction = Instruction::default();
+    let mut out: String = String::new();
     while decoder.can_decode() {
         decoder.decode_out(&mut instruction);
-        printkln!("{}", instruction);
+        if instruction.is_invalid() {
+            continue;
+        }
+        let inst: String = instruction.to_string();
+        out.push_str(inst.to_string().as_str());
     }
+    info!("{}", out);
     idle_forever();
 }
 
 extern "x86-interrupt" fn handle_of(_: &mut InterruptStackFrame) {
-    use crate::printkln;
-    printkln!("Warning: can't execute calculation: overflow");
+    warn!("Can't execute calculation: overflow");
 }
 
 extern "x86-interrupt" fn handle_br(stack: &mut InterruptStackFrame) {
@@ -847,9 +846,9 @@ extern "x86-interrupt" fn handle_nm(stack: &mut InterruptStackFrame) {
 }
 
 extern "x86-interrupt" fn handle_gp(frame: &mut InterruptStackFrame, ec: u64) {
-    use crate::{idle_forever, printkln};
-    printkln!("Cannot continue (GP), error code {:X}", ec);
-    printkln!(
+    use crate::idle_forever;
+    error!("Cannot continue (GP), error code {:X}", ec);
+    error!(
         "Details:\nRegisters: RIP = {:X}\tCS = {:X}\tflags = {:X}\tRSP = {:X}\tSS = {:X}",
         frame.instruction_pointer.as_u64(),
         frame.code_segment,
@@ -1106,11 +1105,11 @@ fn signal_eoi(interrupt: u8) {
         unsafe {
             *(addr) = 0;
         }
-    } else if 32 <= interrupt && interrupt < 32 + 8 {
+    } else if (32..32 + 8).contains(&interrupt) {
         unsafe {
             outb(0x20, 0x20);
         }
-    } else if 40 <= interrupt && interrupt < 40 + 8 {
+    } else if (40..40 + 8).contains(&interrupt) {
         unsafe {
             outb(0x20, 0xA0);
         }
@@ -1122,7 +1121,7 @@ fn signal_eoi(interrupt: u8) {
     }
 }
 
-/// Gets the tick count that has passed since we started counting (since the RTC was set up).
+/// Gets the tick count that has passed since we started counting
 pub fn get_tick_count() -> u64 {
     TICK_COUNT.load(Ordering::SeqCst)
 }
@@ -1147,23 +1146,14 @@ pub fn sleep_for(duration: u64) {
         }
     } else if APIC.load(Ordering::Relaxed) {
         use voladdress::VolAddress;
-        let lvt_timer: VolAddress<u32>;
-        let init_cnt: VolAddress<u32>;
-        let div_conf: VolAddress<u32>;
-        let cur_cnt: VolAddress<u32>;
-        unsafe {
-            lvt_timer = VolAddress::new((apic_addr() + 0x320) as usize);
-            init_cnt = VolAddress::new((apic_addr() + 0x380) as usize);
-            div_conf = VolAddress::new((apic_addr() + 0x3E0) as usize);
-            cur_cnt = VolAddress::new((apic_addr() + 0x390) as usize);
-        }
+        let (lvt_timer, init_cnt, div_conf, cur_cnt): (VolAddress<u32>, VolAddress<u32>, VolAddress<u32>, VolAddress<u32>) =(unsafe { VolAddress::new((apic_addr() + 0x320) as usize) }, unsafe { VolAddress::new((apic_addr() + 0x380) as usize) }, unsafe { VolAddress::new((apic_addr() + 0x3E0) as usize) }, unsafe { VolAddress::new((apic_addr() + 0x390) as usize) });
         let mut bits = lvt_timer.read();
         bits.set_bit(16, true);
         lvt_timer.write(bits);
         div_conf.write(0b111);
         init_cnt.write(duration.get_bits(0..32) as u32);
         while cur_cnt.read() != 0 {
-            x86_64::instructions::hlt();
+            continue;
         }
         bits.set_bit(16, false);
         lvt_timer.write(bits);
@@ -1177,13 +1167,32 @@ pub fn sleep_for(duration: u64) {
     }
 }
 
-pub fn register_interrupt_handler(interrupt: u8, func: fn()) {
+pub fn register_interrupt_handler(interrupt: u8, func: fn(InterruptStackFrameValue)) -> usize {
     x86_64::instructions::interrupts::disable();
     debug!("Registering handler for int. {:X} ({:p})", interrupt, &func);
     let mut tbl = IRQ_FUNCS.write();
     let irq = 32_u8.saturating_add(interrupt);
+    let mut idx = 0usize;
     if let Some(funcs) = tbl.get_mut(&irq) {
         funcs.push(func);
+        idx = funcs.len();
     }
     x86_64::instructions::interrupts::enable();
+    idx
 }
+
+pub fn unregister_interrupt_handler(int: u8, id: usize) -> bool {
+    x86_64::instructions::interrupts::disable();
+    debug!("Unregistering handler for int. {:X} (id {:X})", int, id);
+    let mut tbl = IRQ_FUNCS.write();
+    let irq = 32_u8.saturating_add(int);
+if let Some(funcs) = tbl.get_mut(&irq) {
+if funcs.len() >= id {
+funcs.remove(id);
+} else {
+return false
+}
+}
+true
+}
+

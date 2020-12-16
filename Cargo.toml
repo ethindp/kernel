@@ -7,24 +7,15 @@ license = "MPL-2.0"
 
 [dependencies]
 x86_64 = {git = "https://github.com/rust-osdev/x86_64", features=["deny-warnings"]}
-uart_16550 = "0.2.4"
-volatile = "0.2.6"
-cpuio = "0.3.0"
-bit_field = "0.10.0"
-spin = " 0.5.2"
-raw-cpuid = "7.0.3"
-part = {path = "drivers/storage/part"}
-heapless = "0.5.5"
-acpi = "1.0.0"
-bootloader = {version = "0.9.4", features=["map_physical_memory", "sse"]}
-x86 = "0.34.0"
-iced-x86 = {version = "1.2.0", default-features=false, features=["decoder", "encoder", "block_encoder", "op_code_info", "instr_info", "gas", "intel", "masm", "nasm", "db", "no_std", "exhaustive_enums"]}
-linked_list_allocator = "0.8.4"
-voladdress = "0.3.0"
-bitflags = "1.2.1"
-crossbeam-queue = {version = "0.2.3", default-features=false, features=["alloc"]}
-nvme = {path = "drivers/storage/nvme"}
-log = {version = "0.4.11", default-features=false}
+uart_16550 = "^0.2.10"
+bit_field = "^0.10.1"
+spin = "^0.7.0"
+heapless = "^0.5.6"
+bootloader = {version = "^0.9.11", features=["map_physical_memory", "sse"]}
+linked_list_allocator = "^0.8.6"
+log = {version = "^0.4.11", default-features=false}
+libk = {path = "libk"}
+vga = "^0.2.5"
 
 [dependencies.lazy_static]
 version = ">=1.4.0"
@@ -55,3 +46,4 @@ sysroot_path = "target/sysroot"
 
 [package.metadata.bootloader]
 kernel-stack-size = 2048
+

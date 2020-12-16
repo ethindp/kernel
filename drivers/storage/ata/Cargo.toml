@@ -9,19 +9,3 @@ heapless = "0.5.5"
 static_assertions = "1.1.0"
 genio = "0.2.1"
 bit_field = "0.10.0"
-
-[profile.dev]
-panic = "abort"
-opt-level=0
-debug=true
-rpath=false
-lto=false
-debug-assertions = true
-codegen-units = 64
-overflow-checks = true
-incremental = true
-
-[profile.release]
-panic = "abort"
-lto = "fat"
-codegen-units = 1

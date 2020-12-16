@@ -107,7 +107,8 @@ patterns_in_fns_without_body,
 pub_use_of_private_extern_crate,
 soft_unstable,
 unconditional_panic,
-unknown_crate_types
+unknown_crate_types,
+warnings
 )]
 #![deny(unused_qualifications, unreachable_code)]
 #![deny(clippy::all)]

@@ -6,10 +6,35 @@
 #![feature(asm)]
 #![feature(const_in_array_repeat_expressions)]
 #![allow(dead_code)]
+#![forbid(
+    warnings,
+    absolute_paths_not_starting_with_crate,
+    anonymous_parameters,
+    deprecated_in_future,
+    explicit_outlives_requirements,
+    indirect_structural_match,
+    keyword_idents,
+    macro_use_extern_crate,
+    meta_variable_misuse,
+    non_ascii_idents,
+    private_doc_tests,
+    single_use_lifetimes,
+    trivial_casts,
+    trivial_numeric_casts,
+    unaligned_references,
+    unreachable_pub,
+    unused_crate_dependencies,
+    unused_import_braces,
+    unused_lifetimes,
+    variant_size_differences
+)]
+#![deny(
+    missing_copy_implementations,
+    missing_debug_implementations,
+    box_pointers
+)]
+#![forbid(clippy::all)]
 extern crate alloc;
-extern crate uart_16550;
-extern crate x86_64;
-mod memory;
 mod vga;
 use bit_field::BitField;
 use bootloader::bootinfo::*;
@@ -31,7 +56,7 @@ const MAX_HEAP_SIZE: u64 = 4096 * 2048;
 #[panic_handler]
 fn panic(panic_information: &PanicInfo) -> ! {
     error!("{}", panic_information);
-    kernel::idle_forever();
+    libk::idle_forever();
 }
 
 // Kernel entry point
@@ -44,7 +69,7 @@ fn kmain(boot_info: &'static BootInfo) -> ! {
     }
     if RdRand::new().is_none() {
         error!("rdrand is not supported on this system, but rdrand is required");
-        kernel::idle_forever();
+        libk::idle_forever();
     }
     info!("Initialization started");
     info!("CPU identification and configuration initiated");
@@ -71,8 +96,8 @@ fn kmain(boot_info: &'static BootInfo) -> ! {
         if res.eax > 0x80000000 {
             let bs = {
                 let mut buf: String<U128> = String::new();
-                for i in 0x80000002 as u32..0x80000005 as u32 {
-                    let res = __cpuid(i as u32);
+                for i in 0x80000002u32..0x80000005u32 {
+                    let res = __cpuid(i);
                     for i in u32::to_le_bytes(res.eax).iter() {
                         buf.push(*i as char).unwrap();
                     }
@@ -101,14 +126,14 @@ fn kmain(boot_info: &'static BootInfo) -> ! {
     let mut end_addr = start_addr + MAX_HEAP_SIZE;
     end_addr.set_bits(47..64, 0);
     info!("Initializing memory manager");
-    kernel::memory::init(
+    libk::memory::init(
         boot_info.physical_memory_offset,
         &boot_info.memory_map,
         start_addr,
         MAX_HEAP_SIZE,
     );
     info!("Enabling interrupts, first stage");
-    kernel::interrupts::init_stage1();
+    libk::interrupts::init_stage1();
     info!("Initializing global heap allocator");
     unsafe {
         ALLOCATOR
@@ -129,21 +154,21 @@ fn kmain(boot_info: &'static BootInfo) -> ! {
                 MemoryRegionType::AcpiReclaimable => "ACPI, reclaimable",
                 MemoryRegionType::AcpiNvs => "ACPI, NVS",
                 MemoryRegionType::BadMemory => "bad",
-                MemoryRegionType::Kernel => "Kernel area",
-                MemoryRegionType::KernelStack => "Kernel stack",
-                MemoryRegionType::PageTable => "Page table",
-                MemoryRegionType::Bootloader => "Boot loader",
+                MemoryRegionType::Kernel => "reserved by kernel",
+                MemoryRegionType::KernelStack => "reserved by kernel",
+                MemoryRegionType::PageTable => "reserved by kernel",
+                MemoryRegionType::Bootloader => "reserved by boot loader",
                 MemoryRegionType::FrameZero => "NULL",
                 MemoryRegionType::Empty => "empty",
-                MemoryRegionType::BootInfo => "Boot information",
+                MemoryRegionType::BootInfo => "reserved by boot information",
                 MemoryRegionType::Package => "pkg",
                 _ => "unknown",
             }
         );
     }
-    kernel::memory::init_free_memory_map(&boot_info.memory_map);
-    kernel::init();
-    kernel::idle_forever();
+    libk::memory::init_free_memory_map(&boot_info.memory_map);
+    libk::init();
+    libk::idle_forever();
 }
 
 // Memory allocation error handler
@@ -151,30 +176,28 @@ fn kmain(boot_info: &'static BootInfo) -> ! {
 #[alloc_error_handler]
 fn handle_alloc_failure(layout: core::alloc::Layout) -> ! {
     panic!(
-        "Cannot allocate memory of min. size {} and min. alignment of {}",
+        "Cannot allocate memory of min. size {} and min. alignment of {}, layout: {:?}",
         layout.size(),
-        layout.align()
+        layout.align(),
+        layout
     )
 }
 
 struct Logger;
 
 impl Log for Logger {
-    fn enabled(&self, metadata: &Metadata) -> bool {
+    fn enabled(&self, _: &Metadata) -> bool {
         true
     }
 
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
-            use kernel::printkln;
             printkln!(
                 "[{}] [{}] {}",
                 record.level(),
                 record.target(),
                 record.args()
             );
-        } else {
-            return;
         }
     }
 

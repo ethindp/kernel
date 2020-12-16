@@ -10,19 +10,3 @@ zerocopy = "0.3.0"
 static_assertions = "1.1.0"
 anyhow = {version = "1.0.31", default-features=false}
 uuid = {version = "0.8.1", default-features=false}
-
-[profile.dev]
-panic = "abort"
-opt-level=0
-debug=true
-rpath=false
-lto=false
-debug-assertions = true
-codegen-units = 64
-overflow-checks = true
-incremental = true
-
-[profile.release]
-panic = "abort"
-lto = "thin"
-codegen-units = 1

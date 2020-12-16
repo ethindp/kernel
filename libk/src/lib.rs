@@ -41,16 +41,26 @@
 extern crate alloc;
 // The acpi module contains acpi initialization routines
 pub mod acpi;
+/// The disk module defines a trait and various enumerations for disk implementations.
+pub mod disk;
+/// The fs module contains support modules for various built-in file systems.
+pub mod fs;
 /// The gdt module contains basic GDT functionality.
-/// When initialized, a separate stack is set up for the kernel to run in to ensure that the original is not compromised when double faults occur.
+/// When initialized, a separate stack is set up for the kernel to run in to ensure that the
+///original is not compromised when double faults occur.
 pub mod gdt;
 /// The interrupts module contains functions to set up the IDT.
 /// It also utilizes full AIO support for keyboards and other devices.
 pub mod interrupts;
 /// The memory module contains functions for managing memory.
 pub mod memory;
-/// The pci module contains functions for reading from PCI devices and enumerating PCI buses via the "brute-force" method.
-/// As we add drivers that require the PCI buss in, the ::probe() function of this module will be extended to load those drivers when the probe is in progress. This will then create a "brute-force and configure" method.
+/// The nvme module contains core NvMe support required for future higher-level bootstrapping.
+pub mod nvme;
+/// The pci module contains functions for reading from PCI devices and enumerating PCI buses
+/// via the "brute-force" method.
+/// As we add drivers that require the PCI buss in, the ::probe() function of this module
+/// will be extended to load those drivers when the probe is in progress. This will then
+/// create a "brute-force and configure" method.
 pub mod pci;
 /// The rtc module contains RTC initialization code
 pub mod rtc;
@@ -63,22 +73,29 @@ pub mod rtc;
     box_pointers
 )]
 pub mod task;
-/// The vga module contains functions for interacting with the VGA buffer.
-pub mod vga;
-use bit_field::BitField;
+use block_device as _;
 use linked_list_allocator as _;
-use part as _;
+use zerocopy as _;
 
 /// Initializes the kernel and sets up required functionality.
 pub fn init() {
+    use core::any::TypeId;
+    use log::info;
     use task::cooperative::executor::Executor;
     use task::AsyncTask;
+    info!(
+        "Detected endienness is {}",
+        if TypeId::of::<byteorder::NativeEndian>() == TypeId::of::<byteorder::LittleEndian>() {
+            "little endien"
+        } else {
+            "big endien"
+        }
+    );
     let mut executor = Executor::new();
     executor.spawn(AsyncTask::new(gdt::init()));
     executor.spawn(AsyncTask::new(interrupts::init_stage2()));
-    executor.spawn(AsyncTask::new(rtc::init()));
     executor.spawn(AsyncTask::new(pci::init()));
-    executor.spawn(AsyncTask::new(init_nvme()));
+    executor.spawn(AsyncTask::new(rtc::init()));
     executor.run();
 }
 
@@ -87,41 +104,4 @@ pub fn idle_forever() -> ! {
     loop {
         x86_64::instructions::hlt();
     }
-}
-
-async fn init_nvme() {
-    loop {
-        if pci::find_device(0x01, 0x08, 0x02).await.is_some() {
-            break;
-        }
-        x86_64::instructions::hlt();
-    }
-    let mut int = 32u8;
-    {
-        let dev = pci::find_device(0x01, 0x08, 0x02).await.unwrap();
-        let mut cmd = pci::read_word(dev.phys_addr as usize, pci::COMMAND);
-        cmd.set_bit(10, false);
-        cmd.set_bit(2, true);
-        cmd.set_bit(1, true);
-        pci::write_word(dev.phys_addr as usize, pci::COMMAND, cmd);
-        int += pci::read_byte(dev.phys_addr as usize, pci::INT_LINE);
-    }
-    let bars = [
-        pci::get_bar(0, 0x01, 0x08, 0x02).await.unwrap() as u64,
-        pci::get_bar(1, 0x01, 0x08, 0x02).await.unwrap() as u64,
-        pci::get_bar(2, 0x01, 0x08, 0x02).await.unwrap() as u64,
-        pci::get_bar(3, 0x01, 0x08, 0x02).await.unwrap() as u64,
-        pci::get_bar(4, 0x01, 0x08, 0x02).await.unwrap() as u64,
-        pci::get_bar(5, 0x01, 0x08, 0x02).await.unwrap() as u64,
-    ];
-    let mut controller = unsafe {
-        nvme::NvMeController::new(
-            bars,
-            int,
-            |start, size| crate::memory::allocate_phys_range_trace(start, start + size),
-            |start, size| crate::memory::free_range(start, start + size),
-            interrupts::register_interrupt_handler,
-        )
-    };
-    controller.init().await;
 }

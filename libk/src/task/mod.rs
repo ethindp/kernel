@@ -1,6 +1,7 @@
 /// The cooperative module contains code for the cooperative multitasking scheduler.
 pub mod cooperative;
 use alloc::boxed::Box;
+use core::fmt;
 use core::future::Future;
 use core::pin::Pin;
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -14,6 +15,12 @@ impl Tid {
     fn new() -> Self {
         static NEXT_ID: AtomicU64 = AtomicU64::new(0);
         Tid(NEXT_ID.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
+impl fmt::Display for Tid {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
