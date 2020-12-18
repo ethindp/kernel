@@ -47,3 +47,6 @@ sysroot_path = "target/sysroot"
 [package.metadata.bootloader]
 kernel-stack-size = 2048
 
+[features]
+nvme = []
+default = ["nvme"]

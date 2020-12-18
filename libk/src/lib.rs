@@ -10,7 +10,6 @@
 #![feature(wake_trait)]
 #![allow(dead_code)]
 #![forbid(
-    warnings,
     absolute_paths_not_starting_with_crate,
     anonymous_parameters,
     deprecated_in_future,
@@ -33,6 +32,7 @@
     variant_size_differences
 )]
 #![deny(
+warnings,
     missing_copy_implementations,
     missing_debug_implementations,
     box_pointers

@@ -1,5 +1,5 @@
 use bit_field::BitField;
-use crossbeam_queue::SegQueue;
+use minivec::MiniVec;
 use log::*;
 use static_assertions::assert_eq_size;
 use voladdress::DynamicVolBlock;
@@ -116,7 +116,7 @@ assert_eq_size!(CompletionQueueEntry, [u8; 16]);
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) struct SubmissionQueue {
     addr: usize,
-    sqh: u16,
+    qtail: u16,
     entries: u16,
 }
 
@@ -124,7 +124,7 @@ impl SubmissionQueue {
     pub(crate) fn new(addr: u64, entries: u16) -> Self {
         SubmissionQueue {
             addr: addr as usize,
-            sqh: u16::MAX,
+            qtail: 0,
             entries,
         }
     }
@@ -132,9 +132,9 @@ impl SubmissionQueue {
     pub(crate) fn queue_command(&mut self, entry: SubmissionQueueEntry) {
         let addr: DynamicVolBlock<u32> =
             unsafe { DynamicVolBlock::new(self.addr, (self.entries * 16) as usize) };
-        debug!("Current SQH: {}", self.sqh);
-        self.sqh = (self.sqh + 1) % self.entries;
-        debug!("New SQH: {}", self.sqh);
+        debug!("Current tail: {}", self.qtail);
+        self.qtail = self.qtail.wrapping_add(1) % self.entries;
+        debug!("New tail: {}", self.qtail);
         // Fill in array
         let mut cmd = [0u32; 16];
         // Dword 0 - CDW0 (command-specific)
@@ -164,40 +164,47 @@ impl SubmissionQueue {
             debug!(
                 "Writing dword {:X}, offset {:X}",
                 i,
-                (self.sqh as usize) + i
+                (self.qtail as usize) + i
             );
-            addr.index((self.sqh as usize) + i).write(*c);
+            addr.index((self.qtail as usize) + i).write(*c);
         });
     }
+
+pub(crate) fn get_queue_tail(&self) -> u16 {
+self.qtail
+}
 }
 
 #[repr(C)]
 #[derive(Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) struct CompletionQueue {
     addr: usize,
-    cqh: u16,
+    qhead: u16,
     entries: u16,
+    phase: bool,
 }
 
 impl CompletionQueue {
     pub(crate) fn new(addr: u64, entries: u16) -> Self {
         CompletionQueue {
             addr: addr as usize,
-            cqh: u16::MAX,
+            qhead: 0,
             entries,
+            phase: true,
         }
     }
 
-    pub(crate) fn check_queue_for_new_entries(
+    pub(crate) fn read_new_entries(
         &mut self,
-        entry_storage_queue: &mut SegQueue<CompletionQueueEntry>
+        entry_storage_queue: &mut MiniVec<CompletionQueueEntry>
     ) {
         let addr: DynamicVolBlock<u128> =
             unsafe { DynamicVolBlock::new(self.addr, self.entries as usize) };
-            self.cqh = (self.cqh + 1) % self.entries;
             // Just consume everything damnit
         (0 .. self.entries as usize).for_each(|i| {
-            let entry = addr.index((self.cqh as usize) + i).read();
+            let entry = addr.index((self.qhead as usize) + i).read();
+            if entry.get_bit(112) == self.phase {
+            self.qhead = self.qhead.wrapping_add(1) % self.entries;
                 let cqe = CompletionQueueEntry {
                     cmdret: entry.get_bits(0..32) as u32,
                     _rsvd: 0,
@@ -208,6 +215,12 @@ impl CompletionQueue {
                     status: entry.get_bits(113..128) as u16,
                 };
                 entry_storage_queue.push(cqe);
+                }
         });
+        self.phase = !self.phase;
     }
+
+pub(crate) fn get_queue_head(&self) -> u16 {
+self.qhead
+}
 }
