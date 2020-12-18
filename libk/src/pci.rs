@@ -4,6 +4,7 @@ use bit_field::BitField;
 use lazy_static::lazy_static;
 use log::*;
 use spin::RwLock;
+use hashbrown::HashMap;
 
 const MAX_FUNCTION: usize = 8;
 const MAX_DEVICE: usize = 32;
@@ -75,6 +76,13 @@ pub const CB_LEG_MODE_BASE: u32 = 0x44;
 
 lazy_static! {
     static ref PCI_DEVICES: RwLock<MiniVec<PCIDevice>> = RwLock::new(MiniVec::new());
+    static ref DEV_INIT_FUNCS: RwLock<HashMap<(u8, u8, u8), fn(PCIDevice)>> = RwLock::new({
+    let mut map: HashMap<(u8, u8, u8), fn(PCIDevice)> = HashMap::new();
+    if cfg!(feature="nvme") {
+    map.insert((0x01, 0x08, 0x02), crate::nvme::init);
+    }
+    map
+    });
 }
 
 /// Contains PCI device properties.
@@ -210,7 +218,12 @@ pub async fn probe() {
                             };
                             dev.bars = (calculate_bar_addr(&dev, BAR0) as u64, calculate_bar_addr(&dev, BAR1) as u64, calculate_bar_addr(&dev, BAR2) as u64, calculate_bar_addr(&dev, BAR3) as u64, calculate_bar_addr(&dev, BAR4) as u64, calculate_bar_addr(&dev, BAR5) as u64);
                             info!("Detected device of type {} with vendor ID of {:X} and subsystem ID {:X}", classify_program_interface(dev.class, dev.subclass, dev.prog_if).unwrap_or_else(|| classify_subclass(dev.class, dev.subclass).unwrap_or_else(|| classify_class(dev.class).unwrap_or("Unknown Device"))), dev.vendor, dev.ssid);
-                            add_device(dev);
+                            let funcs = DEV_INIT_FUNCS.read();
+                            funcs.iter().filter(|(k, _)| k.0 == dev.class && k.1 == dev.subclass && k.2 == dev.prog_if).for_each(|(_, v)| {
+                            info!("Found device driver for class={:X}, subclass={:X}, program interface={:X}; initiating initialization sequence", dev.class, dev.subclass, dev.prog_if);
+                            (v)(dev.clone());
+                            });
+                            add_device(dev.clone());
                         }
                     }))));
         let mut devs = PCI_DEVICES.write();

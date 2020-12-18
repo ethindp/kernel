@@ -18,8 +18,10 @@ use x86_64::{
 };
 use minivec::MiniVec;
 
-/// Type to contain IRQ functions
-type IrqList = FnvIndexMap<u8, MiniVec<fn(InterruptStackFrameValue)>, U256>;
+/// Types to contain IRQ functions and interrupt handlers
+type IrqList = FnvIndexMap<u8, MiniVec<InterruptHandler>, U256>;
+/// This is the type for interrupt handlers.
+pub type InterruptHandler = &'static (dyn FnMut(InterruptStackFrameValue) + Send + Sync);
 
 /// This enumeration contains a list of all IRQs.
 #[repr(u8)]
@@ -521,8 +523,8 @@ idt[InterruptType::Irq255.convert_to_usize()].set_handler_fn(handle_irq255);
 static ref IRQ_FUNCS: RwLock<IrqList> = RwLock::new({
 let mut table = IrqList::new();
 (0 .. u8::MAX).for_each(|i| {
-let v = MiniVec::<fn(InterruptStackFrameValue)>::new();
-table.insert(i, v).unwrap();
+let v = MiniVec::<InterruptHandler>::new();
+table.insert(i, v);
 });
 table
 });
@@ -677,8 +679,8 @@ macro_rules! gen_interrupt_fn {
             if let Some(tbl) = IRQ_FUNCS.try_read() {
                 tbl.get(&$p.convert_to_u8())
                     .unwrap()
-                    .iter()
-                    .for_each(|func| (func)(stack_frame.clone()));
+                    .iter_mut()
+                    .map(|func| *(func)(stack_frame.clone()));
             }
             signal_eoi($p.convert_to_u8());
         }
@@ -1167,7 +1169,7 @@ pub fn sleep_for(duration: u64) {
     }
 }
 
-pub fn register_interrupt_handler(interrupt: u8, func: fn(InterruptStackFrameValue)) -> usize {
+pub fn register_interrupt_handler(interrupt: u8, func: InterruptHandler) -> usize {
     x86_64::instructions::interrupts::disable();
     debug!("Registering handler for int. {:X} ({:p})", interrupt, &func);
     let mut tbl = IRQ_FUNCS.write();

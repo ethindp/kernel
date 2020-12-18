@@ -26,6 +26,7 @@ dia-semver = "^8.0.1"
 zerocopy = "^0.3.0"
 static_assertions = "^1.1.0"
 minivec = "^0.1.3"
+hashbrown = {version = "^0.9.1", default-features=false, features=["nightly", "inline-more", "ahash", "ahash-compile-time-rng"]}
 
 [dependencies.lazy_static]
 version = "^1.4.0"
