@@ -7,7 +7,6 @@
 #![feature(const_in_array_repeat_expressions)]
 #![allow(dead_code)]
 #![forbid(
-    warnings,
     absolute_paths_not_starting_with_crate,
     anonymous_parameters,
     deprecated_in_future,
@@ -29,6 +28,7 @@
     variant_size_differences
 )]
 #![deny(
+    warnings,
     missing_copy_implementations,
     missing_debug_implementations,
     box_pointers
@@ -52,6 +52,9 @@ static ALLOCATOR: LockedHeap = LockedHeap::empty();
 static LOGGER: Logger = Logger;
 const MAX_HEAP_SIZE: u64 = 4096 * 2048;
 
+include!(concat!(env!("OUT_DIR"), "/verinfo.rs"));
+include!(concat!(env!("OUT_DIR"), "/build_details.rs"));
+
 // Panic handler
 #[panic_handler]
 fn panic(panic_information: &PanicInfo) -> ! {
@@ -71,6 +74,16 @@ fn kmain(boot_info: &'static BootInfo) -> ! {
         error!("rdrand is not supported on this system, but rdrand is required");
         libk::idle_forever();
     }
+
+    info!(
+        "Kernel, v. {}",
+        if let Some(version) = VERSION {
+            version
+        } else {
+            "Unknown"
+        }
+    );
+    info!("Compiled with {}, {} build", RUSTC_VER, PROFILE.unwrap());
     info!("Initialization started");
     info!("CPU identification and configuration initiated");
     unsafe {
@@ -166,7 +179,7 @@ fn kmain(boot_info: &'static BootInfo) -> ! {
             }
         );
     }
-    libk::memory::init_free_memory_map(&boot_info.memory_map);
+    libk::memory::init_memory_map(&boot_info.memory_map);
     libk::init();
     libk::idle_forever();
 }

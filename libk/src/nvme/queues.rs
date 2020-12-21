@@ -1,14 +1,13 @@
 use bit_field::BitField;
-use minivec::MiniVec;
 use log::*;
+use minivec::MiniVec;
 use static_assertions::assert_eq_size;
 use voladdress::DynamicVolBlock;
-
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) struct SubmissionQueueEntry {
-/// Command Dword 0, common to all commands
+    /// Command Dword 0, common to all commands
     pub(crate) cdw0: u32,
     /// Namespace ID; FFFFFFFFh refers to all namespaces.
     /// Clear to 0h if this value is unused.
@@ -63,7 +62,7 @@ pub(crate) struct SubmissionQueueEntry {
     /// These are command-specific dwords. If this command is a vendor-specific command, then
     /// the vendor-specific command in question may support the NDT and NdM fields. In such
     /// an instance, command dwords 10 and 11 shall be the number of dwords in the data
-    /// transfer and number of dwords in the metadata transfer, respectively, with command 
+    /// transfer and number of dwords in the metadata transfer, respectively, with command
     /// dwords 12-15 having command-specific meanings.
     pub(crate) operands: [u32; 6],
 }
@@ -74,37 +73,37 @@ assert_eq_size!(SubmissionQueueEntry, [u8; 64]);
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) struct CompletionQueueEntry {
-/// Command-specific return value
+    /// Command-specific return value
     pub(crate) cmdret: u32,
     _rsvd: u16,
     /// SQ Head Pointer (SQHD): Indicates the current Submission Queue Head pointer for the
-/// Submission Queue indicated in the SQ Identifier field. This is used to indicate to the host the
-/// Submission Queue entries that have been consumed and may be re-used for new entries.
-/// Note: The value returned is the value of the SQ Head pointer when the completion queue entry
-/// was created. By the time host software consumes the completion queue entry, the controller may
-/// have an SQ Head pointer that has advanced beyond the value indicated.
+    /// Submission Queue indicated in the SQ Identifier field. This is used to indicate to the host the
+    /// Submission Queue entries that have been consumed and may be re-used for new entries.
+    /// Note: The value returned is the value of the SQ Head pointer when the completion queue entry
+    /// was created. By the time host software consumes the completion queue entry, the controller may
+    /// have an SQ Head pointer that has advanced beyond the value indicated.
     pub(crate) sqhd: u16,
     /// SQ Identifier (SQID): Indicates the Submission Queue to which the associated command was
-/// issued. This field is used by host software when more than one Submission Queue shares a single
-/// Completion Queue to uniquely determine the command completed in combination with the
-/// Command Identifier (CID).
-/// This is a reserved field in NVMe over Fabrics implementations.
+    /// issued. This field is used by host software when more than one Submission Queue shares a single
+    /// Completion Queue to uniquely determine the command completed in combination with the
+    /// Command Identifier (CID).
+    /// This is a reserved field in NVMe over Fabrics implementations.
     pub(crate) sqid: u16,
     /// Command Identifier (CID): Indicates the identifier of the command that is being completed. This
-/// identifier is assigned by host software when the command is submitted to the Submission Queue.
-/// The combination of the SQ Identifier and Command Identifier uniquely identifies the command that
-/// is being completed. The maximum number of requests outstanding for a Submission Queue at
-/// one time is 64 Ki.
+    /// identifier is assigned by host software when the command is submitted to the Submission Queue.
+    /// The combination of the SQ Identifier and Command Identifier uniquely identifies the command that
+    /// is being completed. The maximum number of requests outstanding for a Submission Queue at
+    /// one time is 64 Ki.
     pub(crate) cid: u16,
     /// Phase Tag (P): Identifies whether a Completion Queue entry is new. The Phase Tag values for
-/// all Completion Queue entries shall be initialized to '0' by host software prior to setting CC.EN to
-/// '1'. When the controller places an entry in the Completion Queue, the controller shall invert the
-/// Phase Tag to enable host software to discriminate a new entry. Specifically, for the first set of
-/// completion queue entries after CC.EN is set to '1' all Phase Tags are set to '1' when they are
-/// posted. For the second set of completion queue entries, when the controller has wrapped around
-/// to the top of the Completion Queue, all Phase Tags are cleared to '0' when they are posted. The
-/// value of the Phase Tag is inverted each pass through the Completion Queue.
-/// This is a reserved bit in NVMe over Fabrics implementations.
+    /// all Completion Queue entries shall be initialized to '0' by host software prior to setting CC.EN to
+    /// '1'. When the controller places an entry in the Completion Queue, the controller shall invert the
+    /// Phase Tag to enable host software to discriminate a new entry. Specifically, for the first set of
+    /// completion queue entries after CC.EN is set to '1' all Phase Tags are set to '1' when they are
+    /// posted. For the second set of completion queue entries, when the controller has wrapped around
+    /// to the top of the Completion Queue, all Phase Tags are cleared to '0' when they are posted. The
+    /// value of the Phase Tag is inverted each pass through the Completion Queue.
+    /// This is a reserved bit in NVMe over Fabrics implementations.
     pub(crate) phase: bool,
     /// Status Field (SF): Indicates status for the command that is being completed.
     pub(crate) status: u16,
@@ -133,8 +132,6 @@ impl SubmissionQueue {
         let addr: DynamicVolBlock<u32> =
             unsafe { DynamicVolBlock::new(self.addr, (self.entries * 16) as usize) };
         debug!("Current tail: {}", self.qtail);
-        self.qtail = self.qtail.wrapping_add(1) % self.entries;
-        debug!("New tail: {}", self.qtail);
         // Fill in array
         let mut cmd = [0u32; 16];
         // Dword 0 - CDW0 (command-specific)
@@ -162,17 +159,19 @@ impl SubmissionQueue {
         debug!("Entry data: CDW0 = {:X}, NSID = {:X}, MPTR = ({:X}, {:X}), PRP list = ({:X}, {:X}, {:X}, {:X}), ARGS = ({:X}, {:X}, {:X}, {:X}, {:X}, {:X})", cmd[0], cmd[1], cmd[4], cmd[5], cmd[6], cmd[7], cmd[8], cmd[9], cmd[10], cmd[11], cmd[12], cmd[13], cmd[14], cmd[15]);
         cmd.iter().enumerate().for_each(|(i, c)| {
             debug!(
-                "Writing dword {:X}, offset {:X}",
+                "Writing dword {:X}h, offset {:X}h",
                 i,
                 (self.qtail as usize) + i
             );
             addr.index((self.qtail as usize) + i).write(*c);
         });
+        self.qtail = self.qtail.wrapping_add(1) % self.entries;
+        debug!("New tail: {}", self.qtail);
     }
 
-pub(crate) fn get_queue_tail(&self) -> u16 {
-self.qtail
-}
+    pub(crate) fn get_queue_tail(&self) -> u16 {
+        self.qtail
+    }
 }
 
 #[repr(C)]
@@ -196,15 +195,15 @@ impl CompletionQueue {
 
     pub(crate) fn read_new_entries(
         &mut self,
-        entry_storage_queue: &mut MiniVec<CompletionQueueEntry>
+        entry_storage_queue: &mut MiniVec<CompletionQueueEntry>,
     ) {
         let addr: DynamicVolBlock<u128> =
             unsafe { DynamicVolBlock::new(self.addr, self.entries as usize) };
-            // Just consume everything damnit
-        (0 .. self.entries as usize).for_each(|i| {
+        // Just consume everything damnit
+        (0..self.entries as usize).for_each(|i| {
             let entry = addr.index((self.qhead as usize) + i).read();
             if entry.get_bit(112) == self.phase {
-            self.qhead = self.qhead.wrapping_add(1) % self.entries;
+                self.qhead = self.qhead.wrapping_add(1) % self.entries;
                 let cqe = CompletionQueueEntry {
                     cmdret: entry.get_bits(0..32) as u32,
                     _rsvd: 0,
@@ -215,12 +214,12 @@ impl CompletionQueue {
                     status: entry.get_bits(113..128) as u16,
                 };
                 entry_storage_queue.push(cqe);
-                }
+            }
         });
         self.phase = !self.phase;
     }
 
-pub(crate) fn get_queue_head(&self) -> u16 {
-self.qhead
-}
+    pub(crate) fn get_queue_head(&self) -> u16 {
+        self.qhead
+    }
 }
