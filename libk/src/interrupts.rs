@@ -17,6 +17,8 @@ use x86_64::{
     structures::idt::PageFaultErrorCode,
     structures::idt::{InterruptDescriptorTable, InterruptStackFrame, InterruptStackFrameValue},
 };
+use voladdress::{VolSeries, VolAddress};
+use x86::msr::*;
 
 /// Types to contain IRQ functions and interrupt handlers
 type IrqList = FnvIndexMap<u8, MiniVec<InterruptHandler>, U256>;
@@ -637,10 +639,13 @@ pub async fn init_stage2() {
             x2apic.attach();
             info!("X2apic configured");
         } else {
-            let apic_reg = (apic_addr() + 0xF0) as *mut u32;
-            unsafe {
-                *(apic_reg) |= 0x100;
-            }
+                unsafe {
+                let mut base = rdmsr(IA32_APIC_BASE);
+                base.set_bit(11, true);
+                wrmsr(IA32_APIC_BASE, base);
+                }
+                let base: VolAddress<u32> = unsafe { VolAddress::new((apic_addr() + 0x0F0) as usize) };
+                base.write(1 << 8 | 15);
             info!("Apic configured");
         }
     } else {
@@ -753,7 +758,6 @@ extern "x86-interrupt" fn handle_pf(
     use alloc::string::{String, ToString};
     use heapless::{consts::*, Vec};
     use iced_x86::*;
-    use voladdress::VolSeries;
     use x86_64::registers::control::Cr2;
     let addr = Cr2::read();
     let ec = error_code.bits();
@@ -1100,15 +1104,12 @@ fn apic_addr() -> u64 {
 
 fn signal_eoi(interrupt: u8) {
     if X2APIC.load(Ordering::Relaxed) {
-        use x86::msr::*;
         unsafe {
             wrmsr(IA32_X2APIC_EOI, 0);
         }
     } else if APIC.load(Ordering::Relaxed) {
-        let addr = (apic_addr() + 0xB0) as *mut u32;
-        unsafe {
-            *(addr) = 0;
-        }
+        let addr: VolAddress<u32> = unsafe { VolAddress::new((apic_addr() + 0xB0) as usize) };
+        addr.write(0);
     } else if (32..32 + 8).contains(&interrupt) {
         unsafe {
             outb(0x20, 0x20);
@@ -1149,7 +1150,6 @@ pub fn sleep_for(duration: u64) {
             wrmsr(IA32_X2APIC_LVT_TIMER, bits);
         }
     } else if APIC.load(Ordering::Relaxed) {
-        use voladdress::VolAddress;
         let (lvt_timer, init_cnt, div_conf, cur_cnt): (
             VolAddress<u32>,
             VolAddress<u32>,
