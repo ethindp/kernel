@@ -11,13 +11,13 @@ pub struct AcpiMapper;
 
 impl AcpiHandler for AcpiMapper {
     unsafe fn map_physical_region<T>(&self, addr: usize, size: usize) -> PhysicalMapping<Self, T> {
-        allocate_phys_range(addr as u64, (addr + size) as u64);
         debug!(
             "Checking memory address range {:X}-{:X} of size {} for ACPI region",
             addr,
             (addr + size),
             size
         );
+        allocate_phys_range(addr as u64, (addr + size) as u64, true);
         PhysicalMapping {
             physical_start: addr,
             virtual_start: NonNull::new(addr as *mut T).unwrap(),

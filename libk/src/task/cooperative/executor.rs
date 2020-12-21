@@ -80,9 +80,9 @@ impl Executor {
 }
 
 impl Default for Executor {
-fn default() -> Self {
-Self::new()
-}
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TaskWaker {

@@ -32,7 +32,7 @@
     variant_size_differences
 )]
 #![deny(
-warnings,
+    warnings,
     missing_copy_implementations,
     missing_debug_implementations,
     box_pointers

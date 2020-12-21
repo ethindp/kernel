@@ -8,6 +8,7 @@ use heapless::consts::*;
 use heapless::FnvIndexMap;
 use lazy_static::lazy_static;
 use log::*;
+use minivec::MiniVec;
 use raw_cpuid::*;
 use spin::RwLock;
 use x86::apic::x2apic::*;
@@ -16,12 +17,11 @@ use x86_64::{
     structures::idt::PageFaultErrorCode,
     structures::idt::{InterruptDescriptorTable, InterruptStackFrame, InterruptStackFrameValue},
 };
-use minivec::MiniVec;
 
 /// Types to contain IRQ functions and interrupt handlers
 type IrqList = FnvIndexMap<u8, MiniVec<InterruptHandler>, U256>;
 /// This is the type for interrupt handlers.
-pub type InterruptHandler = &'static (dyn FnMut(InterruptStackFrameValue) + Send + Sync);
+pub type InterruptHandler = &'static (dyn Fn(InterruptStackFrameValue) + Send + Sync);
 
 /// This enumeration contains a list of all IRQs.
 #[repr(u8)]
@@ -524,7 +524,9 @@ static ref IRQ_FUNCS: RwLock<IrqList> = RwLock::new({
 let mut table = IrqList::new();
 (0 .. u8::MAX).for_each(|i| {
 let v = MiniVec::<InterruptHandler>::new();
-table.insert(i, v);
+if table.insert(i, v).is_err() {
+panic!("Cannot add ISR function table for interrupt {}!", i);
+}
 });
 table
 });
@@ -570,7 +572,7 @@ pub fn init_stage1() {
             let id = CpuId::new();
             let feature_info = id.get_feature_info().unwrap();
             if !feature_info.has_x2apic() {
-                allocate_phys_range(apic_addr(), apic_addr() + 0x530);
+                let _ = allocate_phys_range(apic_addr(), apic_addr() + 0x530, true);
             } else {
                 X2APIC.swap(true, Ordering::Acquire);
             }
@@ -679,8 +681,8 @@ macro_rules! gen_interrupt_fn {
             if let Some(tbl) = IRQ_FUNCS.try_read() {
                 tbl.get(&$p.convert_to_u8())
                     .unwrap()
-                    .iter_mut()
-                    .map(|func| *(func)(stack_frame.clone()));
+                    .iter()
+                    .for_each(|func| (func)(stack_frame.clone()));
             }
             signal_eoi($p.convert_to_u8());
         }
@@ -1148,7 +1150,17 @@ pub fn sleep_for(duration: u64) {
         }
     } else if APIC.load(Ordering::Relaxed) {
         use voladdress::VolAddress;
-        let (lvt_timer, init_cnt, div_conf, cur_cnt): (VolAddress<u32>, VolAddress<u32>, VolAddress<u32>, VolAddress<u32>) =(unsafe { VolAddress::new((apic_addr() + 0x320) as usize) }, unsafe { VolAddress::new((apic_addr() + 0x380) as usize) }, unsafe { VolAddress::new((apic_addr() + 0x3E0) as usize) }, unsafe { VolAddress::new((apic_addr() + 0x390) as usize) });
+        let (lvt_timer, init_cnt, div_conf, cur_cnt): (
+            VolAddress<u32>,
+            VolAddress<u32>,
+            VolAddress<u32>,
+            VolAddress<u32>,
+        ) = (
+            unsafe { VolAddress::new((apic_addr() + 0x320) as usize) },
+            unsafe { VolAddress::new((apic_addr() + 0x380) as usize) },
+            unsafe { VolAddress::new((apic_addr() + 0x3E0) as usize) },
+            unsafe { VolAddress::new((apic_addr() + 0x390) as usize) },
+        );
         let mut bits = lvt_timer.read();
         bits.set_bit(16, true);
         lvt_timer.write(bits);
@@ -1188,13 +1200,12 @@ pub fn unregister_interrupt_handler(int: u8, id: usize) -> bool {
     debug!("Unregistering handler for int. {:X} (id {:X})", int, id);
     let mut tbl = IRQ_FUNCS.write();
     let irq = 32_u8.saturating_add(int);
-if let Some(funcs) = tbl.get_mut(&irq) {
-if funcs.len() >= id {
-funcs.remove(id);
-} else {
-return false
+    if let Some(funcs) = tbl.get_mut(&irq) {
+        if funcs.len() >= id {
+            funcs.remove(id);
+        } else {
+            return false;
+        }
+    }
+    true
 }
-}
-true
-}
-
