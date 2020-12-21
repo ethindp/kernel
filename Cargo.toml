@@ -1,54 +1,91 @@
-[package]
-name = "kernel"
-version = "0.1.0"
-authors = ["Ethin Probst <harlydavidsen@gmail.com>"]
-edition = "2018"
-license = "MPL-2.0"
-build = "build.rs"
+[build-dependencies]
+build_details = '^0.1.2'
+build_script_file_gen = '^0.6.1'
+rustc_version = '^0.3.0'
 
 [dependencies]
-x86_64 = {git = "https://github.com/rust-osdev/x86_64", features=["deny-warnings"]}
-uart_16550 = "^0.2.10"
-bit_field = "^0.10.1"
-spin = "^0.7.0"
-heapless = "^0.5.6"
-bootloader = {version = "^0.9.11", features=["map_physical_memory", "sse"]}
-linked_list_allocator = "^0.8.6"
-log = {version = "^0.4.11", default-features=false}
-libk = {path = "libk"}
-vga = "^0.2.5"
+bit_field = '0.10.1'
+heapless = '0.5.6'
+linked_list_allocator = '0.8.8'
+spin = '0.7.0'
+uart_16550 = '0.2.10'
+vga = '0.2.5'
+
+[dependencies.bootloader]
+features = [
+    'map_physical_memory',
+    'sse',
+]
+version = '0.9.11'
 
 [dependencies.lazy_static]
-version = ">=1.4.0"
-features = ["spin_no_std"]
+features = ['spin_no_std']
+version = '1.4.0'
 
-[profile.dev]
-panic = "abort"
-opt-level=0
-debug=true
-rpath=false
-lto=false
-debug-assertions = true
-codegen-units = 64
-overflow-checks = true
-incremental = true
+[dependencies.libk]
+path = 'libk'
 
-[profile.release]
-panic = "abort"
-lto = "thin"
-codegen-units = 1
+[dependencies.log]
+default-features = false
+version = '0.4.11'
 
+[dependencies.x86_64]
+features = ['deny-warnings']
+git = 'https://github.com/rust-osdev/x86_64'
+
+[package]
+authors = ['Ethin Probst <harlydavidsen@gmail.com>']
+build = 'build.rs'
+edition = '2018'
+license = 'MPL-2.0'
+name = 'kernel'
+version = '0.1.0'
 [package.metadata.bootimage]
-run-args = ["-no-reboot", "-drive", "file=disk.img,if=none,id=NVME01", "-device", "nvme,drive=NVME01,serial=0001", "-m", "4G", "-usb", "-rtc", "base=utc,clock=host", "-cpu", "Skylake-Client-v3", "-smp", "cpus=8", "-M", "q35", "-name", "kernel", "-s", "-nographic", "-d", "trace:pci_nvme_*,trace:pic_*,trace:apic_*,trace:ioapic_*", "-D", "qemu.log"]
-
-[package.metadata.cargo-xbuild]
-memcpy = true
-sysroot_path = "target/sysroot"
+run-args = [
+    '-no-reboot',
+    '-drive',
+    'file=disk.img,if=none,id=NVME01',
+    '-device',
+    'nvme,drive=NVME01,serial=0001',
+    '-m',
+    '4G',
+    '-usb',
+    '-rtc',
+    'base=utc,clock=host',
+    '-cpu',
+    'Skylake-Client-v3',
+    '-smp',
+    'cpus=8',
+    '-M',
+    'q35',
+    '-name',
+    'kernel',
+    '-s',
+    '-nographic',
+    '-d',
+    'trace:pci_nvme_*,trace:pic_*,trace:apic_*,trace:ioapic_*',
+    '-D',
+    'qemu.log',
+]
 
 [package.metadata.bootloader]
 kernel-stack-size = 2048
 
-[build-dependencies]
-rustc_version = "^0.3.0"
-build_script_file_gen = "^0.6.1"
-build_details = "^0.1.2"
+[package.metadata.cargo-xbuild]
+memcpy = true
+sysroot_path = 'target/sysroot'
+[profile.dev]
+codegen-units = 64
+debug = true
+debug-assertions = true
+incremental = true
+lto = false
+opt-level = 0
+overflow-checks = true
+panic = 'abort'
+rpath = false
+
+[profile.release]
+codegen-units = 1
+lto = 'thin'
+panic = 'abort'
