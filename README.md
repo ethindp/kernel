@@ -1,73 +1,27 @@
 # kernel
 A custom OS kernel that followed (then diverged from) Philipp Oppermann's tutorial on writing an OS in Rust
 
-## What this kernel has (as of June 25, 2019)
+## Contributions
 
-This kernel can:
+I encourage anyone who wishes to help to help out when they can. I'd love contributions; a lot needs to get done, but we're in no rush. I don't expect this OS to rival Linux, any of the BSDs, etc., but I do hope it gets somewhere.
 
-* Interpret commands via an extensible command console opened after boot
-* Output to both serial ports and the VGA buffer
-* Enumerate PCI devices and configure internal data structures for them
-* Handle most CPU exceptions (#of, #br, #df, #pf, ...)
-* Configure the RTC to tick at a rate of 122 Us
+Note: Standard Github contribution guidelines apply.
 
-This kernel also has a fully asynchronous keyboard input driver, and mouse input is coming soon!
+## Building
 
-## How to build and boot
+The commands to build this are as follows:
 
-1. Install your compiler toolchain of choice
-2. Install rustup and run the following commands:
-
-Add the nightly rust toolchain:
-
-```
-rustup toolchain add nightly
-```
-
-Install LLVM preview tools:
-
-```
-rustup component add llvm-tools-preview
-```
-
-Install cargo xbuild:
-
-```
-cargo install cargo-xbuild
-```
-
-Install bootimage:
-
-```
+```rust
+rustup toolchain install nightly
+rustup component add llvm-tools-preview rust-src
 cargo install bootimage
+# Clone repo...
+cargo run
 ```
 
-Install rust-src component:
+Note that you'll need Qemu installed.
 
-```
-rustup component add rust-src
-```
+## Unit tests
 
-3. Change into the directory where you cloned this repository and build:
+We currently have no unit tests because for that to work each test would need to be its own mini-kernel. Though I'd like to build some sometime, I'm more focused on testing everything as I go.
 
-```cargo xbuild```
-
-or
-
-```
-cargo xrun # run the kernel after building
-```
-
-Note: Don't use cargo run/build! It will fail!
-
-To build an image:
-
-```
-bootimage build
-```
-
-I am working on documentation right now, while juggling kernel updates, so docs may take a while.
-
-## Running
-
-To run this kernel you'll need Qemu. So download that to actually run the kernel. (Creating a bootable ISO is a bit more complicated, and I'll post instructions when its time to test this in a more complex virtualization environment like VMware or VirtualBox.)

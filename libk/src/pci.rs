@@ -219,6 +219,20 @@ pub async fn probe() {
                             int_line: read_byte(addr as usize, INT_LINE)
                             };
                             dev.bars = (calculate_bar_addr(&dev, BAR0) as u64, calculate_bar_addr(&dev, BAR1) as u64, calculate_bar_addr(&dev, BAR2) as u64, calculate_bar_addr(&dev, BAR3) as u64, calculate_bar_addr(&dev, BAR4) as u64, calculate_bar_addr(&dev, BAR5) as u64);
+                            let mut cmd = read_word(addr as usize, COMMAND);
+                            cmd.set_bit(0, true);
+                            cmd.set_bit(1, true);
+                            cmd.set_bit(2, true);
+                            cmd.set_bit(3, false);
+                            cmd.set_bit(4, false);
+                            cmd.set_bit(5, false);
+                            cmd.set_bit(6, true);
+                            cmd.set_bit(7, false);
+                            cmd.set_bit(8, true);
+                            cmd.set_bit(9, false);
+                            cmd.set_bit(10, true);
+                            cmd.set_bits(11 .. 16, 0);
+                            write_word(addr as usize, COMMAND, cmd);
                             info!("Detected device of type {} with vendor ID of {:X} and subsystem ID {:X}", classify_program_interface(dev.class, dev.subclass, dev.prog_if).unwrap_or_else(|| classify_subclass(dev.class, dev.subclass).unwrap_or_else(|| classify_class(dev.class).unwrap_or("Unknown Device"))), dev.vendor, dev.ssid);
                             if read_word(addr as usize, STATUS).get_bit(4) {
                             info!("Device implements capabilities list, scanning");
@@ -226,7 +240,7 @@ pub async fn probe() {
                             loop {
                             let id = read_word(caddr, 0x00).get_bits(0 .. 8);
                             let nptr = read_word(caddr, 0x00).get_bits(8 .. 16);
-                            if nptr == 0x00 {
+                            if nptr == 0x00 || nptr == 0xff {
                             break;
                             }
                             info!("Discovered capability ID {:X}h at addr {:X}h", id, caddr);
@@ -234,12 +248,12 @@ pub async fn probe() {
                             info!("Device supports MSI-X, enabling");
                             let mut int: u8 = 0;
                             // The algorithm for trying to re-randomize a 16-bit number comes from the 6502 forums: http://forum.6502.org/viewtopic.php?f=2&t=5247&sid=01f33d4f5663073b3bd1abcc62cdffb8&start=0
-                            while int < 0x30 && int != 0xFE {
+                            while int < 0x30 && int != 0xFE && int != 0xFD {
                             let mut i = 0u16;
                             unsafe {
                             random::rdrand16(&mut i);
                             }
-                            i = i.wrapping_mul(0x7ABD).wrapping_add(0x1B0F) % 0xFE;
+                            i = i.wrapping_mul(0x7ABD).wrapping_add(0x1B0F) % 0xFC;
                             int = i.get_bits(0 .. 8) as u8;
                             }
                             dev.int_line = int;
@@ -265,7 +279,7 @@ entry.set_bit(96, false);
 let mut msgaddr = 0u64;
 msgaddr.set_bits(32 .. 64, 0);
 msgaddr.set_bits(20 .. 32, 0x0FEE);
-msgaddr.set_bits(12 .. 20, 0x00);
+msgaddr.set_bits(12 .. 20, 0xFF);
 msgaddr.set_bit(3, false);
 msgaddr.set_bit(2, false);
 msgaddr.set_bits(0 .. 2, 0);
@@ -273,15 +287,15 @@ entry.set_bits(0 .. 64, msgaddr as u128);
 let mut msgdata = 0u32;
 msgdata.set_bit(15, false);
 msgdata.set_bit(14, false);
-msgdata.set_bits(8 .. 11, 0x7);
+msgdata.set_bits(8 .. 11, 0x00);
 msgdata.set_bits(0 .. 8, int as u32);
 msgdata.set_bits(16 .. 32, 0);
 entry.set_bits(64 .. 96, msgdata as u128);
+debug!("Vector {}: vector control={:X}, message data={:X}, message address={:X}, vector entry={:X}", e, entry.get_bits(96 .. 128), entry.get_bits(64 .. 96), entry.get_bits(0 .. 64), entry);
 table.index(e).write(entry);
 });
 let mut mc = read_dword(caddr, 0x00);
 mc.set_bit(31, true);
-mc.set_bit(30, false);
 write_dword(caddr, 0x00, mc);
                             }
                             caddr += read_word(caddr, 0x0).get_bits(8 .. 16) as usize;

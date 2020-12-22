@@ -313,13 +313,6 @@ pub fn allocate_phys_range(start: u64, end: u64, force: bool) -> bool {
         })
         .count();
     if cnt > 0 || force {
-        debug!(
-            "Allocating memaddr {:X}h-{:X}h ({} bytes), flags: {:X}h",
-            start,
-            end,
-            end - start,
-            (PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE).bits()
-        );
         let mut mapper = MAPPER.lock();
         let mut allocator = FRAME_ALLOCATOR.lock();
         match (mapper.as_mut(), allocator.as_mut()) {
@@ -364,12 +357,6 @@ pub fn allocate_phys_range(start: u64, end: u64, force: bool) -> bool {
 }
 
 pub fn free_range(start: u64, end: u64) {
-    debug!(
-        "Freeing memaddr {:X}h-{:X}h ({} bytes)",
-        start,
-        end,
-        end - start
-    );
     let mut mapper = MAPPER.lock();
     match mapper.as_mut() {
         Some(m) => {
