@@ -13,8 +13,6 @@ use log::*;
 use minivec::MiniVec;
 use spin::Mutex;
 use voladdress::{VolAddress, VolBlock};
-use x86::halt;
-use x86_64::structures::idt::InterruptStackFrameValue;
 
 lazy_static! {
     static ref CONTROLLERS: Mutex<MiniVec<NVMeController>> = Mutex::new(MiniVec::new());
@@ -194,7 +192,6 @@ impl NVMeController {
             return None;
         }
         dev.resp_buffer_addr = buf_loc;
-        dev.init();
         Some(dev)
     }
 
@@ -446,7 +443,7 @@ impl NVMeController {
         }
     }
 
-    fn init(&mut self) {
+    pub fn init(&mut self) {
         // 1. Verify controller version
         info!("initializing controller");
         info!("running controller checks");
@@ -636,9 +633,7 @@ impl NVMeController {
                 }
                 break;
             }
-            unsafe {
-                halt();
-            }
+                    self.handle_interrupt();
         }
         // Read data structure
         let mut data = [0u8; 4096];
@@ -661,7 +656,7 @@ impl NVMeController {
         );
     }
 
-    pub fn handle_interrupt(&mut self, _: InterruptStackFrameValue) {
+    pub fn handle_interrupt(&mut self) {
         (0..self.cqs.len()).for_each(|i| {
             let mut entries = MiniVec::new();
             self.cqs[i].read_new_entries(&mut entries);
@@ -675,19 +670,21 @@ pub fn init(dev: PCIDevice) {
         "Registering interrupt handler for interrupt {}",
         dev.int_line
     );
-    register_interrupt_handler(dev.int_line, &|sf: InterruptStackFrameValue| {
+    register_interrupt_handler(dev.int_line, &|_| {
         info!("Interrupt received");
         let mut controllers = CONTROLLERS.lock();
         controllers
             .iter_mut()
-            .for_each(|c| c.handle_interrupt(sf.clone()));
+            .for_each(|c| c.handle_interrupt());
     });
     let mut controllers = CONTROLLERS.lock();
+    let idx = controllers.len();
     let controller = unsafe { NVMeController::new(dev) };
     if let Some(c) = controller {
         controllers.push(c);
     } else {
-        error!("Cannot initialize NVMe controller");
+        error!("Cannot add NVMe controller");
         return;
     }
+    controllers[idx].init();
 }

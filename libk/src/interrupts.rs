@@ -683,13 +683,14 @@ pub async fn init_stage2() {
 macro_rules! gen_interrupt_fn {
     ($i:ident, $p:path) => {
         extern "x86-interrupt" fn $i(stack_frame: &mut InterruptStackFrame) {
-            if let Some(tbl) = IRQ_FUNCS.try_read() {
+        debug!("Interrupt received for int {}", $p.convert_to_u8());
+                    signal_eoi($p.convert_to_u8());
+            let tbl = IRQ_FUNCS.read();
+            debug!("Acquired lock");
                 tbl.get(&$p.convert_to_u8())
                     .unwrap()
                     .iter()
                     .for_each(|func| (func)(stack_frame.clone()));
-            }
-            signal_eoi($p.convert_to_u8());
         }
     };
 }
@@ -712,24 +713,12 @@ extern "x86-interrupt" fn handle_df(stack_frame: &mut InterruptStackFrame, error
     );
 }
 
-extern "x86-interrupt" fn handle_timer(s: &mut InterruptStackFrame) {
+extern "x86-interrupt" fn handle_timer(_s: &mut InterruptStackFrame) {
     TICK_COUNT.fetch_add(1, Ordering::SeqCst);
-    if let Some(tbl) = IRQ_FUNCS.try_read() {
-        tbl.get(&InterruptType::Timer.convert_to_u8())
-            .unwrap()
-            .iter()
-            .for_each(|func| (func)(s.clone()));
-    }
     signal_eoi(InterruptType::Timer.convert_to_u8());
 }
 
-extern "x86-interrupt" fn handle_rtc(stack_frame: &mut InterruptStackFrame) {
-    if let Some(tbl) = IRQ_FUNCS.try_read() {
-        tbl.get(&InterruptType::Rtc.convert_to_u8())
-            .unwrap()
-            .iter()
-            .for_each(|func| (func)(stack_frame.clone()));
-    }
+extern "x86-interrupt" fn handle_rtc(_stack_frame: &mut InterruptStackFrame) {
     signal_eoi(InterruptType::Rtc.convert_to_u8());
     unsafe {
         outb(0x0C, 0x70);

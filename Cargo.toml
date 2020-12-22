@@ -63,7 +63,7 @@ run-args = [
     '-s',
     '-nographic',
     '-d',
-    'trace:pci_nvme_*,trace:pic_*,trace:apic_*,trace:ioapic_*',
+    'trace:pci_*,trace:apic_*',
     '-D',
     'qemu.log',
 ]
