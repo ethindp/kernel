@@ -13,68 +13,67 @@ const MAX_DEVICE: usize = 32;
 const MAX_BUS: usize = 256;
 const MAX_SG: usize = 65536;
 
-pub const VENDOR_ID: u32 = 0x00;
-pub const DEVICE_ID: u32 = 0x02;
-pub const COMMAND: u32 = 0x04;
-pub const STATUS: u32 = 0x06;
-pub const REV_ID: u32 = 0x08;
-pub const PROG_IF: u32 = 0x09;
-pub const DEV_SUBCLASS: u32 = 0x0A;
-pub const DEV_CLASS: u32 = 0x0B;
-pub const CACHE_LINE_SIZE: u32 = 0x0C;
-pub const HEADER_TYPE: u32 = 0x0E;
-pub const BIST: u32 = 0x0F;
-pub const BAR0: u32 = 0x10;
-pub const BAR1: u32 = 0x14;
-pub const BAR2: u32 = 0x18;
-pub const BAR3: u32 = 0x1C;
-pub const BAR4: u32 = 0x20;
-pub const BAR5: u32 = 0x24;
-pub const CARDBUS_CIS: u32 = 0x28;
-pub const SS_VENDOR_ID: u32 = 0x2C;
-pub const SS_ID: u32 = 0x2E;
-pub const ROM_ADDR: u32 = 0x30;
-pub const CAP_LIST: u32 = 0x34;
-pub const INT_LINE: u32 = 0x3C;
-pub const INT_PIN: u32 = 0x3D;
-pub const MIN_GNT: u32 = 0x3E;
-pub const SEC_BUS: u32 = 0x19;
-pub const SUB_BUS: u32 = 0x1A;
-pub const IO_BASE: u32 = 0x1C;
-pub const IO_LIMIT: u32 = 0x1D;
-pub const SEC_STATUS: u32 = 0x1E;
-pub const MEM_BASE: u32 = 0x20;
-pub const MEM_LMT: u32 = 0x22;
-pub const PREF_MEM_BASE: u32 = 0x24;
-pub const PREF_MEM_LMT: u32 = 0x26;
-pub const PREF_MEM_BASE_UPPER32: u32 = 0x28;
-pub const PREF_MEM_LMT_UPPER32: u32 = 0x2C;
-pub const IO_BASE_UPPER16: u32 = 0x30;
-pub const IO_LMT_UPPER32: u32 = 0x32;
-pub const ROM_ADDR1: u32 = 0x38;
-pub const BRIDGE_CTL: u32 = 0x3E;
-pub const CB_CAP_LST: u32 = 0x14;
-pub const CB_SEC_STATUS: u32 = 0x16;
-pub const CB_PRIM_BUS: u32 = 0x18;
-pub const CB_CARD_BUS: u32 = 0x19;
-pub const CB_SUB_BUS: u32 = 0x1A;
-pub const CB_LAT_TMR: u32 = 0x1B;
-pub const CB_MEMBASE0: u32 = 0x1C;
-pub const CB_MEMLMT0: u32 = 0x20;
-pub const CB_MEMBASE1: u32 = 0x24;
-pub const CB_MEMLMT1: u32 = 0x28;
-pub const CB_IO_BASE0: u32 = 0x2C;
-pub const CB_IO_BASE0_HI: u32 = 0x2E;
-pub const CB_IO_LMT0: u32 = 0x30;
-pub const CB_IO_LMT0_HI: u32 = 0x32;
-pub const CB_IO_BASE1: u32 = 0x34;
-pub const CB_IO_BASE1_HI: u32 = 0x36;
-pub const CB_IO_LMT1: u32 = 0x38;
-pub const CB_IO_LMT1_HI: u32 = 0x3A;
-pub const CB_BR_CTL: u32 = 0x3E;
-pub const CB_SS_VNDR_ID: u32 = 0x40;
-pub const CB_SS_ID: u32 = 0x42;
-pub const CB_LEG_MODE_BASE: u32 = 0x44;
+const VENDOR_ID: u32 = 0x00;
+const DEVICE_ID: u32 = 0x02;
+const COMMAND: u32 = 0x04;
+const STATUS: u32 = 0x06;
+const REV_ID: u32 = 0x08;
+const PROG_IF: u32 = 0x09;
+const DEV_SUBCLASS: u32 = 0x0A;
+const DEV_CLASS: u32 = 0x0B;
+const HEADER_TYPE: u32 = 0x0E;
+const BIST: u32 = 0x0F;
+const BAR0: u32 = 0x10;
+const BAR1: u32 = 0x14;
+const BAR2: u32 = 0x18;
+const BAR3: u32 = 0x1C;
+const BAR4: u32 = 0x20;
+const BAR5: u32 = 0x24;
+const CARDBUS_CIS: u32 = 0x28;
+const SS_VENDOR_ID: u32 = 0x2C;
+const SS_ID: u32 = 0x2E;
+const ROM_ADDR: u32 = 0x30;
+const CAP_LIST: u32 = 0x34;
+const INT_LINE: u32 = 0x3C;
+const INT_PIN: u32 = 0x3D;
+const MIN_GNT: u32 = 0x3E;
+const SEC_BUS: u32 = 0x19;
+const SUB_BUS: u32 = 0x1A;
+const IO_BASE: u32 = 0x1C;
+const IO_LIMIT: u32 = 0x1D;
+const SEC_STATUS: u32 = 0x1E;
+const MEM_BASE: u32 = 0x20;
+const MEM_LMT: u32 = 0x22;
+const PREF_MEM_BASE: u32 = 0x24;
+const PREF_MEM_LMT: u32 = 0x26;
+const PREF_MEM_BASE_UPPER32: u32 = 0x28;
+const PREF_MEM_LMT_UPPER32: u32 = 0x2C;
+const IO_BASE_UPPER16: u32 = 0x30;
+const IO_LMT_UPPER32: u32 = 0x32;
+const ROM_ADDR1: u32 = 0x38;
+const BRIDGE_CTL: u32 = 0x3E;
+const CB_CAP_LST: u32 = 0x14;
+const CB_SEC_STATUS: u32 = 0x16;
+const CB_PRIM_BUS: u32 = 0x18;
+const CB_CARD_BUS: u32 = 0x19;
+const CB_SUB_BUS: u32 = 0x1A;
+const CB_LAT_TMR: u32 = 0x1B;
+const CB_MEMBASE0: u32 = 0x1C;
+const CB_MEMLMT0: u32 = 0x20;
+const CB_MEMBASE1: u32 = 0x24;
+const CB_MEMLMT1: u32 = 0x28;
+const CB_IO_BASE0: u32 = 0x2C;
+const CB_IO_BASE0_HI: u32 = 0x2E;
+const CB_IO_LMT0: u32 = 0x30;
+const CB_IO_LMT0_HI: u32 = 0x32;
+const CB_IO_BASE1: u32 = 0x34;
+const CB_IO_BASE1_HI: u32 = 0x36;
+const CB_IO_LMT1: u32 = 0x38;
+const CB_IO_LMT1_HI: u32 = 0x3A;
+const CB_BR_CTL: u32 = 0x3E;
+const CB_SS_VNDR_ID: u32 = 0x40;
+const CB_SS_ID: u32 = 0x42;
+const CB_LEG_MODE_BASE: u32 = 0x44;
 
 type DeviceInformation = (u8, u8, u8); // Class, subclass, program interface
 type DeviceIdentification = MiniVec<DeviceInformation>; // Device information, optional alteration of int line.
@@ -98,27 +97,58 @@ lazy_static! {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct PCIDevice {
+/// Segment group of the device. There can be up to 65536 segment groups.
     pub segment_group: u16,
+    /// Bus number of the device.
     pub bus: u8,
+    /// Slot number of the device.
     pub slot: u8,
+    /// Function number of the device. A multifunction device is free to implement multiple
+    /// functions, so a different function does not always mean that this is a different
+    /// device.
+    /// However, the system treats each (sg, bus, slot, function) combination as a new device.
     pub function: u8,
+    /// Vendor ID of this device. Assigned by PCI-SIG.
     pub vendor: u16,
+    /// Device ID. Assigned by the vendor.
     pub device: u16,
+    /// Class of this device.
     pub class: u8,
+    /// Subclass of this device.
     pub subclass: u8,
+    /// Program interface of this device.
     pub prog_if: u8,
+    /// Revision ID of this device.
     pub revision: u8,
+    /// Secondary bus register.
     pub secondary_bus: u8,
+    /// Physical memory address in PCIe configuration space for this device.
     pub phys_addr: u64,
+    /// Base address registers (BARs) for this device. Not all BARs need to be implemented.
+    /// BARs that are 0 are unimplemented and should not be accessed by device drivers.
     pub bars: (u64, u64, u64, u64, u64, u64),
+    /// Header type; encodes the data beyond offset 10h in PCIe configuration space. A value
+    /// of 00h indicates a normal device. A value of 01h indicates a PCI-to-PCI bridge,
+    /// which is documented in the PCI to PCI Bridge Architecture Specification. A value of
+    /// 02h indicates a CardBus bridge and is specified in the PC Card Standard.
     pub htype: u8,
+    /// Card information structure (CIS) CardBus pointer.
     pub cis_ptr: u32,
+    /// Subsystem ID.
     pub ssid: u16,
+    /// Subsystem vendor ID.
     pub ssvid: u16,
+    /// Expansion ROM base address
     pub exp_rom_base_addr: u32,
+    /// Capabilities pointer
     pub caps_ptr: u8,
+    /// Interrupt pin number
     pub int_pin: u8,
+    /// Interrupt line (not used for MSI or MSI-X). This value is altered if the function
+    /// supports MSI or MSI-X and contains the randomly generated interrupt value.
     pub int_line: u8,
+    /// Contains a unique device ID. Device drivers may use this (e.g.: to allow interrupt->driver communication).
+    pub unique_dev_id: u128,
 }
 
 // Adds a device to the PCI device list.
@@ -129,36 +159,38 @@ fn add_device(device: PCIDevice) {
     devs.push(device);
 }
 
-pub fn read_dword(phys_addr: usize, addr: u32) -> u32 {
+fn read_dword(phys_addr: usize, addr: u32) -> u32 {
     let cfgspace: VolAddress<u32> = unsafe { VolAddress::new(phys_addr + (addr as usize)) };
     cfgspace.read()
 }
 
-pub fn read_word(phys_addr: usize, addr: u32) -> u16 {
+fn read_word(phys_addr: usize, addr: u32) -> u16 {
     let cfgspace: VolAddress<u16> = unsafe { VolAddress::new(phys_addr + (addr as usize)) };
     cfgspace.read()
 }
 
-pub fn read_byte(phys_addr: usize, addr: u32) -> u8 {
+fn read_byte(phys_addr: usize, addr: u32) -> u8 {
     let cfgspace: VolAddress<u8> = unsafe { VolAddress::new(phys_addr + (addr as usize)) };
     cfgspace.read()
 }
 
-pub fn write_dword(phys_addr: usize, addr: u32, value: u32) {
+fn write_dword(phys_addr: usize, addr: u32, value: u32) {
     let cfgspace: VolAddress<u32> = unsafe { VolAddress::new(phys_addr + (addr as usize)) };
     cfgspace.write(value);
 }
 
-pub fn write_word(phys_addr: usize, addr: u32, value: u16) {
+fn write_word(phys_addr: usize, addr: u32, value: u16) {
     let cfgspace: VolAddress<u16> = unsafe { VolAddress::new(phys_addr + (addr as usize)) };
     cfgspace.write(value);
 }
 
-pub fn write_byte(phys_addr: usize, addr: u32, value: u8) {
+fn write_byte(phys_addr: usize, addr: u32, value: u8) {
     let cfgspace: VolAddress<u8> = unsafe { VolAddress::new(phys_addr + (addr as usize)) };
     cfgspace.write(value);
 }
 
+/// Probes the PCI bus.
+#[cold]
 pub async fn probe() {
     if let Ok(regions) = crate::acpi::get_pci_regions() {
         info!("Scanning segment groups");
@@ -216,9 +248,26 @@ pub async fn probe() {
                             exp_rom_base_addr: read_dword(addr as usize, ROM_ADDR),
                             caps_ptr: read_byte(addr as usize, CAP_LIST),
                             int_pin: read_byte(addr as usize, INT_PIN),
-                            int_line: read_byte(addr as usize, INT_LINE)
+                            int_line: read_byte(addr as usize, INT_LINE),
+                            unique_dev_id: 0,
                             };
                             dev.bars = (calculate_bar_addr(&dev, BAR0) as u64, calculate_bar_addr(&dev, BAR1) as u64, calculate_bar_addr(&dev, BAR2) as u64, calculate_bar_addr(&dev, BAR3) as u64, calculate_bar_addr(&dev, BAR4) as u64, calculate_bar_addr(&dev, BAR5) as u64);
+                            let mut dev_id = 0u128;
+                            dev_id.set_bits(0 .. 16, dev.segment_group as u128);
+                            dev_id.set_bits(16 .. 24, dev.bus as u128);
+                            dev_id.set_bits(24 .. 32, dev.slot as u128);
+                            dev_id.set_bits(32 .. 40, dev.function as u128);
+                            dev_id.set_bits(40 .. 56, dev.vendor as u128);
+                            dev_id.set_bits(56 .. 72, dev.device as u128);
+                            dev_id.set_bits(72 .. 88, dev.ssid as u128);
+                            dev_id.set_bits(88 .. 104, dev.ssvid as u128);
+                            let mut random_bits: u64 = 0;
+                            unsafe {
+                            random::rdrand64(&mut random_bits);
+                            }
+                            random_bits = random_bits.wrapping_mul(9908962810164294844);
+                            dev_id.set_bits(104 .. 128, random_bits.get_bits(0 .. 24) as u128);
+                            dev.unique_dev_id = dev_id;
                             let mut cmd = read_word(addr as usize, COMMAND);
                             cmd.set_bit(0, true);
                             cmd.set_bit(1, true);
@@ -238,8 +287,9 @@ pub async fn probe() {
                             info!("Device implements capabilities list, scanning");
                             let mut caddr = (addr as usize) + (dev.caps_ptr as usize);
                             loop {
-                            let id = read_word(caddr, 0x00).get_bits(0 .. 8);
-                            let nptr = read_word(caddr, 0x00).get_bits(8 .. 16);
+                            let caps = read_dword(caddr, 0x00);
+                            let id = caps.get_bits(0 .. 8);
+                            let nptr = caps.get_bits(8 .. 16);
                             if nptr == 0x00 || nptr == 0xff {
                             break;
                             }
@@ -319,6 +369,8 @@ write_dword(caddr, 0x00, mc);
     }
 }
 
+/// Initializes the PCI subsystem.
+#[cold]
 pub async fn init() {
     info!("Initiating PCE bus scan");
     probe().await;
@@ -328,6 +380,7 @@ pub async fn init() {
     );
 }
 
+#[inline]
 fn calculate_bar_addr(dev: &PCIDevice, addr: u32) -> usize {
     let bar1 = read_dword(dev.phys_addr as usize, addr);
     if !bar1.get_bit(0) {
@@ -355,6 +408,7 @@ fn calculate_bar_addr(dev: &PCIDevice, addr: u32) -> usize {
     }
 }
 
+/// Locates a PCI device using a class, subclass and program interface.
 pub async fn find_device(class: u8, subclass: u8, interface: u8) -> Option<PCIDevice> {
     let devs = PCI_DEVICES.read();
     devs.iter()
@@ -363,6 +417,7 @@ pub async fn find_device(class: u8, subclass: u8, interface: u8) -> Option<PCIDe
         .next()
 }
 
+#[inline]
 fn classify_class(class: u8) -> Option<&'static str> {
     match class {
         0x00 => Some("Unclassified device"),
@@ -390,6 +445,7 @@ fn classify_class(class: u8) -> Option<&'static str> {
     }
 }
 
+#[inline]
 fn classify_subclass(class: u8, subclass: u8) -> Option<&'static str> {
     match (class, subclass) {
         (0x00, 0x00) => Some("Non-VGA unclassified device"),
@@ -507,6 +563,7 @@ fn classify_subclass(class: u8, subclass: u8) -> Option<&'static str> {
     }
 }
 
+#[inline]
 fn classify_program_interface(class: u8, subclass: u8, pi: u8) -> Option<&'static str> {
     match (class, subclass, pi) {
 (0x01, 0x01, 0x00) => Some("ISA Compatibility mode-only controller"),

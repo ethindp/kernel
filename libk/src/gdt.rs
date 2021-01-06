@@ -8,9 +8,13 @@ use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable};
 use x86_64::structures::tss::TaskStateSegment;
 use x86_64::VirtAddr;
 
+/// Double-fault stack index
 pub const DF_IST_IDX: u16 = 0;
+/// Breakpoint stack index.
 pub const BP_IST_IDX: u16 = 1;
+/// Page fault stack index.
 pub const PF_IST_IDX: u16 = 2;
+/// Overflow stack index.
 pub const OF_IST_IDX: u16 = 3;
 
 lazy_static! {
@@ -44,6 +48,7 @@ struct Selectors {
 }
 
 /// Sets up the GDT, separate kernel stack, and TSS.
+#[cold]
 pub async fn init() {
     info!("Loading GDT");
     GDT.0.load();
