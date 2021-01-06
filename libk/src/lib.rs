@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: MPL-2.0
+//! The libk crate contains core kernel code.
+//! This crate is suitable for inclusion in kernel drivers.
+
 #![no_std]
 #![feature(abi_x86_interrupt)]
 #![feature(asm)]
@@ -14,32 +16,52 @@
     anonymous_parameters,
     deprecated_in_future,
     explicit_outlives_requirements,
+    invalid_html_tags,
     indirect_structural_match,
     keyword_idents,
     macro_use_extern_crate,
     meta_variable_misuse,
+    missing_crate_level_docs,
+    missing_docs,
     non_ascii_idents,
+    pointer_structural_match,
     private_doc_tests,
     single_use_lifetimes,
     trivial_casts,
     trivial_numeric_casts,
     unaligned_references,
-    unreachable_pub,
     unused_crate_dependencies,
     unused_extern_crates,
     unused_import_braces,
     unused_lifetimes,
-    variant_size_differences
+        variant_size_differences,
+    ambiguous_associated_items,
+    arithmetic_overflow,
+    conflicting_repr_hints,
+    const_err,
+    ill_formed_attribute_input,
+    incomplete_include,
+    invalid_type_param_default,
+    macro_expanded_macro_exports_accessed_by_absolute_paths,
+    mutable_transmutes,
+    no_mangle_const_items,
+    order_dependent_trait_objects,
+    overflowing_literals,
+    patterns_in_fns_without_body,
+    pub_use_of_private_extern_crate,
+    soft_unstable,
+    unconditional_panic,
+    unknown_crate_types,
+    useless_deprecated,
 )]
 #![deny(
     warnings,
     missing_copy_implementations,
     missing_debug_implementations,
-    box_pointers
 )]
 #![forbid(clippy::all)]
 extern crate alloc;
-// The acpi module contains acpi initialization routines
+/// The acpi module contains acpi initialization routines
 pub mod acpi;
 /// The disk module defines a trait and various enumerations for disk implementations.
 pub mod disk;
@@ -78,6 +100,7 @@ use linked_list_allocator as _;
 use zerocopy as _;
 
 /// Initializes the kernel and sets up required functionality.
+#[cold]
 pub fn init() {
     use core::any::TypeId;
     use log::info;

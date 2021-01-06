@@ -4,6 +4,7 @@ use core::task::{Context, Poll, Waker};
 use crossbeam_queue::ArrayQueue;
 use log::*;
 
+/// The executor that cooperatively schedules tasks.
 pub struct Executor {
     tasks: BTreeMap<Tid, AsyncTask>,
     task_queue: Arc<ArrayQueue<Tid>>,
@@ -16,6 +17,7 @@ struct TaskWaker {
 }
 
 impl Executor {
+/// Creates an executor.
     pub fn new() -> Self {
         info!("Creating cooperative executor");
         Executor {
@@ -25,6 +27,7 @@ impl Executor {
         }
     }
 
+/// Spawns a new task.
     pub fn spawn(&mut self, task: AsyncTask) {
         let id = task.id;
         info!("Spawning task {:X}", id.0);
@@ -61,6 +64,7 @@ impl Executor {
         }
     }
 
+/// Runs the executor (only do this after all tasks have been loaded).
     pub fn run(&mut self) -> ! {
         loop {
             self.execute_ready();

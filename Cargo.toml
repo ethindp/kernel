@@ -1,33 +1,33 @@
 [build-dependencies]
-build_details = '^0.1.2'
-build_script_file_gen = '^0.6.1'
-rustc_version = '^0.3.0'
+build_details = "0.1.2"
+build_script_file_gen = "0.6.1"
+rustc_version = "0.3.0"
 
 [dependencies]
-bit_field = '0.10.1'
-heapless = '0.5.6'
-linked_list_allocator = '0.8.8'
-spin = '0.7.0'
-uart_16550 = '0.2.10'
-vga = '0.2.5'
+bit_field = "0.10.1"
+heapless = "0.5.6"
+linked_list_allocator = "0.8.8"
+spin = "0.7.0"
+uart_16550 = "0.2.10"
+vga = "0.2.5"
 
 [dependencies.bootloader]
 features = [
     'map_physical_memory',
     'sse',
 ]
-version = '0.9.11'
+version = "0.9.11"
 
 [dependencies.lazy_static]
 features = ['spin_no_std']
-version = '1.4.0'
+version = "1.4.0"
 
 [dependencies.libk]
 path = 'libk'
 
 [dependencies.log]
 default-features = false
-version = '0.4.11'
+version = "0.4.11"
 
 [dependencies.x86_64]
 features = ['deny-warnings']
@@ -61,11 +61,12 @@ run-args = [
     '-name',
     'kernel',
     '-s',
-    '-nographic',
     '-d',
     'trace:pci_*,trace:apic_*',
     '-D',
     'qemu.log',
+    '-nographic',
+#    '-S',
 ]
 
 [package.metadata.bootloader]
@@ -74,6 +75,7 @@ kernel-stack-size = 2048
 [package.metadata.cargo-xbuild]
 memcpy = true
 sysroot_path = 'target/sysroot'
+
 [profile.dev]
 codegen-units = 64
 debug = true

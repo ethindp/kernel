@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MPL-2.0
-#![allow(unused_results)]
 use crate::gdt;
 use bit_field::BitField;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -19,16 +18,17 @@ use x86_64::{
 };
 use voladdress::{VolSeries, VolAddress};
 use x86::msr::*;
+use alloc::boxed::Box;
 
 /// Types to contain IRQ functions and interrupt handlers
 type IrqList = FnvIndexMap<u8, MiniVec<InterruptHandler>, U256>;
 /// This is the type for interrupt handlers.
-pub type InterruptHandler = &'static (dyn Fn(InterruptStackFrameValue) + Send + Sync);
+pub type InterruptHandler = Box<dyn Fn(InterruptStackFrameValue) + Send + Sync>;
 
 /// This enumeration contains a list of all IRQs.
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub enum InterruptType {
+enum InterruptType {
     Timer = 32, // IRQ 0 - system timer (cannot be changed)
     Keyboard,   // IRQ 1 - keyboard controller (cannot be changed)
     Cascade,    // IRQ 2 - cascaded signals from IRQs 8-15 (any devices configured to use IRQ 2
@@ -282,243 +282,243 @@ lazy_static! {
     static ref IDT: InterruptDescriptorTable = {
         let mut idt = InterruptDescriptorTable::new();
 // Handle BPs
-        idt.breakpoint.set_handler_fn(handle_bp);
+        let _ = idt.breakpoint.set_handler_fn(handle_bp);
 // Handle DFs (on our set-up separate 4K kernel stack)
         unsafe {
-            idt.double_fault
+            let _ = idt.double_fault
                 .set_handler_fn(handle_df)
                 .set_stack_index(gdt::DF_IST_IDX);
         }
-        idt.page_fault.set_handler_fn(handle_pf);
-        idt.overflow.set_handler_fn(handle_of);
-        idt.bound_range_exceeded.set_handler_fn(handle_br);
-        idt.invalid_opcode.set_handler_fn(handle_ud);
-        idt.device_not_available.set_handler_fn(handle_nm);
-        idt.general_protection_fault.set_handler_fn(handle_gp);
-idt[InterruptType::Timer.convert_to_usize()].set_handler_fn(handle_timer);
-idt[InterruptType::Keyboard.convert_to_usize()].set_handler_fn(handle_keyboard);
-idt[InterruptType::Cascade.convert_to_usize()].set_handler_fn(handle_cascade);
-idt[InterruptType::Uart1.convert_to_usize()].set_handler_fn(handle_uart1);
-idt[InterruptType::Serial1.convert_to_usize()].set_handler_fn(handle_serial1);
-idt[InterruptType::Parallel.convert_to_usize()].set_handler_fn(handle_parallel);
-idt[InterruptType::Floppy.convert_to_usize()].set_handler_fn(handle_floppy);
-idt[InterruptType::Lpt1.convert_to_usize()].set_handler_fn(handle_lpt1);
-idt[InterruptType::Rtc.convert_to_usize()].set_handler_fn(handle_rtc);
-idt[InterruptType::Acpi.convert_to_usize()].set_handler_fn(handle_acpi);
-idt[InterruptType::Open1.convert_to_usize()].set_handler_fn(handle_open1);
-idt[InterruptType::Open2.convert_to_usize()].set_handler_fn(handle_open2);
-idt[InterruptType::Mouse.convert_to_usize()].set_handler_fn(handle_mouse);
-idt[InterruptType::Coprocessor.convert_to_usize()].set_handler_fn(handle_coprocessor);
-idt[InterruptType::PrimaryAta.convert_to_usize()].set_handler_fn(handle_primary_ata);
-idt[InterruptType::SecondaryAta.convert_to_usize()].set_handler_fn(handle_secondary_ata);
-idt[InterruptType::Irq48.convert_to_usize()].set_handler_fn(handle_irq48);
-idt[InterruptType::Irq49.convert_to_usize()].set_handler_fn(handle_irq49);
-idt[InterruptType::Irq50.convert_to_usize()].set_handler_fn(handle_irq50);
-idt[InterruptType::Irq51.convert_to_usize()].set_handler_fn(handle_irq51);
-idt[InterruptType::Irq52.convert_to_usize()].set_handler_fn(handle_irq52);
-idt[InterruptType::Irq53.convert_to_usize()].set_handler_fn(handle_irq53);
-idt[InterruptType::Irq54.convert_to_usize()].set_handler_fn(handle_irq54);
-idt[InterruptType::Irq55.convert_to_usize()].set_handler_fn(handle_irq55);
-idt[InterruptType::Irq56.convert_to_usize()].set_handler_fn(handle_irq56);
-idt[InterruptType::Irq57.convert_to_usize()].set_handler_fn(handle_irq57);
-idt[InterruptType::Irq58.convert_to_usize()].set_handler_fn(handle_irq58);
-idt[InterruptType::Irq59.convert_to_usize()].set_handler_fn(handle_irq59);
-idt[InterruptType::Irq60.convert_to_usize()].set_handler_fn(handle_irq60);
-idt[InterruptType::Irq61.convert_to_usize()].set_handler_fn(handle_irq61);
-idt[InterruptType::Irq62.convert_to_usize()].set_handler_fn(handle_irq62);
-idt[InterruptType::Irq63.convert_to_usize()].set_handler_fn(handle_irq63);
-idt[InterruptType::Irq64.convert_to_usize()].set_handler_fn(handle_irq64);
-idt[InterruptType::Irq65.convert_to_usize()].set_handler_fn(handle_irq65);
-idt[InterruptType::Irq66.convert_to_usize()].set_handler_fn(handle_irq66);
-idt[InterruptType::Irq67.convert_to_usize()].set_handler_fn(handle_irq67);
-idt[InterruptType::Irq68.convert_to_usize()].set_handler_fn(handle_irq68);
-idt[InterruptType::Irq69.convert_to_usize()].set_handler_fn(handle_irq69);
-idt[InterruptType::Irq70.convert_to_usize()].set_handler_fn(handle_irq70);
-idt[InterruptType::Irq71.convert_to_usize()].set_handler_fn(handle_irq71);
-idt[InterruptType::Irq72.convert_to_usize()].set_handler_fn(handle_irq72);
-idt[InterruptType::Irq73.convert_to_usize()].set_handler_fn(handle_irq73);
-idt[InterruptType::Irq74.convert_to_usize()].set_handler_fn(handle_irq74);
-idt[InterruptType::Irq75.convert_to_usize()].set_handler_fn(handle_irq75);
-idt[InterruptType::Irq76.convert_to_usize()].set_handler_fn(handle_irq76);
-idt[InterruptType::Irq77.convert_to_usize()].set_handler_fn(handle_irq77);
-idt[InterruptType::Irq78.convert_to_usize()].set_handler_fn(handle_irq78);
-idt[InterruptType::Irq79.convert_to_usize()].set_handler_fn(handle_irq79);
-idt[InterruptType::Irq80.convert_to_usize()].set_handler_fn(handle_irq80);
-idt[InterruptType::Irq81.convert_to_usize()].set_handler_fn(handle_irq81);
-idt[InterruptType::Irq82.convert_to_usize()].set_handler_fn(handle_irq82);
-idt[InterruptType::Irq83.convert_to_usize()].set_handler_fn(handle_irq83);
-idt[InterruptType::Irq84.convert_to_usize()].set_handler_fn(handle_irq84);
-idt[InterruptType::Irq85.convert_to_usize()].set_handler_fn(handle_irq85);
-idt[InterruptType::Irq86.convert_to_usize()].set_handler_fn(handle_irq86);
-idt[InterruptType::Irq87.convert_to_usize()].set_handler_fn(handle_irq87);
-idt[InterruptType::Irq88.convert_to_usize()].set_handler_fn(handle_irq88);
-idt[InterruptType::Irq89.convert_to_usize()].set_handler_fn(handle_irq89);
-idt[InterruptType::Irq90.convert_to_usize()].set_handler_fn(handle_irq90);
-idt[InterruptType::Irq91.convert_to_usize()].set_handler_fn(handle_irq91);
-idt[InterruptType::Irq92.convert_to_usize()].set_handler_fn(handle_irq92);
-idt[InterruptType::Irq93.convert_to_usize()].set_handler_fn(handle_irq93);
-idt[InterruptType::Irq94.convert_to_usize()].set_handler_fn(handle_irq94);
-idt[InterruptType::Irq95.convert_to_usize()].set_handler_fn(handle_irq95);
-idt[InterruptType::Irq96.convert_to_usize()].set_handler_fn(handle_irq96);
-idt[InterruptType::Irq97.convert_to_usize()].set_handler_fn(handle_irq97);
-idt[InterruptType::Irq98.convert_to_usize()].set_handler_fn(handle_irq98);
-idt[InterruptType::Irq99.convert_to_usize()].set_handler_fn(handle_irq99);
-idt[InterruptType::Irq100.convert_to_usize()].set_handler_fn(handle_irq100);
-idt[InterruptType::Irq101.convert_to_usize()].set_handler_fn(handle_irq101);
-idt[InterruptType::Irq102.convert_to_usize()].set_handler_fn(handle_irq102);
-idt[InterruptType::Irq103.convert_to_usize()].set_handler_fn(handle_irq103);
-idt[InterruptType::Irq104.convert_to_usize()].set_handler_fn(handle_irq104);
-idt[InterruptType::Irq105.convert_to_usize()].set_handler_fn(handle_irq105);
-idt[InterruptType::Irq106.convert_to_usize()].set_handler_fn(handle_irq106);
-idt[InterruptType::Irq107.convert_to_usize()].set_handler_fn(handle_irq107);
-idt[InterruptType::Irq108.convert_to_usize()].set_handler_fn(handle_irq108);
-idt[InterruptType::Irq109.convert_to_usize()].set_handler_fn(handle_irq109);
-idt[InterruptType::Irq110.convert_to_usize()].set_handler_fn(handle_irq110);
-idt[InterruptType::Irq111.convert_to_usize()].set_handler_fn(handle_irq111);
-idt[InterruptType::Irq112.convert_to_usize()].set_handler_fn(handle_irq112);
-idt[InterruptType::Irq113.convert_to_usize()].set_handler_fn(handle_irq113);
-idt[InterruptType::Irq114.convert_to_usize()].set_handler_fn(handle_irq114);
-idt[InterruptType::Irq115.convert_to_usize()].set_handler_fn(handle_irq115);
-idt[InterruptType::Irq116.convert_to_usize()].set_handler_fn(handle_irq116);
-idt[InterruptType::Irq117.convert_to_usize()].set_handler_fn(handle_irq117);
-idt[InterruptType::Irq118.convert_to_usize()].set_handler_fn(handle_irq118);
-idt[InterruptType::Irq119.convert_to_usize()].set_handler_fn(handle_irq119);
-idt[InterruptType::Irq120.convert_to_usize()].set_handler_fn(handle_irq120);
-idt[InterruptType::Irq121.convert_to_usize()].set_handler_fn(handle_irq121);
-idt[InterruptType::Irq122.convert_to_usize()].set_handler_fn(handle_irq122);
-idt[InterruptType::Irq123.convert_to_usize()].set_handler_fn(handle_irq123);
-idt[InterruptType::Irq124.convert_to_usize()].set_handler_fn(handle_irq124);
-idt[InterruptType::Irq125.convert_to_usize()].set_handler_fn(handle_irq125);
-idt[InterruptType::Irq126.convert_to_usize()].set_handler_fn(handle_irq126);
-idt[InterruptType::Irq127.convert_to_usize()].set_handler_fn(handle_irq127);
-idt[InterruptType::Irq128.convert_to_usize()].set_handler_fn(handle_irq128);
-idt[InterruptType::Irq129.convert_to_usize()].set_handler_fn(handle_irq129);
-idt[InterruptType::Irq130.convert_to_usize()].set_handler_fn(handle_irq130);
-idt[InterruptType::Irq131.convert_to_usize()].set_handler_fn(handle_irq131);
-idt[InterruptType::Irq132.convert_to_usize()].set_handler_fn(handle_irq132);
-idt[InterruptType::Irq133.convert_to_usize()].set_handler_fn(handle_irq133);
-idt[InterruptType::Irq134.convert_to_usize()].set_handler_fn(handle_irq134);
-idt[InterruptType::Irq135.convert_to_usize()].set_handler_fn(handle_irq135);
-idt[InterruptType::Irq136.convert_to_usize()].set_handler_fn(handle_irq136);
-idt[InterruptType::Irq137.convert_to_usize()].set_handler_fn(handle_irq137);
-idt[InterruptType::Irq138.convert_to_usize()].set_handler_fn(handle_irq138);
-idt[InterruptType::Irq139.convert_to_usize()].set_handler_fn(handle_irq139);
-idt[InterruptType::Irq140.convert_to_usize()].set_handler_fn(handle_irq140);
-idt[InterruptType::Irq141.convert_to_usize()].set_handler_fn(handle_irq141);
-idt[InterruptType::Irq142.convert_to_usize()].set_handler_fn(handle_irq142);
-idt[InterruptType::Irq143.convert_to_usize()].set_handler_fn(handle_irq143);
-idt[InterruptType::Irq144.convert_to_usize()].set_handler_fn(handle_irq144);
-idt[InterruptType::Irq145.convert_to_usize()].set_handler_fn(handle_irq145);
-idt[InterruptType::Irq146.convert_to_usize()].set_handler_fn(handle_irq146);
-idt[InterruptType::Irq147.convert_to_usize()].set_handler_fn(handle_irq147);
-idt[InterruptType::Irq148.convert_to_usize()].set_handler_fn(handle_irq148);
-idt[InterruptType::Irq149.convert_to_usize()].set_handler_fn(handle_irq149);
-idt[InterruptType::Irq150.convert_to_usize()].set_handler_fn(handle_irq150);
-idt[InterruptType::Irq151.convert_to_usize()].set_handler_fn(handle_irq151);
-idt[InterruptType::Irq152.convert_to_usize()].set_handler_fn(handle_irq152);
-idt[InterruptType::Irq153.convert_to_usize()].set_handler_fn(handle_irq153);
-idt[InterruptType::Irq154.convert_to_usize()].set_handler_fn(handle_irq154);
-idt[InterruptType::Irq155.convert_to_usize()].set_handler_fn(handle_irq155);
-idt[InterruptType::Irq156.convert_to_usize()].set_handler_fn(handle_irq156);
-idt[InterruptType::Irq157.convert_to_usize()].set_handler_fn(handle_irq157);
-idt[InterruptType::Irq158.convert_to_usize()].set_handler_fn(handle_irq158);
-idt[InterruptType::Irq159.convert_to_usize()].set_handler_fn(handle_irq159);
-idt[InterruptType::Irq160.convert_to_usize()].set_handler_fn(handle_irq160);
-idt[InterruptType::Irq161.convert_to_usize()].set_handler_fn(handle_irq161);
-idt[InterruptType::Irq162.convert_to_usize()].set_handler_fn(handle_irq162);
-idt[InterruptType::Irq163.convert_to_usize()].set_handler_fn(handle_irq163);
-idt[InterruptType::Irq164.convert_to_usize()].set_handler_fn(handle_irq164);
-idt[InterruptType::Irq165.convert_to_usize()].set_handler_fn(handle_irq165);
-idt[InterruptType::Irq166.convert_to_usize()].set_handler_fn(handle_irq166);
-idt[InterruptType::Irq167.convert_to_usize()].set_handler_fn(handle_irq167);
-idt[InterruptType::Irq168.convert_to_usize()].set_handler_fn(handle_irq168);
-idt[InterruptType::Irq169.convert_to_usize()].set_handler_fn(handle_irq169);
-idt[InterruptType::Irq170.convert_to_usize()].set_handler_fn(handle_irq170);
-idt[InterruptType::Irq171.convert_to_usize()].set_handler_fn(handle_irq171);
-idt[InterruptType::Irq172.convert_to_usize()].set_handler_fn(handle_irq172);
-idt[InterruptType::Irq173.convert_to_usize()].set_handler_fn(handle_irq173);
-idt[InterruptType::Irq174.convert_to_usize()].set_handler_fn(handle_irq174);
-idt[InterruptType::Irq175.convert_to_usize()].set_handler_fn(handle_irq175);
-idt[InterruptType::Irq176.convert_to_usize()].set_handler_fn(handle_irq176);
-idt[InterruptType::Irq177.convert_to_usize()].set_handler_fn(handle_irq177);
-idt[InterruptType::Irq178.convert_to_usize()].set_handler_fn(handle_irq178);
-idt[InterruptType::Irq179.convert_to_usize()].set_handler_fn(handle_irq179);
-idt[InterruptType::Irq180.convert_to_usize()].set_handler_fn(handle_irq180);
-idt[InterruptType::Irq181.convert_to_usize()].set_handler_fn(handle_irq181);
-idt[InterruptType::Irq182.convert_to_usize()].set_handler_fn(handle_irq182);
-idt[InterruptType::Irq183.convert_to_usize()].set_handler_fn(handle_irq183);
-idt[InterruptType::Irq184.convert_to_usize()].set_handler_fn(handle_irq184);
-idt[InterruptType::Irq185.convert_to_usize()].set_handler_fn(handle_irq185);
-idt[InterruptType::Irq186.convert_to_usize()].set_handler_fn(handle_irq186);
-idt[InterruptType::Irq187.convert_to_usize()].set_handler_fn(handle_irq187);
-idt[InterruptType::Irq188.convert_to_usize()].set_handler_fn(handle_irq188);
-idt[InterruptType::Irq189.convert_to_usize()].set_handler_fn(handle_irq189);
-idt[InterruptType::Irq190.convert_to_usize()].set_handler_fn(handle_irq190);
-idt[InterruptType::Irq191.convert_to_usize()].set_handler_fn(handle_irq191);
-idt[InterruptType::Irq192.convert_to_usize()].set_handler_fn(handle_irq192);
-idt[InterruptType::Irq193.convert_to_usize()].set_handler_fn(handle_irq193);
-idt[InterruptType::Irq194.convert_to_usize()].set_handler_fn(handle_irq194);
-idt[InterruptType::Irq195.convert_to_usize()].set_handler_fn(handle_irq195);
-idt[InterruptType::Irq196.convert_to_usize()].set_handler_fn(handle_irq196);
-idt[InterruptType::Irq197.convert_to_usize()].set_handler_fn(handle_irq197);
-idt[InterruptType::Irq198.convert_to_usize()].set_handler_fn(handle_irq198);
-idt[InterruptType::Irq199.convert_to_usize()].set_handler_fn(handle_irq199);
-idt[InterruptType::Irq200.convert_to_usize()].set_handler_fn(handle_irq200);
-idt[InterruptType::Irq201.convert_to_usize()].set_handler_fn(handle_irq201);
-idt[InterruptType::Irq202.convert_to_usize()].set_handler_fn(handle_irq202);
-idt[InterruptType::Irq203.convert_to_usize()].set_handler_fn(handle_irq203);
-idt[InterruptType::Irq204.convert_to_usize()].set_handler_fn(handle_irq204);
-idt[InterruptType::Irq205.convert_to_usize()].set_handler_fn(handle_irq205);
-idt[InterruptType::Irq206.convert_to_usize()].set_handler_fn(handle_irq206);
-idt[InterruptType::Irq207.convert_to_usize()].set_handler_fn(handle_irq207);
-idt[InterruptType::Irq208.convert_to_usize()].set_handler_fn(handle_irq208);
-idt[InterruptType::Irq209.convert_to_usize()].set_handler_fn(handle_irq209);
-idt[InterruptType::Irq210.convert_to_usize()].set_handler_fn(handle_irq210);
-idt[InterruptType::Irq211.convert_to_usize()].set_handler_fn(handle_irq211);
-idt[InterruptType::Irq212.convert_to_usize()].set_handler_fn(handle_irq212);
-idt[InterruptType::Irq213.convert_to_usize()].set_handler_fn(handle_irq213);
-idt[InterruptType::Irq214.convert_to_usize()].set_handler_fn(handle_irq214);
-idt[InterruptType::Irq215.convert_to_usize()].set_handler_fn(handle_irq215);
-idt[InterruptType::Irq216.convert_to_usize()].set_handler_fn(handle_irq216);
-idt[InterruptType::Irq217.convert_to_usize()].set_handler_fn(handle_irq217);
-idt[InterruptType::Irq218.convert_to_usize()].set_handler_fn(handle_irq218);
-idt[InterruptType::Irq219.convert_to_usize()].set_handler_fn(handle_irq219);
-idt[InterruptType::Irq220.convert_to_usize()].set_handler_fn(handle_irq220);
-idt[InterruptType::Irq221.convert_to_usize()].set_handler_fn(handle_irq221);
-idt[InterruptType::Irq222.convert_to_usize()].set_handler_fn(handle_irq222);
-idt[InterruptType::Irq223.convert_to_usize()].set_handler_fn(handle_irq223);
-idt[InterruptType::Irq224.convert_to_usize()].set_handler_fn(handle_irq224);
-idt[InterruptType::Irq225.convert_to_usize()].set_handler_fn(handle_irq225);
-idt[InterruptType::Irq226.convert_to_usize()].set_handler_fn(handle_irq226);
-idt[InterruptType::Irq227.convert_to_usize()].set_handler_fn(handle_irq227);
-idt[InterruptType::Irq228.convert_to_usize()].set_handler_fn(handle_irq228);
-idt[InterruptType::Irq229.convert_to_usize()].set_handler_fn(handle_irq229);
-idt[InterruptType::Irq230.convert_to_usize()].set_handler_fn(handle_irq230);
-idt[InterruptType::Irq231.convert_to_usize()].set_handler_fn(handle_irq231);
-idt[InterruptType::Irq232.convert_to_usize()].set_handler_fn(handle_irq232);
-idt[InterruptType::Irq233.convert_to_usize()].set_handler_fn(handle_irq233);
-idt[InterruptType::Irq234.convert_to_usize()].set_handler_fn(handle_irq234);
-idt[InterruptType::Irq235.convert_to_usize()].set_handler_fn(handle_irq235);
-idt[InterruptType::Irq236.convert_to_usize()].set_handler_fn(handle_irq236);
-idt[InterruptType::Irq237.convert_to_usize()].set_handler_fn(handle_irq237);
-idt[InterruptType::Irq238.convert_to_usize()].set_handler_fn(handle_irq238);
-idt[InterruptType::Irq239.convert_to_usize()].set_handler_fn(handle_irq239);
-idt[InterruptType::Irq240.convert_to_usize()].set_handler_fn(handle_irq240);
-idt[InterruptType::Irq241.convert_to_usize()].set_handler_fn(handle_irq241);
-idt[InterruptType::Irq242.convert_to_usize()].set_handler_fn(handle_irq242);
-idt[InterruptType::Irq243.convert_to_usize()].set_handler_fn(handle_irq243);
-idt[InterruptType::Irq244.convert_to_usize()].set_handler_fn(handle_irq244);
-idt[InterruptType::Irq245.convert_to_usize()].set_handler_fn(handle_irq245);
-idt[InterruptType::Irq246.convert_to_usize()].set_handler_fn(handle_irq246);
-idt[InterruptType::Irq247.convert_to_usize()].set_handler_fn(handle_irq247);
-idt[InterruptType::Irq248.convert_to_usize()].set_handler_fn(handle_irq248);
-idt[InterruptType::Irq249.convert_to_usize()].set_handler_fn(handle_irq249);
-idt[InterruptType::Irq250.convert_to_usize()].set_handler_fn(handle_irq250);
-idt[InterruptType::Irq251.convert_to_usize()].set_handler_fn(handle_irq251);
-idt[InterruptType::Irq252.convert_to_usize()].set_handler_fn(handle_irq252);
-idt[InterruptType::Irq253.convert_to_usize()].set_handler_fn(handle_irq253);
-idt[InterruptType::Irq254.convert_to_usize()].set_handler_fn(handle_irq254);
-idt[InterruptType::Irq255.convert_to_usize()].set_handler_fn(handle_irq255);
+        let _ = idt.page_fault.set_handler_fn(handle_pf);
+        let _ = idt.overflow.set_handler_fn(handle_of);
+        let _ = idt.bound_range_exceeded.set_handler_fn(handle_br);
+        let _ = idt.invalid_opcode.set_handler_fn(handle_ud);
+        let _ = idt.device_not_available.set_handler_fn(handle_nm);
+        let _ = idt.general_protection_fault.set_handler_fn(handle_gp);
+let _ = idt[InterruptType::Timer.convert_to_usize()].set_handler_fn(handle_timer);
+let _ = idt[InterruptType::Keyboard.convert_to_usize()].set_handler_fn(handle_keyboard);
+let _ = idt[InterruptType::Cascade.convert_to_usize()].set_handler_fn(handle_cascade);
+let _ = idt[InterruptType::Uart1.convert_to_usize()].set_handler_fn(handle_uart1);
+let _ = idt[InterruptType::Serial1.convert_to_usize()].set_handler_fn(handle_serial1);
+let _ = idt[InterruptType::Parallel.convert_to_usize()].set_handler_fn(handle_parallel);
+let _ = idt[InterruptType::Floppy.convert_to_usize()].set_handler_fn(handle_floppy);
+let _ = idt[InterruptType::Lpt1.convert_to_usize()].set_handler_fn(handle_lpt1);
+let _ = idt[InterruptType::Rtc.convert_to_usize()].set_handler_fn(handle_rtc);
+let _ = idt[InterruptType::Acpi.convert_to_usize()].set_handler_fn(handle_acpi);
+let _ = idt[InterruptType::Open1.convert_to_usize()].set_handler_fn(handle_open1);
+let _ = idt[InterruptType::Open2.convert_to_usize()].set_handler_fn(handle_open2);
+let _ = idt[InterruptType::Mouse.convert_to_usize()].set_handler_fn(handle_mouse);
+let _ = idt[InterruptType::Coprocessor.convert_to_usize()].set_handler_fn(handle_coprocessor);
+let _ = idt[InterruptType::PrimaryAta.convert_to_usize()].set_handler_fn(handle_primary_ata);
+let _ = idt[InterruptType::SecondaryAta.convert_to_usize()].set_handler_fn(handle_secondary_ata);
+let _ = idt[InterruptType::Irq48.convert_to_usize()].set_handler_fn(handle_irq48);
+let _ = idt[InterruptType::Irq49.convert_to_usize()].set_handler_fn(handle_irq49);
+let _ = idt[InterruptType::Irq50.convert_to_usize()].set_handler_fn(handle_irq50);
+let _ = idt[InterruptType::Irq51.convert_to_usize()].set_handler_fn(handle_irq51);
+let _ = idt[InterruptType::Irq52.convert_to_usize()].set_handler_fn(handle_irq52);
+let _ = idt[InterruptType::Irq53.convert_to_usize()].set_handler_fn(handle_irq53);
+let _ = idt[InterruptType::Irq54.convert_to_usize()].set_handler_fn(handle_irq54);
+let _ = idt[InterruptType::Irq55.convert_to_usize()].set_handler_fn(handle_irq55);
+let _ = idt[InterruptType::Irq56.convert_to_usize()].set_handler_fn(handle_irq56);
+let _ = idt[InterruptType::Irq57.convert_to_usize()].set_handler_fn(handle_irq57);
+let _ = idt[InterruptType::Irq58.convert_to_usize()].set_handler_fn(handle_irq58);
+let _ = idt[InterruptType::Irq59.convert_to_usize()].set_handler_fn(handle_irq59);
+let _ = idt[InterruptType::Irq60.convert_to_usize()].set_handler_fn(handle_irq60);
+let _ = idt[InterruptType::Irq61.convert_to_usize()].set_handler_fn(handle_irq61);
+let _ = idt[InterruptType::Irq62.convert_to_usize()].set_handler_fn(handle_irq62);
+let _ = idt[InterruptType::Irq63.convert_to_usize()].set_handler_fn(handle_irq63);
+let _ = idt[InterruptType::Irq64.convert_to_usize()].set_handler_fn(handle_irq64);
+let _ = idt[InterruptType::Irq65.convert_to_usize()].set_handler_fn(handle_irq65);
+let _ = idt[InterruptType::Irq66.convert_to_usize()].set_handler_fn(handle_irq66);
+let _ = idt[InterruptType::Irq67.convert_to_usize()].set_handler_fn(handle_irq67);
+let _ = idt[InterruptType::Irq68.convert_to_usize()].set_handler_fn(handle_irq68);
+let _ = idt[InterruptType::Irq69.convert_to_usize()].set_handler_fn(handle_irq69);
+let _ = idt[InterruptType::Irq70.convert_to_usize()].set_handler_fn(handle_irq70);
+let _ = idt[InterruptType::Irq71.convert_to_usize()].set_handler_fn(handle_irq71);
+let _ = idt[InterruptType::Irq72.convert_to_usize()].set_handler_fn(handle_irq72);
+let _ = idt[InterruptType::Irq73.convert_to_usize()].set_handler_fn(handle_irq73);
+let _ = idt[InterruptType::Irq74.convert_to_usize()].set_handler_fn(handle_irq74);
+let _ = idt[InterruptType::Irq75.convert_to_usize()].set_handler_fn(handle_irq75);
+let _ = idt[InterruptType::Irq76.convert_to_usize()].set_handler_fn(handle_irq76);
+let _ = idt[InterruptType::Irq77.convert_to_usize()].set_handler_fn(handle_irq77);
+let _ = idt[InterruptType::Irq78.convert_to_usize()].set_handler_fn(handle_irq78);
+let _ = idt[InterruptType::Irq79.convert_to_usize()].set_handler_fn(handle_irq79);
+let _ = idt[InterruptType::Irq80.convert_to_usize()].set_handler_fn(handle_irq80);
+let _ = idt[InterruptType::Irq81.convert_to_usize()].set_handler_fn(handle_irq81);
+let _ = idt[InterruptType::Irq82.convert_to_usize()].set_handler_fn(handle_irq82);
+let _ = idt[InterruptType::Irq83.convert_to_usize()].set_handler_fn(handle_irq83);
+let _ = idt[InterruptType::Irq84.convert_to_usize()].set_handler_fn(handle_irq84);
+let _ = idt[InterruptType::Irq85.convert_to_usize()].set_handler_fn(handle_irq85);
+let _ = idt[InterruptType::Irq86.convert_to_usize()].set_handler_fn(handle_irq86);
+let _ = idt[InterruptType::Irq87.convert_to_usize()].set_handler_fn(handle_irq87);
+let _ = idt[InterruptType::Irq88.convert_to_usize()].set_handler_fn(handle_irq88);
+let _ = idt[InterruptType::Irq89.convert_to_usize()].set_handler_fn(handle_irq89);
+let _ = idt[InterruptType::Irq90.convert_to_usize()].set_handler_fn(handle_irq90);
+let _ = idt[InterruptType::Irq91.convert_to_usize()].set_handler_fn(handle_irq91);
+let _ = idt[InterruptType::Irq92.convert_to_usize()].set_handler_fn(handle_irq92);
+let _ = idt[InterruptType::Irq93.convert_to_usize()].set_handler_fn(handle_irq93);
+let _ = idt[InterruptType::Irq94.convert_to_usize()].set_handler_fn(handle_irq94);
+let _ = idt[InterruptType::Irq95.convert_to_usize()].set_handler_fn(handle_irq95);
+let _ = idt[InterruptType::Irq96.convert_to_usize()].set_handler_fn(handle_irq96);
+let _ = idt[InterruptType::Irq97.convert_to_usize()].set_handler_fn(handle_irq97);
+let _ = idt[InterruptType::Irq98.convert_to_usize()].set_handler_fn(handle_irq98);
+let _ = idt[InterruptType::Irq99.convert_to_usize()].set_handler_fn(handle_irq99);
+let _ = idt[InterruptType::Irq100.convert_to_usize()].set_handler_fn(handle_irq100);
+let _ = idt[InterruptType::Irq101.convert_to_usize()].set_handler_fn(handle_irq101);
+let _ = idt[InterruptType::Irq102.convert_to_usize()].set_handler_fn(handle_irq102);
+let _ = idt[InterruptType::Irq103.convert_to_usize()].set_handler_fn(handle_irq103);
+let _ = idt[InterruptType::Irq104.convert_to_usize()].set_handler_fn(handle_irq104);
+let _ = idt[InterruptType::Irq105.convert_to_usize()].set_handler_fn(handle_irq105);
+let _ = idt[InterruptType::Irq106.convert_to_usize()].set_handler_fn(handle_irq106);
+let _ = idt[InterruptType::Irq107.convert_to_usize()].set_handler_fn(handle_irq107);
+let _ = idt[InterruptType::Irq108.convert_to_usize()].set_handler_fn(handle_irq108);
+let _ = idt[InterruptType::Irq109.convert_to_usize()].set_handler_fn(handle_irq109);
+let _ = idt[InterruptType::Irq110.convert_to_usize()].set_handler_fn(handle_irq110);
+let _ = idt[InterruptType::Irq111.convert_to_usize()].set_handler_fn(handle_irq111);
+let _ = idt[InterruptType::Irq112.convert_to_usize()].set_handler_fn(handle_irq112);
+let _ = idt[InterruptType::Irq113.convert_to_usize()].set_handler_fn(handle_irq113);
+let _ = idt[InterruptType::Irq114.convert_to_usize()].set_handler_fn(handle_irq114);
+let _ = idt[InterruptType::Irq115.convert_to_usize()].set_handler_fn(handle_irq115);
+let _ = idt[InterruptType::Irq116.convert_to_usize()].set_handler_fn(handle_irq116);
+let _ = idt[InterruptType::Irq117.convert_to_usize()].set_handler_fn(handle_irq117);
+let _ = idt[InterruptType::Irq118.convert_to_usize()].set_handler_fn(handle_irq118);
+let _ = idt[InterruptType::Irq119.convert_to_usize()].set_handler_fn(handle_irq119);
+let _ = idt[InterruptType::Irq120.convert_to_usize()].set_handler_fn(handle_irq120);
+let _ = idt[InterruptType::Irq121.convert_to_usize()].set_handler_fn(handle_irq121);
+let _ = idt[InterruptType::Irq122.convert_to_usize()].set_handler_fn(handle_irq122);
+let _ = idt[InterruptType::Irq123.convert_to_usize()].set_handler_fn(handle_irq123);
+let _ = idt[InterruptType::Irq124.convert_to_usize()].set_handler_fn(handle_irq124);
+let _ = idt[InterruptType::Irq125.convert_to_usize()].set_handler_fn(handle_irq125);
+let _ = idt[InterruptType::Irq126.convert_to_usize()].set_handler_fn(handle_irq126);
+let _ = idt[InterruptType::Irq127.convert_to_usize()].set_handler_fn(handle_irq127);
+let _ = idt[InterruptType::Irq128.convert_to_usize()].set_handler_fn(handle_irq128);
+let _ = idt[InterruptType::Irq129.convert_to_usize()].set_handler_fn(handle_irq129);
+let _ = idt[InterruptType::Irq130.convert_to_usize()].set_handler_fn(handle_irq130);
+let _ = idt[InterruptType::Irq131.convert_to_usize()].set_handler_fn(handle_irq131);
+let _ = idt[InterruptType::Irq132.convert_to_usize()].set_handler_fn(handle_irq132);
+let _ = idt[InterruptType::Irq133.convert_to_usize()].set_handler_fn(handle_irq133);
+let _ = idt[InterruptType::Irq134.convert_to_usize()].set_handler_fn(handle_irq134);
+let _ = idt[InterruptType::Irq135.convert_to_usize()].set_handler_fn(handle_irq135);
+let _ = idt[InterruptType::Irq136.convert_to_usize()].set_handler_fn(handle_irq136);
+let _ = idt[InterruptType::Irq137.convert_to_usize()].set_handler_fn(handle_irq137);
+let _ = idt[InterruptType::Irq138.convert_to_usize()].set_handler_fn(handle_irq138);
+let _ = idt[InterruptType::Irq139.convert_to_usize()].set_handler_fn(handle_irq139);
+let _ = idt[InterruptType::Irq140.convert_to_usize()].set_handler_fn(handle_irq140);
+let _ = idt[InterruptType::Irq141.convert_to_usize()].set_handler_fn(handle_irq141);
+let _ = idt[InterruptType::Irq142.convert_to_usize()].set_handler_fn(handle_irq142);
+let _ = idt[InterruptType::Irq143.convert_to_usize()].set_handler_fn(handle_irq143);
+let _ = idt[InterruptType::Irq144.convert_to_usize()].set_handler_fn(handle_irq144);
+let _ = idt[InterruptType::Irq145.convert_to_usize()].set_handler_fn(handle_irq145);
+let _ = idt[InterruptType::Irq146.convert_to_usize()].set_handler_fn(handle_irq146);
+let _ = idt[InterruptType::Irq147.convert_to_usize()].set_handler_fn(handle_irq147);
+let _ = idt[InterruptType::Irq148.convert_to_usize()].set_handler_fn(handle_irq148);
+let _ = idt[InterruptType::Irq149.convert_to_usize()].set_handler_fn(handle_irq149);
+let _ = idt[InterruptType::Irq150.convert_to_usize()].set_handler_fn(handle_irq150);
+let _ = idt[InterruptType::Irq151.convert_to_usize()].set_handler_fn(handle_irq151);
+let _ = idt[InterruptType::Irq152.convert_to_usize()].set_handler_fn(handle_irq152);
+let _ = idt[InterruptType::Irq153.convert_to_usize()].set_handler_fn(handle_irq153);
+let _ = idt[InterruptType::Irq154.convert_to_usize()].set_handler_fn(handle_irq154);
+let _ = idt[InterruptType::Irq155.convert_to_usize()].set_handler_fn(handle_irq155);
+let _ = idt[InterruptType::Irq156.convert_to_usize()].set_handler_fn(handle_irq156);
+let _ = idt[InterruptType::Irq157.convert_to_usize()].set_handler_fn(handle_irq157);
+let _ = idt[InterruptType::Irq158.convert_to_usize()].set_handler_fn(handle_irq158);
+let _ = idt[InterruptType::Irq159.convert_to_usize()].set_handler_fn(handle_irq159);
+let _ = idt[InterruptType::Irq160.convert_to_usize()].set_handler_fn(handle_irq160);
+let _ = idt[InterruptType::Irq161.convert_to_usize()].set_handler_fn(handle_irq161);
+let _ = idt[InterruptType::Irq162.convert_to_usize()].set_handler_fn(handle_irq162);
+let _ = idt[InterruptType::Irq163.convert_to_usize()].set_handler_fn(handle_irq163);
+let _ = idt[InterruptType::Irq164.convert_to_usize()].set_handler_fn(handle_irq164);
+let _ = idt[InterruptType::Irq165.convert_to_usize()].set_handler_fn(handle_irq165);
+let _ = idt[InterruptType::Irq166.convert_to_usize()].set_handler_fn(handle_irq166);
+let _ = idt[InterruptType::Irq167.convert_to_usize()].set_handler_fn(handle_irq167);
+let _ = idt[InterruptType::Irq168.convert_to_usize()].set_handler_fn(handle_irq168);
+let _ = idt[InterruptType::Irq169.convert_to_usize()].set_handler_fn(handle_irq169);
+let _ = idt[InterruptType::Irq170.convert_to_usize()].set_handler_fn(handle_irq170);
+let _ = idt[InterruptType::Irq171.convert_to_usize()].set_handler_fn(handle_irq171);
+let _ = idt[InterruptType::Irq172.convert_to_usize()].set_handler_fn(handle_irq172);
+let _ = idt[InterruptType::Irq173.convert_to_usize()].set_handler_fn(handle_irq173);
+let _ = idt[InterruptType::Irq174.convert_to_usize()].set_handler_fn(handle_irq174);
+let _ = idt[InterruptType::Irq175.convert_to_usize()].set_handler_fn(handle_irq175);
+let _ = idt[InterruptType::Irq176.convert_to_usize()].set_handler_fn(handle_irq176);
+let _ = idt[InterruptType::Irq177.convert_to_usize()].set_handler_fn(handle_irq177);
+let _ = idt[InterruptType::Irq178.convert_to_usize()].set_handler_fn(handle_irq178);
+let _ = idt[InterruptType::Irq179.convert_to_usize()].set_handler_fn(handle_irq179);
+let _ = idt[InterruptType::Irq180.convert_to_usize()].set_handler_fn(handle_irq180);
+let _ = idt[InterruptType::Irq181.convert_to_usize()].set_handler_fn(handle_irq181);
+let _ = idt[InterruptType::Irq182.convert_to_usize()].set_handler_fn(handle_irq182);
+let _ = idt[InterruptType::Irq183.convert_to_usize()].set_handler_fn(handle_irq183);
+let _ = idt[InterruptType::Irq184.convert_to_usize()].set_handler_fn(handle_irq184);
+let _ = idt[InterruptType::Irq185.convert_to_usize()].set_handler_fn(handle_irq185);
+let _ = idt[InterruptType::Irq186.convert_to_usize()].set_handler_fn(handle_irq186);
+let _ = idt[InterruptType::Irq187.convert_to_usize()].set_handler_fn(handle_irq187);
+let _ = idt[InterruptType::Irq188.convert_to_usize()].set_handler_fn(handle_irq188);
+let _ = idt[InterruptType::Irq189.convert_to_usize()].set_handler_fn(handle_irq189);
+let _ = idt[InterruptType::Irq190.convert_to_usize()].set_handler_fn(handle_irq190);
+let _ = idt[InterruptType::Irq191.convert_to_usize()].set_handler_fn(handle_irq191);
+let _ = idt[InterruptType::Irq192.convert_to_usize()].set_handler_fn(handle_irq192);
+let _ = idt[InterruptType::Irq193.convert_to_usize()].set_handler_fn(handle_irq193);
+let _ = idt[InterruptType::Irq194.convert_to_usize()].set_handler_fn(handle_irq194);
+let _ = idt[InterruptType::Irq195.convert_to_usize()].set_handler_fn(handle_irq195);
+let _ = idt[InterruptType::Irq196.convert_to_usize()].set_handler_fn(handle_irq196);
+let _ = idt[InterruptType::Irq197.convert_to_usize()].set_handler_fn(handle_irq197);
+let _ = idt[InterruptType::Irq198.convert_to_usize()].set_handler_fn(handle_irq198);
+let _ = idt[InterruptType::Irq199.convert_to_usize()].set_handler_fn(handle_irq199);
+let _ = idt[InterruptType::Irq200.convert_to_usize()].set_handler_fn(handle_irq200);
+let _ = idt[InterruptType::Irq201.convert_to_usize()].set_handler_fn(handle_irq201);
+let _ = idt[InterruptType::Irq202.convert_to_usize()].set_handler_fn(handle_irq202);
+let _ = idt[InterruptType::Irq203.convert_to_usize()].set_handler_fn(handle_irq203);
+let _ = idt[InterruptType::Irq204.convert_to_usize()].set_handler_fn(handle_irq204);
+let _ = idt[InterruptType::Irq205.convert_to_usize()].set_handler_fn(handle_irq205);
+let _ = idt[InterruptType::Irq206.convert_to_usize()].set_handler_fn(handle_irq206);
+let _ = idt[InterruptType::Irq207.convert_to_usize()].set_handler_fn(handle_irq207);
+let _ = idt[InterruptType::Irq208.convert_to_usize()].set_handler_fn(handle_irq208);
+let _ = idt[InterruptType::Irq209.convert_to_usize()].set_handler_fn(handle_irq209);
+let _ = idt[InterruptType::Irq210.convert_to_usize()].set_handler_fn(handle_irq210);
+let _ = idt[InterruptType::Irq211.convert_to_usize()].set_handler_fn(handle_irq211);
+let _ = idt[InterruptType::Irq212.convert_to_usize()].set_handler_fn(handle_irq212);
+let _ = idt[InterruptType::Irq213.convert_to_usize()].set_handler_fn(handle_irq213);
+let _ = idt[InterruptType::Irq214.convert_to_usize()].set_handler_fn(handle_irq214);
+let _ = idt[InterruptType::Irq215.convert_to_usize()].set_handler_fn(handle_irq215);
+let _ = idt[InterruptType::Irq216.convert_to_usize()].set_handler_fn(handle_irq216);
+let _ = idt[InterruptType::Irq217.convert_to_usize()].set_handler_fn(handle_irq217);
+let _ = idt[InterruptType::Irq218.convert_to_usize()].set_handler_fn(handle_irq218);
+let _ = idt[InterruptType::Irq219.convert_to_usize()].set_handler_fn(handle_irq219);
+let _ = idt[InterruptType::Irq220.convert_to_usize()].set_handler_fn(handle_irq220);
+let _ = idt[InterruptType::Irq221.convert_to_usize()].set_handler_fn(handle_irq221);
+let _ = idt[InterruptType::Irq222.convert_to_usize()].set_handler_fn(handle_irq222);
+let _ = idt[InterruptType::Irq223.convert_to_usize()].set_handler_fn(handle_irq223);
+let _ = idt[InterruptType::Irq224.convert_to_usize()].set_handler_fn(handle_irq224);
+let _ = idt[InterruptType::Irq225.convert_to_usize()].set_handler_fn(handle_irq225);
+let _ = idt[InterruptType::Irq226.convert_to_usize()].set_handler_fn(handle_irq226);
+let _ = idt[InterruptType::Irq227.convert_to_usize()].set_handler_fn(handle_irq227);
+let _ = idt[InterruptType::Irq228.convert_to_usize()].set_handler_fn(handle_irq228);
+let _ = idt[InterruptType::Irq229.convert_to_usize()].set_handler_fn(handle_irq229);
+let _ = idt[InterruptType::Irq230.convert_to_usize()].set_handler_fn(handle_irq230);
+let _ = idt[InterruptType::Irq231.convert_to_usize()].set_handler_fn(handle_irq231);
+let _ = idt[InterruptType::Irq232.convert_to_usize()].set_handler_fn(handle_irq232);
+let _ = idt[InterruptType::Irq233.convert_to_usize()].set_handler_fn(handle_irq233);
+let _ = idt[InterruptType::Irq234.convert_to_usize()].set_handler_fn(handle_irq234);
+let _ = idt[InterruptType::Irq235.convert_to_usize()].set_handler_fn(handle_irq235);
+let _ = idt[InterruptType::Irq236.convert_to_usize()].set_handler_fn(handle_irq236);
+let _ = idt[InterruptType::Irq237.convert_to_usize()].set_handler_fn(handle_irq237);
+let _ = idt[InterruptType::Irq238.convert_to_usize()].set_handler_fn(handle_irq238);
+let _ = idt[InterruptType::Irq239.convert_to_usize()].set_handler_fn(handle_irq239);
+let _ = idt[InterruptType::Irq240.convert_to_usize()].set_handler_fn(handle_irq240);
+let _ = idt[InterruptType::Irq241.convert_to_usize()].set_handler_fn(handle_irq241);
+let _ = idt[InterruptType::Irq242.convert_to_usize()].set_handler_fn(handle_irq242);
+let _ = idt[InterruptType::Irq243.convert_to_usize()].set_handler_fn(handle_irq243);
+let _ = idt[InterruptType::Irq244.convert_to_usize()].set_handler_fn(handle_irq244);
+let _ = idt[InterruptType::Irq245.convert_to_usize()].set_handler_fn(handle_irq245);
+let _ = idt[InterruptType::Irq246.convert_to_usize()].set_handler_fn(handle_irq246);
+let _ = idt[InterruptType::Irq247.convert_to_usize()].set_handler_fn(handle_irq247);
+let _ = idt[InterruptType::Irq248.convert_to_usize()].set_handler_fn(handle_irq248);
+let _ = idt[InterruptType::Irq249.convert_to_usize()].set_handler_fn(handle_irq249);
+let _ = idt[InterruptType::Irq250.convert_to_usize()].set_handler_fn(handle_irq250);
+let _ = idt[InterruptType::Irq251.convert_to_usize()].set_handler_fn(handle_irq251);
+let _ = idt[InterruptType::Irq252.convert_to_usize()].set_handler_fn(handle_irq252);
+let _ = idt[InterruptType::Irq253.convert_to_usize()].set_handler_fn(handle_irq253);
+let _ = idt[InterruptType::Irq254.convert_to_usize()].set_handler_fn(handle_irq254);
+let _ = idt[InterruptType::Irq255.convert_to_usize()].set_handler_fn(handle_irq255);
         idt
     };
     static ref TICK_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -536,6 +536,7 @@ table
 static X2APIC: AtomicBool = AtomicBool::new(false);
 static APIC: AtomicBool = AtomicBool::new(false);
 
+/// Initializes the programmable interrupt controller (PIC) and determines if an advanced programmable interrupt controller (APIC) or X2APIC is present.
 pub fn init_stage1() {
     use crate::memory::allocate_phys_range;
     info!("Stage 1 initialization started");
@@ -587,6 +588,7 @@ pub fn init_stage1() {
     info!("Stage 1 interrupt initialization complete");
 }
 
+/// Initializes either the APIC or X2APIC or reinitializes the PIC.
 pub async fn init_stage2() {
     info!("Disabling interrupts");
     x86_64::instructions::interrupts::disable();
@@ -690,7 +692,11 @@ macro_rules! gen_interrupt_fn {
                 tbl.get(&$p.convert_to_u8())
                     .unwrap()
                     .iter()
-                    .for_each(|func| (func)(stack_frame.clone()));
+                    .enumerate()
+                    .for_each(|(i, func)| {
+                    info!("Calling func {:X}", i);
+                    (func)(stack_frame.clone());
+                    });
         }
     };
 }
@@ -1170,13 +1176,13 @@ pub fn sleep_for(duration: u64) {
     }
 }
 
+/// Registers the given interrupt handler at the given interrupt. Note that this must be an interrupt greater than or equal to 32.
 pub fn register_interrupt_handler(interrupt: u8, func: InterruptHandler) -> usize {
     x86_64::instructions::interrupts::disable();
     debug!("Registering handler for int. {:X} ({:p})", interrupt, &func);
     let mut tbl = IRQ_FUNCS.write();
-    let irq = 32_u8.saturating_add(interrupt);
     let mut idx = 0usize;
-    if let Some(funcs) = tbl.get_mut(&irq) {
+    if let Some(funcs) = tbl.get_mut(&interrupt) {
         funcs.push(func);
         idx = funcs.len();
     }
@@ -1184,6 +1190,7 @@ pub fn register_interrupt_handler(interrupt: u8, func: InterruptHandler) -> usiz
     idx
 }
 
+/// Unregisters the given interrupt handler given an interrupt number and function index ID.
 pub fn unregister_interrupt_handler(int: u8, id: usize) -> bool {
     x86_64::instructions::interrupts::disable();
     debug!("Unregistering handler for int. {:X} (id {:X})", int, id);
@@ -1191,10 +1198,12 @@ pub fn unregister_interrupt_handler(int: u8, id: usize) -> bool {
     let irq = 32_u8.saturating_add(int);
     if let Some(funcs) = tbl.get_mut(&irq) {
         if funcs.len() >= id {
-            funcs.remove(id);
+            let _ = funcs.remove(id);
         } else {
+        x86_64::instructions::interrupts::enable();
             return false;
         }
     }
+    x86_64::instructions::interrupts::enable();
     true
 }

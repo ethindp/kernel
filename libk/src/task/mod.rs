@@ -24,12 +24,14 @@ impl fmt::Display for Tid {
     }
 }
 
+/// An asynchronous task
 pub struct AsyncTask {
     id: Tid,
     future: Pin<Box<dyn Future<Output = ()>>>,
 }
 
 impl AsyncTask {
+/// Creates a new asynchronous task.
     pub fn new(future: impl Future<Output = ()> + 'static) -> AsyncTask {
         AsyncTask {
             id: Tid::new(),

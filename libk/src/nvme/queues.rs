@@ -1,8 +1,10 @@
 use bit_field::BitField;
-use log::*;
 use minivec::MiniVec;
 use static_assertions::assert_eq_size;
 use voladdress::DynamicVolBlock;
+use heapless::String;
+use heapless::consts::*;
+use alloc::format;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
@@ -70,8 +72,38 @@ pub(crate) struct SubmissionQueueEntry {
 // Fail compilation if this is not so.
 assert_eq_size!(SubmissionQueueEntry, [u8; 64]);
 
+impl SubmissionQueueEntry {
+pub(crate) fn new(opcode: u8, optype: OpType, psdt: OpTransferType, cid: u16, nsid: u32, mptr: Option<u64>, dptr: [Option<u64>; 2], operands: [Option<u32>; 6]) -> Self {
+let mut entry = Self::default();
+entry.cdw0.set_bits(0..8, opcode as u32); // Opcode
+entry.cdw0.set_bits(8..10, optype as u32); // Fused operation
+entry.cdw0.set_bits(10..14, 0); // Reserved
+entry.cdw0.set_bits(14..16, psdt as u32); // PRP or SGL for Data Transfer (PSDT)
+entry.cdw0.set_bits(16..32, cid as u32); // Command Identifier (CID)
+entry.nsid = nsid;
+entry.mptr = if let Some (ptr) = mptr { ptr } else { 0 };
+entry.prps[0] = if let Some(prp) = dptr[0] {
+ptr
+} else {
+0
+};
+entry.prps[1] = if let Some(prp) = dptr[1] {
+ptr
+} else {
+0
+};
+(0 .. 6).for_each(|idx| if let Some(arg) = operands[idx] {
+entry.operands[idx] = arg;
+} else {
+entry.operands[idx] =0;
+});
+entry
+}
+}
+
+
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) struct CompletionQueueEntry {
     /// Command-specific return value
     pub(crate) cmdret: u32,
@@ -106,10 +138,8 @@ pub(crate) struct CompletionQueueEntry {
     /// This is a reserved bit in NVMe over Fabrics implementations.
     pub(crate) phase: bool,
     /// Status Field (SF): Indicates status for the command that is being completed.
-    pub(crate) status: u16,
+    pub(crate) status: Status,
 }
-// It is critical that this be 16 bytes.
-assert_eq_size!(CompletionQueueEntry, [u8; 16]);
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
@@ -117,6 +147,7 @@ pub(crate) struct SubmissionQueue {
     addr: usize,
     qtail: u16,
     entries: u16,
+    cid: u16,
 }
 
 impl SubmissionQueue {
@@ -125,13 +156,15 @@ impl SubmissionQueue {
             addr: addr as usize,
             qtail: 0,
             entries,
+            cid: 0,
         }
     }
 
     pub(crate) fn queue_command(&mut self, entry: SubmissionQueueEntry) {
         let addr: DynamicVolBlock<u32> =
             unsafe { DynamicVolBlock::new(self.addr, (self.entries * 16) as usize) };
-        debug!("Current tail: {}", self.qtail);
+            self.cid = self.cid.wrapping_add(1);
+            entry.cdw0.set_bits(16 .. 32, self.cid as u32);
         // Fill in array
         let mut cmd = [0u32; 16];
         // Dword 0 - CDW0 (command-specific)
@@ -156,17 +189,10 @@ impl SubmissionQueue {
         cmd[13] = entry.operands[3];
         cmd[14] = entry.operands[4];
         cmd[15] = entry.operands[5];
-        debug!("Entry data: CDW0 = {:X}, NSID = {:X}, MPTR = ({:X}, {:X}), PRP list = ({:X}, {:X}, {:X}, {:X}), ARGS = ({:X}, {:X}, {:X}, {:X}, {:X}, {:X})", cmd[0], cmd[1], cmd[4], cmd[5], cmd[6], cmd[7], cmd[8], cmd[9], cmd[10], cmd[11], cmd[12], cmd[13], cmd[14], cmd[15]);
         cmd.iter().enumerate().for_each(|(i, c)| {
-            debug!(
-                "Writing dword {:X}h, offset {:X}h",
-                i,
-                (self.qtail as usize) + i
-            );
             addr.index((self.qtail as usize) + i).write(*c);
         });
         self.qtail = self.qtail.wrapping_add(1) % self.entries;
-        debug!("New tail: {}", self.qtail);
     }
 
     pub(crate) fn get_queue_tail(&self) -> u16 {
@@ -200,10 +226,10 @@ impl CompletionQueue {
         let addr: DynamicVolBlock<u128> =
             unsafe { DynamicVolBlock::new(self.addr, self.entries as usize) };
         // Just consume everything damnit
-        (0..self.entries as usize).for_each(|i| {
-            let entry = addr.index((self.qhead as usize) + i).read();
+        (0..(self.entries / 16) as usize).for_each(|i| {
+            let entry = addr.index(i).read();
             if entry.get_bit(112) == self.phase {
-                self.qhead = self.qhead.wrapping_add(1) % self.entries;
+                            self.qhead = self.qhead.wrapping_add(1) % self.entries;
                 let cqe = CompletionQueueEntry {
                     cmdret: entry.get_bits(0..32) as u32,
                     _rsvd: 0,
@@ -211,7 +237,26 @@ impl CompletionQueue {
                     sqid: entry.get_bits(80..96) as u16,
                     cid: entry.get_bits(96..112) as u16,
                     phase: entry.get_bit(112),
-                    status: entry.get_bits(113..128) as u16,
+                    status: Status {
+                    dnr: entry.get_bit(127),
+                    more: entry.get_bit(126),
+                    crd: match entry.get_bits(124 .. 126) {
+                    0x00 => CRDType::Immediate,
+                    0x01 => CRDType::CRDT1,
+                    0x02 => CRDType::CRDT2,
+                    0x03 => CRDType::CRDT3,
+                    e => CRDType::Other(e as u8)
+                    },
+                    sct: match entry.get_bits(121 .. 124) {
+                    0x00 => StatusCodeType::Generic,
+                    0x01 => StatusCodeType::CommandSpecific,
+                    0x02 => StatusCodeType::MediaAndDataIntegrity,
+                    0x03 => StatusCodeType::Path,
+                    0x07 => StatusCodeType::VendorSpecific,
+                    e => StatusCodeType::Other(e as u8)
+                    },
+                    sc: entry.get_bits(113 .. 121) as u8
+                    },
                 };
                 entry_storage_queue.push(cqe);
             }
@@ -223,3 +268,168 @@ impl CompletionQueue {
         self.qhead
     }
 }
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct Status {
+/// Do Not Retry (DNR): If set to '1', indicates that if the same command is re-submitted to any
+/// controller in the NVM subsystem, then that re-submitted command is expected to fail. If cleared to
+/// '0', indicates that the same command may succeed if retried.
+pub dnr: bool,
+/// More (M): If set to '1', there is more status information for this command as part of the Error
+/// Information log that may be retrieved with the Get Log Page command. If cleared to '0', there is
+/// no additional status information for this command.
+pub more: bool,
+/// Command Retry Delay
+pub crd: CRDType,
+/// Status code type
+pub sct: StatusCodeType,
+/// Status Code
+pub sc: u8,
+}
+
+impl Status {
+/// Translates an error code into an error message
+pub fn to_string(&self) -> String<U128> {
+let mut msg: String<u128> = String::new();
+msg.push_str(match self.sct {
+StatusCodeType::Generic => match self.sc {
+0x00 => "Successful completion",
+0x01 => "Invalid command opcode",
+0x02 => "Invalid field in command",
+0x03 => "Command ID conflict",
+0x04 => "Data transfer error",
+0x05 => "Commands aborted due to power loss notification",
+0x06 => "Internal error",
+0x07 => "Command abort requested",
+0x08 => "Command aborted due to SQ deletion",
+0x09 => "Command aborted due to failed fused command",
+0x0a => "Command aborted due to missing fused command",
+0x0b => "Invalid namespace or format",
+0x0c => "Command sequence error",
+0x0d => "Invalid SGL segment descriptor",
+0x0e => "Invalid number of SGL descriptors",
+0x0f => "Data SGL length invalid",
+0x10 => "Metadata SGL length invalid",
+0x11 => "SGL descriptor type invalid",
+0x12 => "Invalid use of controller memory buffer",
+0x13 => "PRP offset invalid",
+0x14 => "Atomic write unit exceeded",
+0x15 => "Operation denied",
+0x16 => "SGL offset invalid",
+0x18 => "Host identifier inconsistent format",
+0x19 => "Keep alive timer expired",
+0x1a => "Keep alive timer invalid",
+0x1b => "Command aborted due to preempt and abort",
+0x1c => "Sanitize failed",
+0x1d => "Sanitize in progress",
+0x1e => "SGL data block granularity invalid",
+0x1f => "Command not supported for queue in CMB",
+0x20 => "Namespace is write protected",
+0x21 => "Command interrupted",
+0x22 => "Transient transport error",
+0x17 | 0x85 ..= 0xbf | 0x23 ..= 0x7f => "Reserved",
+0xc0 ..= 0xff => "Vendor specific",
+0x80 => "LBA out of range",
+0x81 => "Capacity exceeded",
+0x82 => "Namespace not ready",
+0x83 => "Reservation conflict",
+0x84 => "Format in progress",
+},
+StatusCodeType::CommandSpecific => match self.sc {
+0x00 => "Completion queue invalid",
+0x01 => "Invalid queue identifier",
+0x02 => "Invalid queue size",
+0x03 => "Abort command limit exceeded",
+0x05 => "Asynchronous event request limit exceeded",
+0x06 => "Invalid firmware slot",
+0x07 => "Invalid firmware image",
+0x08 => "Invalid interrupt vector",
+0x09 => "Invalid log page",
+0x0a => "Invalid format",
+0x0b => "Firmware activation requires conventional reset",
+0x0c => "Invalid queue deletion",
+0x0d => "Feature identifier not saveable",
+0x0e => "Feature not changeable",
+0x0f => "Feature not namespace specific",
+0x10 => "Firmware activation requires NVM subsystem reset",
+0x11 => "Firmware activation requires controller reset",
+0x12 => "Firmware activation requires maximum time violation",
+0x13 => "Firmware activation prohibited",
+0x14 => "Overlapping range",
+0x15 => "Namespace insufficient capacity",
+0x16 => "Namespace identifier unavailable",
+0x18 => "Namespace already attached",
+0x19 => "Namespace is private",
+0x1a => "Namespace not attached",
+0x1b => "Thin provisioning not supported",
+0x1c => "Controller list invalid",
+0x1d => "Device self-test in progress",
+0x1e => "Boot partition write prohibited",
+0x1f => "Invalid controller identifier",
+0x20 =>"Invalid secondary controller state",
+0x21 => "Invalid number of controller resources",
+0x22 => "Invalid resource identifier",
+0x23 => "Sanitize prohibited while persistent memory region is enabled",
+0x24 => "ANA group identifier invalid",
+0x25 => "ANA attach failed",
+0x04 | 0x18 | 0x26 ..= 0x6f | 0x83 .. 0xbf => "Reserved",
+0xc0 ..= 0xff => "Vendor specific",
+0x80 => "Conflicting attributes",
+0x81 => "Invalid protection information",
+0x82 => "Attempted write to read only range",
+0x70 .. 0x7f => "Directive specific",
+},
+StatusCodeType::MediaAndDataIntegrity => match self.sc {
+0x00 ..= 0x7f | 0x88 ..= 0xbf => "Reserved",
+0x80 => "Write fault",
+0x81 => "Unrecovered read error",
+0x82 => "End-to-end guard check error",
+0x83 => "End-to-end application tag check error",
+0x84 => "End-to-end reference tag check error",
+0x85 => "Compare failure",
+0x86 => "Access denied",
+0x87 => "Deallocated or unwritten logical block",
+0xc0 ..= 0xff => "Vendor specific",
+},
+StatusCodeType::Path => match self.sc {
+0x00 => "Internal path error",
+0x01 => "Asymmetric access persistent loss",
+0x02 => "Asymmetric access inaccessible",
+0x03 => "Asymmetric access transition",
+0x04 ..= 0x5f | 0x61 ..= 0x6f | 0x72 ..= 0x7f => "Reserved",
+0x60 => "Controller pathing error",
+0x70 => "Host pathing error",
+0x71 => "Command aborted by host",
+0x80 ..= 0xbf => "I/O specific",
+0xc0 ..= 0xff => "Vendor specific"
+},
+StatusCodeType::VendorSpecific => format!("Vendor specific (0x{:X})", self.sc).as_str(),
+StatusCodeType::Other(c) => format!("Other (0x{:X}): 0x{:X}", c, self.sc).as_str()
+});
+msg
+}
+}
+
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum CRDType {
+Immediate,
+CRDT1,
+CRDT2,
+CRDT3,
+Other(u8)
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum StatusCodeType {
+Generic,
+CommandSpecific,
+MediaAndDataIntegrity,
+Path,
+VendorSpecific,
+Other(u8)
+}
+
