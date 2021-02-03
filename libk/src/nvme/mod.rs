@@ -20,6 +20,7 @@ use x86_64::instructions::{hlt, interrupts::{disable as disable_interrupts, enab
 use rand_core::{RngCore, SeedableRng};
 use rand_hc::Hc128Rng;
 use core::{mem::size_of, sync::atomic::{AtomicUsize, Ordering}};
+pub use structs::*;
 
 lazy_static! {
     static ref CONTROLLERS: Mutex<MiniVec<NVMeController>> = Mutex::new(MiniVec::new());
@@ -1112,7 +1113,7 @@ Err(e) => Err(e)
 /// future CNS definitions.
 /// * Controller or namespace structure (CNS): specifies the information to return to the
 /// host.
-/// * NVM set identifier (nvmsetid): specifies the identier for the NVM set. Only used for
+/// * NVM set identifier (nvmsetid): specifies the identifier for the NVM set. Only used for
 /// the NVM set list.
 /// * UUID index (uuid): index of a UUID in the UUID list. Bit 7 is ignored. Optional
 ///
@@ -1178,16 +1179,55 @@ let seed: [u8; 32] = seed.into();
 Hc128Rng::from_seed(seed)
 }
 
-/// This union holds all possible return values for the identify command.
-#[repr(C)]
+/// This enumeration holds all possible return values for the identify command.
+#[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub union IdentifyResponse {
+pub enum IdentifyResponse {
 /// Identify Namespace data structure for the specified NSID or the common namespace
 /// capabilities
-pub ns: structs::IdentifyNamespaceResponse,
+IdNamespace(IdentifyNamespaceResponse),
 /// Identify Controller data structure for the controller processing the command
-pub controller: structs::IdentifyControllerResponse,
+IdController(IdentifyControllerResponse),
 /// Active Namespace ID list
-pub acns: [u32; 1024],
+ActiveNSList([u32; 1024]),
 /// Namespace Identification Descriptor list
-pub nid: 
+NSDescList(MiniVec<NSIDDescriptor>),
+/// NVM set list
+NVMSetList(NVMSetList),
+/// Allocated Namespace ID list
+AllocNsList([u32; 1024]),
+/// Identify Namespace data structure for an Allocated Namespace ID
+AllocIdNamespace(IdentifyNamespaceResponse),
+/// Namespace Attached Controller list
+NsAttachedControllerList([u16; 2048]),
+/// Controller list
+ControllerList([u16; 2048]),
+/// Primary Controller Capabilities data Structure
+PrimaryControllerCapabilities(PrimaryControllerCapabilities),
+/// Secondary Controller list
+ScList(SCList),
+/// Namespace Granularity List
+NsGranList(NSGranularityList),
+/// UUID List
+UuidList(UUIDList),
+/// Anything else
+Other([u8; 4096]),
+}
+
+/// If the weighted round robin with urgent priority class arbitration mechanism is supported, then host software
+/// may assign a queue priority service class of Urgent, High, Medium, or Low. If the weighted round robin with
+/// urgent priority class arbitration mechanism is not supported, then the priority setting is not used and is
+/// ignored by the controller.
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum QueuePriority {
+/// Urgent priority
+Urgent,
+/// High priority
+High,
+/// Medium priority
+Medium,
+/// Low priority
+Low,
+}
+
