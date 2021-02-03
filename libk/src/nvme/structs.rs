@@ -285,3 +285,145 @@ _rsvd2: [u128; 5],
 }
 assert_eq_size!(NVMSetEntry, [u8; 128]);
 
+/// Namespace identifier type
+#[repr(C, packed)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub union NSIdentifier {
+/// IEEE Extended Unique Identifier
+pub ieee: u64,
+/// Namespace Globally Unique Identifier
+pub guid: u128,
+/// Namespace UUID
+pub uuid: u128,
+}
+
+/// Namespace Identification Descriptor
+#[repr(C, packed)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct NSIDDescriptor {
+/// Namespace Identifier Type
+pub nit: u8,
+/// Namespace Identifier Length
+pub nidl: u8,
+_rsvd: u16,
+/// Namespace Identifier
+pub nid: NSIdentifier,
+}
+
+/// Primary Controller Capabilities Structure
+#[repr(C, packed)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct PrimaryControllerCapabilities {
+/// Controller Identifier
+pub cntlid: u16,
+/// Port Identifier
+pub portid: u16,
+/// Controller Resource Types
+pub crt: u8,
+_rsvd: [u8; 27],
+/// VQ Resources Flexible Total
+pub vqfrt: u32,
+/// VQ Resources Flexible Assigned
+pub vqrfa: u32,
+/// VQ Resources Flexible Allocated to Primary
+pub vqrfap: u16,
+/// VQ Resources Private Total
+pub vqprt: u16,
+/// VQ Resources Flexible Secondary Maximum
+pub vqfrsm: u16,
+/// VQ Flexible Resource Preferred Granularity
+pub vqgran: u16,
+_rsvd2: u128,
+/// VI Resources Flexible Total
+pub vifrt: u32,
+/// VI Resources Flexible Assigned
+pub vifra: u32,
+/// VI Resources Flexible Allocated to Primary
+pub virfap: u16,
+/// VI Resources Private Total
+pub viprt: u16,
+/// VI Resources Flexible Secondary Maximum
+pub vifrsm: u16,
+/// VI Flexible Resource Preferred Granularity
+pub vigran: u16,
+_rsvd3: [u8; 4016],
+}
+assert_eq_size!(PrimaryControllerCapabilities, [u8; 4096]);
+
+/// Secondary controller entry
+#[repr(C, packed)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct SCEntry {
+/// Secondary Controller Identifier
+pub scid: u16,
+/// Primary Controller Identifier
+pub pcid: u16,
+/// Secondary Controller State
+pub scs: u8,
+_rsvd: [u8; 3],
+/// Virtual Function Number
+pub vfn: u16,
+/// Number of VQ Flexible Resources Assigned
+pub nvq: u16,
+/// Number of VI Flexible Resources Assigned
+pub nvi: u16,
+_rsvd2: [u8; 17],
+}
+
+/// Secondary Controller List
+#[repr(C, packed)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct SCList {
+/// Number of identifiers in this list
+pub len: u8,
+_rsvd: [u8; 31],
+/// SC entries
+pub entries: [SCEntry; 128],
+}
+assert_eq_size!(SCList, [u8; 4096]);
+
+/// Namespace granularity list
+#[repr(C, packed)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct NSGranularityList {
+/// Namespace Granularity Attributes
+pub attrs: u32,
+/// Number of Descriptors
+pub len: u8,
+_rsvd: [u8; 27],
+pub descriptors: [NGDescriptor; 16],
+}
+assert_eq_size!(NSGranularityList, [u8; 288]);
+
+/// Namespace granularity descriptor
+#[repr(C, packed)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct NGDescriptor {
+/// Namespace Size Granularity
+pub size: u64,
+/// Namespace Capacity Granularity
+pub capacity: u64,
+}
+assert_eq_size!(NGDescriptor, [u8; 16]);
+
+/// UUID List
+#[repr(C, packed)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct UUIDList {
+_rsvd: u32,
+/// List of UUIDs
+pub uuids: [UUIDEntry; 128],
+}
+assert_eq_size!(UUIDList, [u8; 4096]);
+
+/// UUID entry
+#[repr(C, packed)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct UUIDEntry {
+/// UUID Lists Entry Header
+pub header: u8,
+_rsvd: [u8; 16],
+/// UUID value
+pub uuid: u128,
+}
+assert_eq_size!(UUIDEntry, [u8; 32]);
