@@ -7,25 +7,21 @@
 #![feature(option_result_contains)]
 #![feature(type_alias_impl_trait)]
 #![feature(alloc_layout_extra)]
-#![feature(const_in_array_repeat_expressions)]
 #![feature(llvm_asm)]
-#![feature(wake_trait)]
+#![feature(async_closure)]
 #![allow(dead_code)]
 #![forbid(
     absolute_paths_not_starting_with_crate,
     anonymous_parameters,
     deprecated_in_future,
     explicit_outlives_requirements,
-    invalid_html_tags,
     indirect_structural_match,
     keyword_idents,
     macro_use_extern_crate,
     meta_variable_misuse,
-    missing_crate_level_docs,
     missing_docs,
     non_ascii_idents,
     pointer_structural_match,
-    private_doc_tests,
     single_use_lifetimes,
     trivial_casts,
     trivial_numeric_casts,
@@ -34,7 +30,7 @@
     unused_extern_crates,
     unused_import_braces,
     unused_lifetimes,
-        variant_size_differences,
+    variant_size_differences,
     ambiguous_associated_items,
     arithmetic_overflow,
     conflicting_repr_hints,
@@ -52,13 +48,9 @@
     soft_unstable,
     unconditional_panic,
     unknown_crate_types,
-    useless_deprecated,
+    useless_deprecated
 )]
-#![deny(
-    warnings,
-    missing_copy_implementations,
-    missing_debug_implementations,
-)]
+#![deny(warnings, missing_copy_implementations, missing_debug_implementations)]
 #![forbid(clippy::all)]
 extern crate alloc;
 /// The acpi module contains acpi initialization routines
@@ -77,6 +69,19 @@ pub mod interrupts;
 /// The memory module contains functions for managing memory.
 pub mod memory;
 /// The nvme module contains core NvMe support required for future higher-level bootstrapping.
+///
+/// ## Commands
+///
+/// At the core of NVMe communication is the command. A command is submitted in queues, one for submission and one for completion. The NvMe driver handles the creation and deletion of queues.
+///
+/// There are two types of queues: an admin and an I/O queue.
+///
+/// * An admin queue allows administration of an NVMe controller, function, or subsystem. There is only one admin queue pair per controller. The admin queue may have up to 65536 entries.
+/// * An I/O queue allows the submission of NvM I/O commands. There may be up to 65534 I/O queues. Each queue may have up to 65536 entries.
+///
+/// Though the above limits are the absolute maximums, it is unlikely that most controllers will support them. Rather, it is more likely that a controller will support a much lower hard limit of entries in a queue, e.g.: up to 2048 entries per queue, rather than supporting 65536 entries. The higher the maximum entry limit is, the more memory that is consumed. In embedded environemnts or on systems with low amounts of memory, it may be desirable to severely limit the maximum number of queue entries to allow more memory for other tasks.
+///
+/// The maximum entries limit allows for a large degree of parallelism. The NVMe specification allows many applications to submit many commands simultaneously, and then have the controller process all the entries at once. To achieve an even higher level of parallelism, one can have multiple I/O queues. For example, an operating system may have one queue per process priority level such that each process will, with a high degree of certainty, submit a command in an empty queue. To facilitate such systems, NVMe contains a priority mechanism whereby a freshly created queue can tell the controller precisely what priority to allocate to each queue. This is called the arbitration mechanism. The specification defines only one, the round-robin arbitration mechanism, however it is possible that vendors may define others. In the round-robin arbitration system, the highest priority queues are processed first, followed by lower priority ones.
 pub mod nvme;
 /// The pci module contains functions for reading from PCI devices and enumerating PCI buses
 /// via the "brute-force" method.

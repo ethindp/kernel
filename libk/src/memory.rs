@@ -10,6 +10,7 @@ use rand_core::{RngCore, SeedableRng};
 use rand_hc::Hc128Rng;
 use spin::{Mutex, RwLock};
 use x86::random;
+use x86_64::addr::align_up;
 use x86_64::{
     registers::control::*,
     structures::paging::mapper::MapToError,
@@ -20,7 +21,6 @@ use x86_64::{
     },
     PhysAddr, VirtAddr,
 };
-use x86_64::addr::align_up;
 
 lazy_static! {
 /// The page table mapper (PTM) used by the kernel global memory allocator.
@@ -171,15 +171,15 @@ struct GlobalFrameAllocator {
 }
 
 impl GlobalFrameAllocator {
-/// Initializes the global frame allocator
-#[cold]
+    /// Initializes the global frame allocator
+    #[cold]
     pub fn init(memory_map: &'static MemoryMap) -> Self {
         GlobalFrameAllocator { memory_map }
     }
 }
 
 unsafe impl FrameAllocator<Size4KiB> for GlobalFrameAllocator {
-#[must_use]
+    #[must_use]
     fn allocate_frame(&mut self) -> Option<PhysFrame> {
         FPOS.fetch_add(1, Ordering::SeqCst);
         let regions = self.memory_map.iter();
@@ -230,7 +230,7 @@ pub extern "C" fn allocate_heap(start: u64, size: u64) {
 #[no_mangle]
 #[cold]
 pub extern "C" fn allocate_heap_with_perms(start: u64, size: u64, perms: u64) {
-let perms = PageTableFlags::from_bits_truncate(perms);
+    let perms = PageTableFlags::from_bits_truncate(perms);
     let mut mapper = MAPPER.lock();
     let mut allocator = FRAME_ALLOCATOR.lock();
     match (mapper.as_mut(), allocator.as_mut()) {
@@ -242,7 +242,7 @@ let perms = PageTableFlags::from_bits_truncate(perms);
 /// Allocates a paged (virtual) contiguous address range within [start, end]. `end` must be >= `start` and vice-versa.
 #[no_mangle]
 pub extern "C" fn allocate_page_range(start: u64, end: u64) {
-assert!(end >= start && start <= end, "Memory: Start must be <= end and end must be >= start!");
+    assert!(end > start, "Memory: end > start!");
     let mut mapper = MAPPER.lock();
     let mut allocator = FRAME_ALLOCATOR.lock();
     match (mapper.as_mut(), allocator.as_mut()) {
@@ -290,8 +290,8 @@ assert!(end >= start && start <= end, "Memory: Start must be <= end and end must
 /// Vol. 3A: System Programming Guide, sec. 4.1.
 #[no_mangle]
 pub extern "C" fn allocate_page_range_with_perms(start: u64, end: u64, permissions: u64) {
-assert!(end >= start && start <= end, "Memory: Start must be <= end and end must be >= start!");
-let permissions = PageTableFlags::from_bits_truncate(permissions);
+    assert!(end > start, "Memory: end > start!");
+    let permissions = PageTableFlags::from_bits_truncate(permissions);
     let mut mapper = MAPPER.lock();
     let mut allocator = FRAME_ALLOCATOR.lock();
     match (mapper.as_mut(), allocator.as_mut()) {
@@ -336,7 +336,7 @@ let permissions = PageTableFlags::from_bits_truncate(permissions);
 /// If `force` is specified, the allocation will occur even if the range is not marked as usable (free).
 #[no_mangle]
 pub extern "C" fn allocate_phys_range(start: u64, end: u64, force: bool) -> bool {
-assert!(end >= start && start <= end, "Memory: Start must be <= end and end must be >= start!");
+    assert!(end > start, "Memory: end > start!");
     let m = MMAP.read();
     let mut ret = true;
     let cnt = m
@@ -394,7 +394,7 @@ assert!(end >= start && start <= end, "Memory: Start must be <= end and end must
 /// Frees a contiguous range of memory (either virtual or physical). Is a no-op if this range is not allocated. `end must be >= `start` and vice-versa.
 #[no_mangle]
 pub extern "C" fn free_range(start: u64, end: u64) {
-assert!(end >= start && start <= end, "Memory: Start must be <= end and end must be >= start!");
+    assert!(end > start, "Memory: end > start!");
     let mut mapper = MAPPER.lock();
     match mapper.as_mut() {
         Some(m) => {
@@ -484,17 +484,23 @@ pub extern "C" fn get_aligned_free_addr(size: u64, alignment: u64) -> u64 {
         .filter(|r| r.region_type == MemoryRegionType::Usable)
         .map(|r| r.start..r.end)
         .collect();
-    let mut pos = align_up(rng.next_u64().wrapping_mul(0x7ABD).wrapping_add(0x1B0F)
-        % region_range.iter().map(|r| r.end).max().unwrap()
-        - size, alignment);
+    let mut pos = align_up(
+        rng.next_u64().wrapping_mul(0x7ABD).wrapping_add(0x1B0F)
+            % region_range.iter().map(|r| r.end).max().unwrap()
+            - size,
+        alignment,
+    );
     loop {
         let maxpos = align_up(pos + size, alignment);
         if region_range.iter().filter(|r| r.contains(&maxpos)).count() > 0 {
             break;
         }
-        pos = align_up(rng.next_u64().wrapping_mul(0x7ABD).wrapping_add(0x1B0F)
-            % region_range.iter().map(|r| r.end).max().unwrap()
-            - size, alignment);
+        pos = align_up(
+            rng.next_u64().wrapping_mul(0x7ABD).wrapping_add(0x1B0F)
+                % region_range.iter().map(|r| r.end).max().unwrap()
+                - size,
+            alignment,
+        );
     }
     let mut addr = pos;
     if addr.get_bits(47..64) != 0 {

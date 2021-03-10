@@ -46,6 +46,5 @@ pub fn get_pci_regions() -> Result<PciConfigRegions, AcpiError> {
 /// Returns information about the high precision event timer (HPET)
 #[cold]
 pub fn get_hpet_info() -> Result<HpetInfo, AcpiError> {
-HpetInfo::new(&TABLES)
+    HpetInfo::new(&TABLES)
 }
-
