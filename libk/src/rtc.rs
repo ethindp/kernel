@@ -182,7 +182,7 @@ pub fn current_time() -> (u128, u128, u128, u128, u128, u128, u128) {
         }
     }
     let sttsb = StatusB::from_bits(read(STTSB)).unwrap();
-    if sttsb.contains(StatusB::DATMD) {
+    if !sttsb.contains(StatusB::DATMD) {
         second = (second & 0x0F) + ((second / 16) * 10);
         minute = (minute & 0x0F) + ((minute / 16) * 10);
         hour = ((hour & 0x0F) + (((hour & 0x70) / 16) * 10)) | (hour & 0x80);

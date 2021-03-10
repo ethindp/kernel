@@ -4,7 +4,6 @@
 #![feature(alloc_error_handler)]
 #![feature(proc_macro_hygiene)]
 #![feature(asm)]
-#![feature(const_in_array_repeat_expressions)]
 #![allow(dead_code)]
 #![forbid(
     absolute_paths_not_starting_with_crate,

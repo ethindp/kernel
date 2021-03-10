@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MPL-2.0
-use core::any::Any;
 use core::result::Result;
 use minivec::MiniVec;
 
@@ -14,9 +13,10 @@ pub trait Disk {
     type Response;
     /// The process_command function submits a command to the hardware or software
     /// implementation.
-    fn process_command(req: Self::CommandRequest) -> Result<Self::Response, Self::Error>;
+    fn process_command(&mut self, req: Self::CommandRequest)
+        -> Result<Self::Response, Self::Error>;
     /// The process_commands function shall process all command requests and shall return all
     /// responses or errors for each processed command. This function is useful for
     /// implementations that allow batch processing.
-    fn process_commands(reqs: MiniVec<Self::CommandRequest>) -> MiniVec<Self::Response>;
+    fn process_commands(&mut self, reqs: MiniVec<Self::CommandRequest>) -> MiniVec<Self::Response>;
 }

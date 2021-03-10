@@ -67,9 +67,9 @@ pub struct IdentifyNamespaceResponse {
     /// Endurance Group Identifier
     pub endgid: u16,
     /// Namespace Globally Unique Identifier
-    pub nsguid: [u8; 16],
+    pub nsguid: u128,
     /// IEEE Extended Unique Identifier
-    pub eui64: [u8; 8],
+    pub eui64: u64,
     /// LBA Format Support
     pub lbaf: [u32; 16],
     _rsvd3: [u8; 192],
@@ -118,7 +118,7 @@ pub struct IdentifyControllerResponse {
     /// Controller Type
     pub cntrltype: u8,
     /// FRU Globally Unique Identifier
-    pub fguid: [u8; 16],
+    pub fguid: u128,
     /// Command Retry Delay Times
     pub crdt: [u16; 3],
     _rsvd2: [u8; 119],
@@ -255,175 +255,163 @@ assert_eq_size!(IdentifyControllerResponse, [u8; 4096]);
 /// NVM set list. See sec. 5.15.2.5 of the NVM specification, rev. 1.4a.
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct NVMSetList {
-/// Number of identifiers, 0-31.
-pub number_of_ids: u8,
-_rsvd: [u8; 127],
-/// NVM set entries in the list
-pub entries: [NVMSetEntry; 31],
+pub struct NvmSetList {
+    /// Number of identifiers, 0-31.
+    pub number_of_ids: u8,
+    _rsvd: [u8; 127],
+    /// NVM set entries in the list
+    pub entries: [NvmSetEntry; 31],
 }
-assert_eq_size!(NVMSetList, [u8; 4096]);
+assert_eq_size!(NvmSetList, [u8; 4096]);
 
 /// NVM set. See sec. 5.15.2.5 of the NVMe specification, rev. 1.4a.
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct NVMSetEntry {
-/// NVM set identifier
-pub set_id: u16,
-/// Endurance Group Identifier
-pub endurance_grp_id: u16,
-_rsvd: u32,
-/// Random 4 KiB Read Typical
-pub random_read_typical: u32,
-/// Optimal Write Size
-pub opt_write_sz: u32,
-/// Total NVM Set Capacity
-pub total_nvm_set_cap: u128,
-/// Unallocated NVM Set Capacity
-pub unalloc_nvm_set_cap: u128,
-_rsvd2: [u128; 5],
+pub struct NvmSetEntry {
+    /// NVM set identifier
+    pub set_id: u16,
+    /// Endurance Group Identifier
+    pub endurance_grp_id: u16,
+    _rsvd: u32,
+    /// Random 4 KiB Read Typical
+    pub random_read_typical: u32,
+    /// Optimal Write Size
+    pub opt_write_sz: u32,
+    /// Total NVM Set Capacity
+    pub total_nvm_set_cap: u128,
+    /// Unallocated NVM Set Capacity
+    pub unalloc_nvm_set_cap: u128,
+    _rsvd2: [u128; 5],
 }
-assert_eq_size!(NVMSetEntry, [u8; 128]);
+assert_eq_size!(NvmSetEntry, [u8; 128]);
 
 /// Namespace identifier type
-#[repr(C, packed)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub union NSIdentifier {
-/// IEEE Extended Unique Identifier
-pub ieee: u64,
-/// Namespace Globally Unique Identifier
-pub guid: u128,
-/// Namespace UUID
-pub uuid: u128,
-}
-
-/// Namespace Identification Descriptor
-#[repr(C, packed)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct NSIDDescriptor {
-/// Namespace Identifier Type
-pub nit: u8,
-/// Namespace Identifier Length
-pub nidl: u8,
-_rsvd: u16,
-/// Namespace Identifier
-pub nid: NSIdentifier,
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum NsIdentifierDescriptor {
+    /// IEEE Extended Unique Identifier
+    IeeeOui(u64),
+    /// Namespace Globally Unique Identifier
+    NsGuid(u128),
+    /// Namespace UUID
+    NsUuid(u128),
 }
 
 /// Primary Controller Capabilities Structure
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct PrimaryControllerCapabilities {
-/// Controller Identifier
-pub cntlid: u16,
-/// Port Identifier
-pub portid: u16,
-/// Controller Resource Types
-pub crt: u8,
-_rsvd: [u8; 27],
-/// VQ Resources Flexible Total
-pub vqfrt: u32,
-/// VQ Resources Flexible Assigned
-pub vqrfa: u32,
-/// VQ Resources Flexible Allocated to Primary
-pub vqrfap: u16,
-/// VQ Resources Private Total
-pub vqprt: u16,
-/// VQ Resources Flexible Secondary Maximum
-pub vqfrsm: u16,
-/// VQ Flexible Resource Preferred Granularity
-pub vqgran: u16,
-_rsvd2: u128,
-/// VI Resources Flexible Total
-pub vifrt: u32,
-/// VI Resources Flexible Assigned
-pub vifra: u32,
-/// VI Resources Flexible Allocated to Primary
-pub virfap: u16,
-/// VI Resources Private Total
-pub viprt: u16,
-/// VI Resources Flexible Secondary Maximum
-pub vifrsm: u16,
-/// VI Flexible Resource Preferred Granularity
-pub vigran: u16,
-_rsvd3: [u8; 4016],
+    /// Controller Identifier
+    pub cntlid: u16,
+    /// Port Identifier
+    pub portid: u16,
+    /// Controller Resource Types
+    pub crt: u8,
+    _rsvd: [u8; 27],
+    /// VQ Resources Flexible Total
+    pub vqfrt: u32,
+    /// VQ Resources Flexible Assigned
+    pub vqrfa: u32,
+    /// VQ Resources Flexible Allocated to Primary
+    pub vqrfap: u16,
+    /// VQ Resources Private Total
+    pub vqprt: u16,
+    /// VQ Resources Flexible Secondary Maximum
+    pub vqfrsm: u16,
+    /// VQ Flexible Resource Preferred Granularity
+    pub vqgran: u16,
+    _rsvd2: u128,
+    /// VI Resources Flexible Total
+    pub vifrt: u32,
+    /// VI Resources Flexible Assigned
+    pub vifra: u32,
+    /// VI Resources Flexible Allocated to Primary
+    pub virfap: u16,
+    /// VI Resources Private Total
+    pub viprt: u16,
+    /// VI Resources Flexible Secondary Maximum
+    pub vifrsm: u16,
+    /// VI Flexible Resource Preferred Granularity
+    pub vigran: u16,
+    _rsvd3: [u8; 4016],
 }
 assert_eq_size!(PrimaryControllerCapabilities, [u8; 4096]);
 
 /// Secondary controller entry
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct SCEntry {
-/// Secondary Controller Identifier
-pub scid: u16,
-/// Primary Controller Identifier
-pub pcid: u16,
-/// Secondary Controller State
-pub scs: u8,
-_rsvd: [u8; 3],
-/// Virtual Function Number
-pub vfn: u16,
-/// Number of VQ Flexible Resources Assigned
-pub nvq: u16,
-/// Number of VI Flexible Resources Assigned
-pub nvi: u16,
-_rsvd2: [u8; 17],
+pub struct ScEntry {
+    /// Secondary Controller Identifier
+    pub scid: u16,
+    /// Primary Controller Identifier
+    pub pcid: u16,
+    /// Secondary Controller State
+    pub scs: u8,
+    _rsvd: [u8; 3],
+    /// Virtual Function Number
+    pub vfn: u16,
+    /// Number of VQ Flexible Resources Assigned
+    pub nvq: u16,
+    /// Number of VI Flexible Resources Assigned
+    pub nvi: u16,
+    _rsvd2: [u8; 18],
 }
 
 /// Secondary Controller List
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct SCList {
-/// Number of identifiers in this list
-pub len: u8,
-_rsvd: [u8; 31],
-/// SC entries
-pub entries: [SCEntry; 128],
+pub struct ScList {
+    /// Number of identifiers in this list
+    pub len: u8,
+    _rsvd: [u8; 31],
+    /// SC entries
+    pub entries: [ScEntry; 127],
 }
-assert_eq_size!(SCList, [u8; 4096]);
+assert_eq_size!(ScList, [u8; 4096]);
 
 /// Namespace granularity list
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct NSGranularityList {
-/// Namespace Granularity Attributes
-pub attrs: u32,
-/// Number of Descriptors
-pub len: u8,
-_rsvd: [u8; 27],
-pub descriptors: [NGDescriptor; 16],
+pub struct NsGranularityList {
+    /// Namespace Granularity Attributes
+    pub attrs: u32,
+    /// Number of Descriptors
+    pub len: u8,
+    _rsvd: [u8; 27],
+    /// Descriptor list
+    pub descriptors: [NgDescriptor; 16],
 }
-assert_eq_size!(NSGranularityList, [u8; 288]);
+assert_eq_size!(NsGranularityList, [u8; 288]);
 
 /// Namespace granularity descriptor
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct NGDescriptor {
-/// Namespace Size Granularity
-pub size: u64,
-/// Namespace Capacity Granularity
-pub capacity: u64,
+pub struct NgDescriptor {
+    /// Namespace Size Granularity
+    pub size: u64,
+    /// Namespace Capacity Granularity
+    pub capacity: u64,
 }
-assert_eq_size!(NGDescriptor, [u8; 16]);
+assert_eq_size!(NgDescriptor, [u8; 16]);
 
 /// UUID List
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct UUIDList {
-_rsvd: u32,
-/// List of UUIDs
-pub uuids: [UUIDEntry; 128],
+pub struct UuidList {
+    _rsvd: [u8; 32],
+    /// List of UUIDs
+    pub uuids: [UuidEntry; 127],
 }
-assert_eq_size!(UUIDList, [u8; 4096]);
+assert_eq_size!(UuidList, [u8; 4096]);
 
 /// UUID entry
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct UUIDEntry {
-/// UUID Lists Entry Header
-pub header: u8,
-_rsvd: [u8; 16],
-/// UUID value
-pub uuid: u128,
+pub struct UuidEntry {
+    /// UUID Lists Entry Header
+    pub header: u8,
+    _rsvd: [u8; 15],
+    /// UUID value
+    pub uuid: u128,
 }
-assert_eq_size!(UUIDEntry, [u8; 32]);
+assert_eq_size!(UuidEntry, [u8; 32]);

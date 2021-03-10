@@ -31,7 +31,7 @@ pub struct AsyncTask {
 }
 
 impl AsyncTask {
-/// Creates a new asynchronous task.
+    /// Creates a new asynchronous task.
     pub fn new(future: impl Future<Output = ()> + 'static) -> AsyncTask {
         AsyncTask {
             id: Tid::new(),

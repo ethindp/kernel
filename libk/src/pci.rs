@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
+use alloc::boxed::Box;
 use bit_field::BitField;
+use core::future::Future;
+use core::pin::Pin;
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use log::*;
@@ -77,16 +80,19 @@ const CB_LEG_MODE_BASE: u32 = 0x44;
 
 type DeviceInformation = (u8, u8, u8); // Class, subclass, program interface
 type DeviceIdentification = MiniVec<DeviceInformation>; // Device information, optional alteration of int line.
-type InitFunc = fn(PCIDevice);
+type InitFunc = Box<dyn Fn(PciDevice) -> Pin<Box<dyn Future<Output = ()>>> + Send + Sync>;
 
 lazy_static! {
-    static ref PCI_DEVICES: RwLock<MiniVec<PCIDevice>> = RwLock::new(MiniVec::new());
+    static ref PCI_DEVICES: RwLock<MiniVec<PciDevice>> = RwLock::new(MiniVec::new());
     static ref DEV_INIT_FUNCS: RwLock<HashMap<DeviceIdentification, InitFunc>> = RwLock::new({
         let mut map: HashMap<DeviceIdentification, InitFunc> = HashMap::new();
         if cfg!(feature = "nvme") {
             use minivec::mini_vec;
             let dinfo = mini_vec![(0x01, 0x08, 0x02), (0x01, 0x08, 0x03)];
-            map.insert(dinfo, crate::nvme::init);
+            map.insert(
+                dinfo,
+                Box::new(|device| Box::pin(crate::nvme::init(device))),
+            );
         }
         map
     });
@@ -96,8 +102,8 @@ lazy_static! {
 /// This structure contains only static properties that remain unchanged.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default, Ord, PartialOrd, Eq, PartialEq, Hash)]
-pub struct PCIDevice {
-/// Segment group of the device. There can be up to 65536 segment groups.
+pub struct PciDevice {
+    /// Segment group of the device. There can be up to 65536 segment groups.
     pub segment_group: u16,
     /// Bus number of the device.
     pub bus: u8,
@@ -152,7 +158,7 @@ pub struct PCIDevice {
 }
 
 // Adds a device to the PCI device list.
-fn add_device(device: PCIDevice) {
+fn add_device(device: PciDevice) {
     let mut devs = PCI_DEVICES.write();
     let l = devs.len();
     devs.reserve(l * 2);
@@ -209,10 +215,10 @@ pub async fn probe() {
                 "segment group"
             }
         );
-        (0u16..maxsg).for_each(|sg|
-        (0 .. MAX_BUS).for_each(|bus|
-        (0 .. MAX_DEVICE).for_each(|device|
-        (0 .. MAX_FUNCTION).for_each(|function| {
+        for sg in 0u16..maxsg {
+            for bus in 0..MAX_BUS {
+                for device in 0..MAX_DEVICE {
+                    for function in 0..MAX_FUNCTION {
                         if let Some(addr) =
                             regions.physical_address(sg, bus as u8, device as u8, function as u8)
                         {
@@ -220,53 +226,63 @@ pub async fn probe() {
                             let _ = allocate_phys_range(addr, addr + 4096, true);
                             if (read_dword(addr as usize, VENDOR_ID) & 0xFFFF) == 0xFFFF {
                                 free_range(addr, addr + 4096);
-                                return;
-}
-                            let mut dev = PCIDevice {
-                            segment_group: sg,
-                            bus: bus as u8,
-                            slot: device as u8,
-                            function: function as u8,
-                            phys_addr: addr,
-                            vendor: (read_dword(addr as usize, VENDOR_ID) & 0xffff) as u16,
-                            device: (read_dword(addr as usize, VENDOR_ID) >> 16) as u16,
-                            class: read_byte(addr as usize, DEV_CLASS),
-                            subclass: read_byte(addr as usize, DEV_SUBCLASS),
-                            prog_if: read_byte(addr as usize, PROG_IF),
-                            revision: read_byte(addr as usize, REV_ID),
-                            htype: read_byte(addr as usize, HEADER_TYPE) & 0x7F,
+                                continue;
+                            }
+                            let mut dev = PciDevice {
+                                segment_group: sg,
+                                bus: bus as u8,
+                                slot: device as u8,
+                                function: function as u8,
+                                phys_addr: addr,
+                                vendor: (read_dword(addr as usize, VENDOR_ID) & 0xffff) as u16,
+                                device: (read_dword(addr as usize, VENDOR_ID) >> 16) as u16,
+                                class: read_byte(addr as usize, DEV_CLASS),
+                                subclass: read_byte(addr as usize, DEV_SUBCLASS),
+                                prog_if: read_byte(addr as usize, PROG_IF),
+                                revision: read_byte(addr as usize, REV_ID),
+                                htype: read_byte(addr as usize, HEADER_TYPE) & 0x7F,
                                 // Bridge or PCI card bus
-                                secondary_bus:                             if (read_byte(addr as usize, HEADER_TYPE) & 0x7F) == 1 || (read_byte(addr as usize, HEADER_TYPE) & 0x7F) == 2 {
-                                read_byte(addr as usize, SEC_BUS)
-                            } else {
-                            0
-                            },
-                            bars: (0, 0, 0, 0, 0, 0),
-                            cis_ptr: read_dword(addr as usize, CARDBUS_CIS),
-                            ssid: read_word(addr as usize, SS_ID),
-                            ssvid: read_word(addr as usize, SS_VENDOR_ID),
-                            exp_rom_base_addr: read_dword(addr as usize, ROM_ADDR),
-                            caps_ptr: read_byte(addr as usize, CAP_LIST),
-                            int_pin: read_byte(addr as usize, INT_PIN),
-                            int_line: read_byte(addr as usize, INT_LINE),
-                            unique_dev_id: 0,
+                                secondary_bus: if (read_byte(addr as usize, HEADER_TYPE) & 0x7F)
+                                    == 1
+                                    || (read_byte(addr as usize, HEADER_TYPE) & 0x7F) == 2
+                                {
+                                    read_byte(addr as usize, SEC_BUS)
+                                } else {
+                                    0
+                                },
+                                bars: (0, 0, 0, 0, 0, 0),
+                                cis_ptr: read_dword(addr as usize, CARDBUS_CIS),
+                                ssid: read_word(addr as usize, SS_ID),
+                                ssvid: read_word(addr as usize, SS_VENDOR_ID),
+                                exp_rom_base_addr: read_dword(addr as usize, ROM_ADDR),
+                                caps_ptr: read_byte(addr as usize, CAP_LIST),
+                                int_pin: read_byte(addr as usize, INT_PIN),
+                                int_line: read_byte(addr as usize, INT_LINE),
+                                unique_dev_id: 0,
                             };
-                            dev.bars = (calculate_bar_addr(&dev, BAR0) as u64, calculate_bar_addr(&dev, BAR1) as u64, calculate_bar_addr(&dev, BAR2) as u64, calculate_bar_addr(&dev, BAR3) as u64, calculate_bar_addr(&dev, BAR4) as u64, calculate_bar_addr(&dev, BAR5) as u64);
+                            dev.bars = (
+                                calculate_bar_addr(&dev, BAR0) as u64,
+                                calculate_bar_addr(&dev, BAR1) as u64,
+                                calculate_bar_addr(&dev, BAR2) as u64,
+                                calculate_bar_addr(&dev, BAR3) as u64,
+                                calculate_bar_addr(&dev, BAR4) as u64,
+                                calculate_bar_addr(&dev, BAR5) as u64,
+                            );
                             let mut dev_id = 0u128;
-                            dev_id.set_bits(0 .. 16, dev.segment_group as u128);
-                            dev_id.set_bits(16 .. 24, dev.bus as u128);
-                            dev_id.set_bits(24 .. 32, dev.slot as u128);
-                            dev_id.set_bits(32 .. 40, dev.function as u128);
-                            dev_id.set_bits(40 .. 56, dev.vendor as u128);
-                            dev_id.set_bits(56 .. 72, dev.device as u128);
-                            dev_id.set_bits(72 .. 88, dev.ssid as u128);
-                            dev_id.set_bits(88 .. 104, dev.ssvid as u128);
+                            dev_id.set_bits(0..16, dev.segment_group as u128);
+                            dev_id.set_bits(16..24, dev.bus as u128);
+                            dev_id.set_bits(24..32, dev.slot as u128);
+                            dev_id.set_bits(32..40, dev.function as u128);
+                            dev_id.set_bits(40..56, dev.vendor as u128);
+                            dev_id.set_bits(56..72, dev.device as u128);
+                            dev_id.set_bits(72..88, dev.ssid as u128);
+                            dev_id.set_bits(88..104, dev.ssvid as u128);
                             let mut random_bits: u64 = 0;
                             unsafe {
-                            random::rdrand64(&mut random_bits);
+                                random::rdrand64(&mut random_bits);
                             }
                             random_bits = random_bits.wrapping_mul(9908962810164294844);
-                            dev_id.set_bits(104 .. 128, random_bits.get_bits(0 .. 24) as u128);
+                            dev_id.set_bits(104..128, random_bits.get_bits(0..24) as u128);
                             dev.unique_dev_id = dev_id;
                             let mut cmd = read_word(addr as usize, COMMAND);
                             cmd.set_bit(0, true);
@@ -280,38 +296,41 @@ pub async fn probe() {
                             cmd.set_bit(8, true);
                             cmd.set_bit(9, false);
                             cmd.set_bit(10, true);
-                            cmd.set_bits(11 .. 16, 0);
+                            cmd.set_bits(11..16, 0);
                             write_word(addr as usize, COMMAND, cmd);
-                            info!("Detected device of type {} with vendor ID of {:X} and subsystem ID {:X}", classify_program_interface(dev.class, dev.subclass, dev.prog_if).unwrap_or_else(|| classify_subclass(dev.class, dev.subclass).unwrap_or_else(|| classify_class(dev.class).unwrap_or("Unknown Device"))), dev.vendor, dev.ssid);
+                            info!("Detected device of type {} with vendor ID of {:X} and subsystem ID {:X}, uniquely  assigned ID: {:X}h", classify_program_interface(dev.class, dev.subclass, dev.prog_if).unwrap_or_else(|| classify_subclass(dev.class, dev.subclass).unwrap_or_else(|| classify_class(dev.class).unwrap_or("Unknown Device"))), dev.vendor, dev.ssid, dev.unique_dev_id);
                             if read_word(addr as usize, STATUS).get_bit(4) {
-                            info!("Device implements capabilities list, scanning");
-                            let mut caddr = (addr as usize) + (dev.caps_ptr as usize);
-                            loop {
-                            let caps = read_dword(caddr, 0x00);
-                            let id = caps.get_bits(0 .. 8);
-                            let nptr = caps.get_bits(8 .. 16);
-                            if nptr == 0x00 || nptr == 0xff {
-                            break;
-                            }
-                            info!("Discovered capability ID {:X}h at addr {:X}h", id, caddr);
-                            if id == 0x11 {
-                            info!("Device supports MSI-X, enabling");
-                            let mut int: u8 = 0;
-                            // The algorithm for trying to re-randomize a 16-bit number comes from the 6502 forums: http://forum.6502.org/viewtopic.php?f=2&t=5247&sid=01f33d4f5663073b3bd1abcc62cdffb8&start=0
-                            while int < 0x30 && int != 0xFE && int != 0xFD {
-                            let mut i = 0u16;
-                            unsafe {
-                            random::rdrand16(&mut i);
-                            }
-                            i = i.wrapping_mul(0x7ABD).wrapping_add(0x1B0F) % 0xFC;
-                            int = i.get_bits(0 .. 8) as u8;
-                            }
-                            dev.int_line = int;
-                            info!("Using interrupt {} ({:X}h)", int, int);
-                            let mc = read_dword(caddr, 0x00);
-                            let tsize = mc.get_bits(16 .. 27) + 1;
-                            let mc = read_dword(caddr, 0x04);
-                            let memstart = match mc.get_bits(0 .. 3) {
+                                info!("Device implements capabilities list, scanning");
+                                let mut caddr = (addr as usize) + (dev.caps_ptr as usize);
+                                loop {
+                                    let caps = read_dword(caddr, 0x00);
+                                    let id = caps.get_bits(0..8);
+                                    let nptr = caps.get_bits(8..16);
+                                    if nptr == 0x00 || nptr == 0xff {
+                                        break;
+                                    }
+                                    info!(
+                                        "Discovered capability ID {:X}h at addr {:X}h",
+                                        id, caddr
+                                    );
+                                    if id == 0x11 {
+                                        info!("Device supports MSI-X, enabling");
+                                        let mut int: u8 = 0;
+                                        // The algorithm for trying to re-randomize a 16-bit number comes from the 6502 forums: http://forum.6502.org/viewtopic.php?f=2&t=5247&sid=01f33d4f5663073b3bd1abcc62cdffb8&start=0
+                                        while int < 0x30 && int != 0xFE && int != 0xFD {
+                                            let mut i = 0u16;
+                                            unsafe {
+                                                random::rdrand16(&mut i);
+                                            }
+                                            i = i.wrapping_mul(0x7ABD).wrapping_add(0x1B0F) % 0xFC;
+                                            int = i.get_bits(0..8) as u8;
+                                        }
+                                        dev.int_line = int;
+                                        info!("Using interrupt {} ({:X}h)", int, int);
+                                        let mc = read_dword(caddr, 0x00);
+                                        let tsize = mc.get_bits(16..27) + 1;
+                                        let mc = read_dword(caddr, 0x04);
+                                        let memstart = match mc.get_bits(0 .. 3) {
                             0 => dev.bars.0 + (mc.get_bits(3 .. 32) as u64),
                             1 => dev.bars.1 + (mc.get_bits(3 .. 32) as u64),
                             2 => dev.bars.2 + (mc.get_bits(3 .. 32) as u64),
@@ -320,10 +339,16 @@ pub async fn probe() {
                             5 => dev.bars.5 + (mc.get_bits(3 .. 32) as u64),
                             e => panic!("Device uses BAR {:X}h for MSI-X, which is not valid!", e)
                             };
-                            info!("Using memaddr {:X}h for MSI-X, table size: {:X}h", memstart, tsize);
-                            allocate_phys_range(memstart, memstart + (16 * (tsize as u64)), true);
-let table: DynamicVolBlock<u128> = unsafe { DynamicVolBlock::new(memstart as usize, tsize as usize) };
-(0 .. (tsize-1) as usize).for_each(|e| {
+                                        info!("Using memaddr {:X}h for MSI-X, table size: {:X}h, BAR {:X}h", memstart, tsize, mc.get_bits(0 .. 3));
+                                        allocate_phys_range(
+                                            memstart,
+                                            memstart + (16 * (tsize as u64)),
+                                            true,
+                                        );
+                                        let table: DynamicVolBlock<u128> = unsafe {
+                                            DynamicVolBlock::new(memstart as usize, tsize as usize)
+                                        };
+                                        (0 .. (tsize-1) as usize).for_each(|e| {
 let mut entry = table.index(e).read();
 entry.set_bit(96, false);
 let mut msgaddr = 0u64;
@@ -344,24 +369,34 @@ entry.set_bits(64 .. 96, msgdata as u128);
 debug!("Vector {}: vector control={:X}, message data={:X}, message address={:X}, vector entry={:X}", e, entry.get_bits(96 .. 128), entry.get_bits(64 .. 96), entry.get_bits(0 .. 64), entry);
 table.index(e).write(entry);
 });
-let mut mc = read_dword(caddr, 0x00);
-mc.set_bit(31, true);
-write_dword(caddr, 0x00, mc);
-                            }
-                            caddr += read_word(caddr, 0x0).get_bits(8 .. 16) as usize;
-                            }
+                                        let mut mc = read_dword(caddr, 0x00);
+                                        mc.set_bit(31, true);
+                                        write_dword(caddr, 0x00, mc);
+                                    }
+                                    caddr += read_word(caddr, 0x0).get_bits(8..16) as usize;
+                                }
                             }
                             let funcs = DEV_INIT_FUNCS.read();
-                            funcs.iter().filter(|(k, _)| {
-                            let devs: MiniVec<&DeviceInformation> = k.iter().filter(|dinfo| read_byte(addr as usize, DEV_CLASS) == dinfo.0 && read_byte(addr as usize, DEV_SUBCLASS) == dinfo.1 && read_byte(addr as usize, PROG_IF) == dinfo.2).collect();
-                            !devs.is_empty()
-                            }).for_each(|(_, v)| {
-                            info!("Found device driver for class={:X}, subclass={:X}, program interface={:X}; initializing", dev.class, dev.subclass, dev.prog_if);
-                            (v)(dev);
-                            });
+                            for (k, v) in funcs.iter() {
+                                let devs: MiniVec<&DeviceInformation> = k
+                                    .iter()
+                                    .filter(|dinfo| {
+                                        read_byte(addr as usize, DEV_CLASS) == dinfo.0
+                                            && read_byte(addr as usize, DEV_SUBCLASS) == dinfo.1
+                                            && read_byte(addr as usize, PROG_IF) == dinfo.2
+                                    })
+                                    .collect();
+                                if !devs.is_empty() {
+                                    info!("Found device driver for class={:X}, subclass={:X}, program interface={:X}; initializing", dev.class, dev.subclass, dev.prog_if);
+                                    (v)(dev).await;
+                                }
+                            }
                             add_device(dev);
                         }
-                    }))));
+                    }
+                }
+            }
+        }
         let mut devs = PCI_DEVICES.write();
         devs.shrink_to_fit();
     } else {
@@ -381,7 +416,7 @@ pub async fn init() {
 }
 
 #[inline]
-fn calculate_bar_addr(dev: &PCIDevice, addr: u32) -> usize {
+fn calculate_bar_addr(dev: &PciDevice, addr: u32) -> usize {
     let bar1 = read_dword(dev.phys_addr as usize, addr);
     if !bar1.get_bit(0) {
         match bar1.get_bits(1..=2) {
@@ -409,7 +444,7 @@ fn calculate_bar_addr(dev: &PCIDevice, addr: u32) -> usize {
 }
 
 /// Locates a PCI device using a class, subclass and program interface.
-pub async fn find_device(class: u8, subclass: u8, interface: u8) -> Option<PCIDevice> {
+pub async fn find_device(class: u8, subclass: u8, interface: u8) -> Option<PciDevice> {
     let devs = PCI_DEVICES.read();
     devs.iter()
         .filter(|d| d.class == class && d.subclass == subclass && d.prog_if == interface)

@@ -5,18 +5,18 @@ rustc_version = "0.3.3"
 
 [dependencies]
 bit_field = "0.10.1"
-heapless = "0.5.6"
+heapless = "0.6.1"
 linked_list_allocator = "0.8.11"
 spin = "0.7.1"
-uart_16550 = "0.2.11"
-vga = "0.2.5"
+uart_16550 = "0.2.12"
+vga = "0.2.6"
 
 [dependencies.bootloader]
 features = [
     'map_physical_memory',
     'sse',
 ]
-version = "0.9.11"
+version = "0.9.16"
 
 [dependencies.lazy_static]
 features = ['spin_no_std']
@@ -27,10 +27,9 @@ path = 'libk'
 
 [dependencies.log]
 default-features = false
-version = "0.4.13"
+version = "0.4.14"
 
 [dependencies.x86_64]
-features = ['deny-warnings']
 git = 'https://github.com/rust-osdev/x86_64'
 
 [package]

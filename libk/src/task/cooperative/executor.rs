@@ -17,7 +17,7 @@ struct TaskWaker {
 }
 
 impl Executor {
-/// Creates an executor.
+    /// Creates an executor.
     pub fn new() -> Self {
         info!("Creating cooperative executor");
         Executor {
@@ -27,7 +27,7 @@ impl Executor {
         }
     }
 
-/// Spawns a new task.
+    /// Spawns a new task.
     pub fn spawn(&mut self, task: AsyncTask) {
         let id = task.id;
         info!("Spawning task {:X}", id.0);
@@ -64,7 +64,7 @@ impl Executor {
         }
     }
 
-/// Runs the executor (only do this after all tasks have been loaded).
+    /// Runs the executor (only do this after all tasks have been loaded).
     pub fn run(&mut self) -> ! {
         loop {
             self.execute_ready();

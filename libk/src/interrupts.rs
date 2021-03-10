@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 use crate::gdt;
+use alloc::boxed::Box;
 use bit_field::BitField;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use cpuio::{inb, outb};
@@ -10,15 +11,14 @@ use log::*;
 use minivec::MiniVec;
 use raw_cpuid::*;
 use spin::RwLock;
+use voladdress::{VolAddress, VolSeries};
 use x86::apic::x2apic::*;
+use x86::msr::*;
 use x86_64::registers::model_specific::Msr;
 use x86_64::{
     structures::idt::PageFaultErrorCode,
     structures::idt::{InterruptDescriptorTable, InterruptStackFrame, InterruptStackFrameValue},
 };
-use voladdress::{VolSeries, VolAddress};
-use x86::msr::*;
-use alloc::boxed::Box;
 
 /// Types to contain IRQ functions and interrupt handlers
 type IrqList = FnvIndexMap<u8, MiniVec<InterruptHandler>, U256>;
@@ -641,13 +641,13 @@ pub async fn init_stage2() {
             x2apic.attach();
             info!("X2apic configured");
         } else {
-                unsafe {
+            unsafe {
                 let mut base = rdmsr(IA32_APIC_BASE);
                 base.set_bit(11, true);
                 wrmsr(IA32_APIC_BASE, base);
-                }
-                let base: VolAddress<u32> = unsafe { VolAddress::new((apic_addr() + 0x0F0) as usize) };
-                base.write(1 << 8 | 15);
+            }
+            let base: VolAddress<u32> = unsafe { VolAddress::new((apic_addr() + 0x0F0) as usize) };
+            base.write(1 << 8 | 15);
             info!("Apic configured");
         }
     } else {
@@ -685,18 +685,18 @@ pub async fn init_stage2() {
 macro_rules! gen_interrupt_fn {
     ($i:ident, $p:path) => {
         extern "x86-interrupt" fn $i(stack_frame: &mut InterruptStackFrame) {
-        debug!("Interrupt received for int {}", $p.convert_to_u8());
-                    signal_eoi($p.convert_to_u8());
+            signal_eoi($p.convert_to_u8());
+            debug!("Interrupt received for int {}", $p.convert_to_u8());
             let tbl = IRQ_FUNCS.read();
             debug!("Acquired lock");
-                tbl.get(&$p.convert_to_u8())
-                    .unwrap()
-                    .iter()
-                    .enumerate()
-                    .for_each(|(i, func)| {
+            tbl.get(&$p.convert_to_u8())
+                .unwrap()
+                .iter()
+                .enumerate()
+                .for_each(|(i, func)| {
                     info!("Calling func {:X}", i);
                     (func)(stack_frame.clone());
-                    });
+                });
         }
     };
 }
@@ -1200,7 +1200,7 @@ pub fn unregister_interrupt_handler(int: u8, id: usize) -> bool {
         if funcs.len() >= id {
             let _ = funcs.remove(id);
         } else {
-        x86_64::instructions::interrupts::enable();
+            x86_64::instructions::interrupts::enable();
             return false;
         }
     }
