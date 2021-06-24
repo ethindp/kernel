@@ -1,0 +1,66 @@
+[config]
+skip_core_tasks = true
+reduce_output = true
+
+[tasks.default]
+run_task = { name = ["format", "build", "run"] }
+
+[tasks.format]
+command = "cargo"
+args = ["fmt", "--all"]
+
+[tasks.build]
+run_task = { name = ["check_kernel", "clippy_kernel", "build_kernel", "build_bootloader"] }
+dependencies = ["format"]
+
+[tasks.build_kernel]
+command = "cargo"
+args = ["build", "-Zbuild-std=core,compiler_builtins,alloc", "-Zbuild-std-features=compiler-builtins-mem", "--target", "x86_64-kernel-none.json"]
+
+[tasks.build_bootloader]
+script_runner = "@rust"
+script = '''
+//!```cargo
+//![dependencies]
+//!bootloader-locator = "*"
+//!```
+use std::process::Command;
+use std::env::var;
+use bootloader_locator::locate_bootloader;
+
+fn main() {
+    println!("Locating Bootloader");
+    let mut bootloader_location = locate_bootloader("bootloader").expect("Could not find bootloader");
+    bootloader_location.pop();
+    let bootloader_location = bootloader_location.into_os_string();
+    let bootloader_location = bootloader_location.to_str().unwrap();
+    println!("Bootloader Location was set to {}", bootloader_location.clone());
+
+    let cwd = var("CARGO_MAKE_WORKING_DIRECTORY").expect("CARGO_MAKE_WORKING_DIRECTORY not set");
+
+    let mut builder_command = Command::new("cargo");
+    builder_command.current_dir(bootloader_location);
+    builder_command.args(&["builder", "--kernel-manifest", &(cwd.clone() + "/Cargo.toml"), "--kernel-binary", &(cwd.clone() + "/target/x86_64-kernel-none/debug/kernel"), "--target-dir", &(cwd.clone() + "/target"), "--out-dir", &(cwd.clone() + "/target/x86_64-kernel-none/debug")]);
+    println!("Running cargo builder");
+    builder_command.status().expect("Failed to run cargo builder");
+}
+'''
+
+[tasks.run]
+command = "qemu-system-x86_64"
+args = ["-drive", "format=raw,file=${CARGO_MAKE_WORKING_DIRECTORY}/target/x86_64-kernel-none/debug/boot-uefi-kernel.img", "-drive", "if=pflash,format=raw,file=OVMF.fd,readonly=on", "-drive", "file=disk.img,if=none,id=NVME01", "-device", "nvme,drive=NVME01,serial=0001", "-m", "20G", "-usb", "-rtc", "clock=host", "-cpu", "max", "-smp", "cpus=8", "-M", "q35", "-name", "kernel", "-s", "-nographic", "-debugcon", "file:qemu.log", "-global", "isa-debugcon.iobase=0x402", "-d", "int", "-D", "qemu2.log", "-no-reboot"]
+
+[tasks.run_debug]
+command = "qemu-system-x86_64"
+args = ["-drive", "format=raw,file=${CARGO_MAKE_WORKING_DIRECTORY}/target/x86_64-kernel-none/debug/boot-uefi-kernel.img", "-drive", "if=pflash,format=raw,file=OVMF.fd,readonly=on", "-drive", "file=disk.img,if=none,id=NVME01", "-device", "nvme,drive=NVME01,serial=0001", "-m", "20G", "-usb", "-rtc", "clock=host", "-cpu", "max", "-smp", "cpus=8", "-M", "q35", "-name", "kernel", "-s", "-nographic", "-debugcon", "file:qemu.log", "-global", "isa-debugcon.iobase=0x402", "-d", "int", "-D", "qemu2.log", "-S"]
+dependencies = ["build"]
+
+[tasks.check_kernel]
+command = "cargo"
+args = ["check", "-Zbuild-std=core,compiler_builtins,alloc", "-Zbuild-std-features=compiler-builtins-mem", "--target", "x86_64-kernel-none.json"]
+
+[tasks.clippy_kernel]
+command = "cargo"
+args = ["clippy", "-Zbuild-std=core,compiler_builtins,alloc", "-Zbuild-std-features=compiler-builtins-mem", "--target", "x86_64-kernel-none.json"]
+
+

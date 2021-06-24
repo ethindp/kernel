@@ -4,7 +4,6 @@
 #![feature(alloc_error_handler)]
 #![feature(proc_macro_hygiene)]
 #![feature(asm)]
-#![allow(dead_code)]
 #![forbid(
     absolute_paths_not_starting_with_crate,
     anonymous_parameters,
@@ -24,9 +23,7 @@
     unused_crate_dependencies,
     unused_import_braces,
     unused_lifetimes,
-    variant_size_differences
-)]
-#![deny(
+    variant_size_differences,
     warnings,
     missing_copy_implementations,
     missing_debug_implementations,
@@ -34,13 +31,13 @@
 )]
 #![forbid(clippy::all)]
 extern crate alloc;
-mod vga;
+mod graphics;
 use bit_field::BitField;
-use bootloader::bootinfo::*;
+use bootloader::boot_info::*;
 use bootloader::*;
 use core::arch::x86_64::{__cpuid, __cpuid_count};
 use core::panic::PanicInfo;
-use heapless::{consts::*, String};
+use heapless::String;
 use linked_list_allocator::*;
 use log::*;
 use x86_64::instructions::random::RdRand;
@@ -62,7 +59,7 @@ fn panic(panic_information: &PanicInfo) -> ! {
 }
 
 // Kernel entry point
-fn kmain(boot_info: &'static BootInfo) -> ! {
+fn kmain(boot_info: &'static mut BootInfo) -> ! {
     set_logger(&LOGGER).unwrap();
     if cfg!(debug_assertions) {
         set_max_level(LevelFilter::Trace);
@@ -73,7 +70,6 @@ fn kmain(boot_info: &'static BootInfo) -> ! {
         error!("rdrand is not supported on this system, but rdrand is required");
         libk::idle_forever();
     }
-
     info!(
         "Kernel, v. {}",
         if let Some(version) = VERSION {
@@ -88,7 +84,7 @@ fn kmain(boot_info: &'static BootInfo) -> ! {
     unsafe {
         let mut res = __cpuid_count(0, 0);
         let vs = {
-            let mut buf: String<U12> = String::new();
+            let mut buf: String<12> = String::new();
             let ebx = u32::to_le_bytes(res.ebx);
             let edx = u32::to_le_bytes(res.edx);
             let ecx = u32::to_le_bytes(res.ecx);
@@ -107,7 +103,7 @@ fn kmain(boot_info: &'static BootInfo) -> ! {
         res = __cpuid(0x80000000);
         if res.eax > 0x80000000 {
             let bs = {
-                let mut buf: String<U128> = String::new();
+                let mut buf: String<128> = String::new();
                 for i in 0x80000002u32..0x80000005u32 {
                     let res = __cpuid(i);
                     for i in u32::to_le_bytes(res.eax).iter() {
@@ -130,55 +126,64 @@ fn kmain(boot_info: &'static BootInfo) -> ! {
             info!("Detected processor: {}", vs);
         }
     }
-    info!("Configuring processor");
-    info!("Locating kernel heap area");
+    info!("Initializing memory region list");
+    libk::memory::init_memory_map(
+        &boot_info.memory_regions,
+        boot_info.rsdp_addr.into_option().unwrap(),
+    );
+    info!("Loading descriptor tables and enabling interrupts");
+    libk::gdt::init();
+    libk::interrupts::init_idt();
+    info!("Initializing virtual memory manager");
     let rdrand = RdRand::new().unwrap();
     let mut start_addr: u64 = 0x0100_0000_0000 + rdrand.get_u64().unwrap();
     start_addr.set_bits(47..64, 0);
     let mut end_addr = start_addr + MAX_HEAP_SIZE;
     end_addr.set_bits(47..64, 0);
-    info!("Initializing memory manager");
     libk::memory::init(
-        boot_info.physical_memory_offset,
-        &boot_info.memory_map,
+        boot_info.physical_memory_offset.into_option().unwrap(),
         start_addr,
         MAX_HEAP_SIZE,
     );
-    info!("Enabling interrupts, first stage");
-    libk::interrupts::init_stage1();
-    info!("Initializing global heap allocator");
+    info!("Configuring interrupt controller");
+    libk::interrupts::init_ic();
+    info!("Initializing internal heap allocator");
     unsafe {
         ALLOCATOR
             .lock()
             .init(start_addr as usize, (end_addr - start_addr) as usize);
     }
-    info!("init: firmware-provided memory map:");
-    for region in boot_info.memory_map.iter() {
+    info!("firmware-provided memory map:");
+    for region in boot_info.memory_regions.iter() {
         info!(
-            "[{:X}-{:X}] [size {:X}]: {}",
-            region.range.start_addr(),
-            region.range.end_addr(),
-            region.range.end_addr() - region.range.start_addr(),
-            match region.region_type {
-                MemoryRegionType::Usable => "free",
-                MemoryRegionType::InUse => "sw-reserved",
-                MemoryRegionType::Reserved => "hw-reserved",
-                MemoryRegionType::AcpiReclaimable => "ACPI, reclaimable",
-                MemoryRegionType::AcpiNvs => "ACPI, NVS",
-                MemoryRegionType::BadMemory => "bad",
-                MemoryRegionType::Kernel => "reserved by kernel",
-                MemoryRegionType::KernelStack => "reserved by kernel",
-                MemoryRegionType::PageTable => "reserved by kernel",
-                MemoryRegionType::Bootloader => "reserved by boot loader",
-                MemoryRegionType::FrameZero => "NULL",
-                MemoryRegionType::Empty => "empty",
-                MemoryRegionType::BootInfo => "reserved by boot information",
-                MemoryRegionType::Package => "pkg",
-                _ => "unknown",
+            "[{:X}-{:X}]: {}",
+            region.start,
+            region.end,
+            match region.kind {
+                MemoryRegionKind::Usable => "free",
+                MemoryRegionKind::UnknownUefi(kind) => match kind {
+                    0 => "reserved",
+                    1 => "loader code",
+                    2 => "loader data",
+                    3 => "boot services code",
+                    4 => "boot services data",
+                    5 => "runtime services code",
+                    6 => "runtime services data",
+                    8 => "unusable",
+                    9 => "acpi reclaimable",
+                    10 => "acpi non-volatile",
+                    11 => "mmio",
+                    12 => "port mmio",
+                    13 => "pal code",
+                    14 => "free nvm",
+                    _ => "unknown uefi",
+                },
+                MemoryRegionKind::UnknownBios(_) => "unknown bios",
+                MemoryRegionKind::Bootloader => "bootloader",
+                _ => "Unknown",
             }
         );
     }
-    libk::memory::init_memory_map(&boot_info.memory_map);
     libk::init();
     libk::idle_forever();
 }

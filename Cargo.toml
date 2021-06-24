@@ -1,26 +1,24 @@
+[package]
+authors = ['Ethin Probst <harlydavidsen@gmail.com>']
+build = 'build.rs'
+edition = '2018'
+license = 'MPL-2.0'
+name = 'kernel'
+version = '0.1.0'
+
 [build-dependencies]
 build_details = "0.1.2"
 build_script_file_gen = "0.6.1"
-rustc_version = "0.3.3"
+rustc_version = "0.4.0"
 
 [dependencies]
 bit_field = "0.10.1"
-heapless = "0.6.1"
-linked_list_allocator = "0.8.11"
-spin = "0.7.1"
-uart_16550 = "0.2.12"
-vga = "0.2.6"
-
-[dependencies.bootloader]
-features = [
-    'map_physical_memory',
-    'sse',
-]
-version = "0.9.16"
-
-[dependencies.lazy_static]
-features = ['spin_no_std']
-version = "1.4.0"
+heapless = "0.7.1"
+linked_list_allocator = "0.9.0"
+spin = "0.9.1"
+uart_16550 = "0.2.15"
+bootloader = { git = "https://github.com/rust-osdev/bootloader" }
+x86_64 = "0.14.3"
 
 [dependencies.libk]
 path = 'libk'
@@ -29,51 +27,10 @@ path = 'libk'
 default-features = false
 version = "0.4.14"
 
-[dependencies.x86_64]
-git = 'https://github.com/rust-osdev/x86_64'
-
-[package]
-authors = ['Ethin Probst <harlydavidsen@gmail.com>']
-build = 'build.rs'
-edition = '2018'
-license = 'MPL-2.0'
-name = 'kernel'
-version = '0.1.0'
-[package.metadata.bootimage]
-run-args = [
-    '-no-reboot',
-    '-drive',
-    'file=disk.img,if=none,id=NVME01',
-    '-device',
-    'nvme,drive=NVME01,serial=0001',
-    '-m',
-    '4G',
-    '-usb',
-    '-rtc',
-    'base=utc,clock=host',
-    '-cpu',
-    'Skylake-Client-v3',
-    '-smp',
-    'cpus=8',
-    '-M',
-    'q35',
-    '-name',
-    'kernel',
-    '-s',
-    '-d',
-    'trace:pci_*,trace:apic_*',
-    '-D',
-    'qemu.log',
-    '-nographic',
-#    '-S',
-]
-
 [package.metadata.bootloader]
-kernel-stack-size = 2048
-
-[package.metadata.cargo-xbuild]
-memcpy = true
-sysroot_path = 'target/sysroot'
+kernel-stack-size = "1048576"
+map-physical-memory = true
+map-framebuffer = true
 
 [profile.dev]
 codegen-units = 64
@@ -88,5 +45,7 @@ rpath = false
 
 [profile.release]
 codegen-units = 1
-lto = 'thin'
-panic = 'abort'
+lto = 'fat'
+opt-level = 'z'
+
+

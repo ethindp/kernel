@@ -1,46 +1,49 @@
 // SPDX-License-Identifier: MPL-2.0
 use bit_field::BitField;
-use bootloader::bootinfo::*;
+use bootloader::boot_info::*;
 use core::ops::Range;
-use core::sync::atomic::{AtomicU64, Ordering};
-use lazy_static::lazy_static;
+use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use heapless::Vec;
 use log::*;
 use minivec::MiniVec;
 use rand_core::{RngCore, SeedableRng};
 use rand_hc::Hc128Rng;
-use spin::{Mutex, RwLock};
+use spin::{mutex::ticket::TicketMutex, Lazy, Once};
 use x86::random;
-use x86_64::addr::align_up;
 use x86_64::{
+    addr::align_up,
     registers::control::*,
     structures::paging::mapper::MapToError,
     structures::paging::page::PageRangeInclusive,
     structures::paging::OffsetPageTable,
     structures::paging::{
-        FrameAllocator, Mapper, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB,
+        FrameAllocator, FrameDeallocator, Mapper, Page, PageTable, PageTableFlags, PhysFrame,
+        Size4KiB,
     },
     PhysAddr, VirtAddr,
 };
 
-lazy_static! {
 /// The page table mapper (PTM) used by the kernel global memory allocator.
-static ref MAPPER: Mutex<Option<OffsetPageTable<'static>>> = Mutex::new(None);
+static MAPPER: Lazy<TicketMutex<Option<OffsetPageTable<'static>>>> =
+    Lazy::new(|| TicketMutex::new(None));
 /// The global frame allocator (GFA); works in conjunction with the PTM.
-static ref FRAME_ALLOCATOR: Mutex<Option<GlobalFrameAllocator>> = Mutex::new(None);
-static ref MMAP: RwLock<MiniVec<MemoryRegion>> = RwLock::new(MiniVec::new());
-static ref ADDRRNG: Mutex<Hc128Rng> = Mutex::new({
-let mut seed = [0u8; 32];
-unsafe {
-random::rdseed_slice(&mut seed);
-}
-Hc128Rng::from_seed(seed)
+static FRAME_ALLOCATOR: Lazy<TicketMutex<Option<GlobalFrameAllocator>>> =
+    Lazy::new(|| TicketMutex::new(None));
+static MMAP: Once<Vec<MemoryRegion, 1024>> = Once::new();
+static ADDRRNG: Lazy<TicketMutex<Hc128Rng>> = Lazy::new(|| {
+    TicketMutex::new({
+        let mut seed = [0u8; 32];
+        unsafe {
+            random::rdseed_slice(&mut seed);
+        }
+        Hc128Rng::from_seed(seed)
+    })
 });
-}
-
 static MUSE: AtomicU64 = AtomicU64::new(0);
 static SMUSE: AtomicU64 = AtomicU64::new(0);
 static STOTAL: AtomicU64 = AtomicU64::new(0);
-static FPOS: AtomicU64 = AtomicU64::new(0);
+static FPOS: AtomicUsize = AtomicUsize::new(0);
+static RSDP: AtomicU64 = AtomicU64::new(0);
 
 /// Initializes a memory heap for the global memory allocator. Requires a PMO to start with.
 #[cold]
@@ -57,12 +60,13 @@ unsafe fn init_mapper(physical_memory_offset: u64) -> OffsetPageTable<'static> {
 
 /// Allocates a paged heap.
 #[cold]
-fn allocate_paged_heap(
+pub fn allocate_paged_heap(
     start: u64,
     size: u64,
     mapper: &mut impl Mapper<Size4KiB>,
     frame_allocator: &mut impl FrameAllocator<Size4KiB>,
 ) {
+    debug!("Allocating heap in paged memory with start of {:X}", start);
     // Construct a page range
     let page_range = {
         // Calculate start and end
@@ -72,17 +76,32 @@ fn allocate_paged_heap(
         let heap_end_page = Page::containing_address(heap_end);
         Page::range_inclusive(heap_start_page, heap_end_page)
     };
+    debug!("Page range constructed: {:?}", page_range);
     // Allocate appropriate page frames
     page_range.for_each(|page| {
+        debug!(
+            "Requesting new page frame for page at addr {:X} with size {:X}",
+            page.start_address().as_u64(),
+            page.size()
+        );
+        debug!(
+            "Page table indexes: {:?}, {:?}, {:?}, {:?}",
+            page.p4_index(),
+            page.p3_index(),
+            page.p2_index(),
+            page.p1_index()
+        );
         let frame = match frame_allocator.allocate_frame() {
             Some(f) => f,
             None => panic!("Can't allocate frame!"),
         };
         let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
         let frame2 = frame;
+        debug!("Requesting mapping of page with flags {:X}", flags);
         unsafe {
             match mapper.map_to(page, frame, flags, frame_allocator) {
                 Ok(f) => {
+                    debug!("Map complete, flushing TLB");
                     f.flush();
                     MUSE.fetch_add(1, Ordering::Relaxed);
                 }
@@ -99,26 +118,8 @@ fn allocate_paged_heap(
 }
 
 /// Allocates a paged heap with the specified permissions.
-/// Possible permissions are:
-/// * Writable (W): controls whether writes to the mapped frames are allowed. If this bit is
-/// unset in a level 1 page table entry, the mapped frame is read-only.
-///     If this bit is unset in a higher level page table entry the complete range of mapped
-/// pages is read-only.
-/// * User accessible (UA): controls whether accesses from userspace (i.e. ring 3) are
-/// permitted.
-/// * Write-through (WT): if this bit is set, a "write-through" policy is used for the cache,
-/// else a "write-back" policy is used.
-/// * No cache (NC): Disables caching for this memory page.
-/// * Huge page (HP): specifies that the entry maps a huge frame instead of a page table.
-/// Only allowed in P2 or P3 tables.
-/// * Global (G): indicates that the mapping is present in all address spaces, so it isn't
-/// flushed from the TLB on an address space switch.
-/// * bits 9, 10, 11, and 52-62: available to the OS, can be used to store additional data,
-/// e.g. custom flags.
-/// * No execute (NX): forbid code execution from the mapped frames. Can be only used when
-/// the no-execute page protection feature is enabled in the EFER register.
 #[cold]
-fn allocate_paged_heap_with_perms(
+pub fn allocate_paged_heap_with_perms(
     start: u64,
     size: u64,
     mapper: &mut impl Mapper<Size4KiB>,
@@ -166,48 +167,62 @@ unsafe fn get_active_l4_table(physical_memory_offset: u64) -> (&'static mut Page
 }
 
 #[derive(Debug, Copy, Clone)]
-struct GlobalFrameAllocator {
-    memory_map: &'static MemoryMap,
-}
+struct GlobalFrameAllocator;
 
 impl GlobalFrameAllocator {
     /// Initializes the global frame allocator
     #[cold]
-    pub fn init(memory_map: &'static MemoryMap) -> Self {
-        GlobalFrameAllocator { memory_map }
+    pub fn init() -> Self {
+        FPOS.store(0, Ordering::Relaxed);
+        GlobalFrameAllocator {}
     }
 }
 
 unsafe impl FrameAllocator<Size4KiB> for GlobalFrameAllocator {
     #[must_use]
     fn allocate_frame(&mut self) -> Option<PhysFrame> {
-        FPOS.fetch_add(1, Ordering::SeqCst);
-        let regions = self.memory_map.iter();
-        let usable_regions = regions.filter(|r| r.region_type == MemoryRegionType::Usable);
-        let addr_ranges = usable_regions.map(|r| r.range.start_addr()..r.range.end_addr());
-        let frame_addresses = addr_ranges.flat_map(|r| r.step_by(4096));
-        frame_addresses
-            .map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
-            .nth(FPOS.load(Ordering::SeqCst) as usize)
+        if MMAP.is_completed() {
+            FPOS.fetch_add(1, Ordering::SeqCst);
+            return MMAP
+                .get()
+                .unwrap()
+                .iter()
+                .map(|r| r.start..r.end)
+                .flat_map(|r| r.step_by(4096))
+                .map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
+                .nth(FPOS.load(Ordering::Relaxed));
+        } else {
+            warn!("Memory allocation attempted when MMAP was not ready");
+            warn!("Waiting for memory map to be ready...");
+            FPOS.fetch_add(1, Ordering::SeqCst);
+            return MMAP
+                .wait()
+                .iter()
+                .map(|r| r.start..r.end)
+                .flat_map(|r| r.step_by(4096))
+                .map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
+                .nth(FPOS.load(Ordering::Relaxed));
+        }
+    }
+}
+
+impl FrameDeallocator<Size4KiB> for GlobalFrameAllocator {
+    unsafe fn deallocate_frame(&mut self, _: PhysFrame) {
+        FPOS.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
 /// Initializes the memory subsystem.
 #[cold]
-pub fn init(
-    physical_memory_offset: u64,
-    memory_map: &'static MemoryMap,
-    start_addr: u64,
-    size: u64,
-) {
+pub fn init(physical_memory_offset: u64, start_addr: u64, size: u64) {
     let mut mapper = MAPPER.lock();
-    let mut allocator = FRAME_ALLOCATOR.lock();
     *mapper = Some(unsafe { init_mapper(physical_memory_offset) });
-    *allocator = Some(GlobalFrameAllocator::init(memory_map));
+    let mut allocator = FRAME_ALLOCATOR.lock();
+    *allocator = Some(GlobalFrameAllocator::init());
     let end_addr = start_addr + size;
     match (mapper.as_mut(), allocator.as_mut()) {
         (Some(m), Some(a)) => allocate_paged_heap(start_addr, end_addr - start_addr, m, a),
-        _ => panic!("Cannot acquire mapper or frame allocator lock!"),
+        _ => panic!("Memory allocator or page frame allocator failed creation!"),
     }
 }
 
@@ -215,11 +230,9 @@ pub fn init(
 #[no_mangle]
 #[cold]
 pub extern "C" fn allocate_heap(start: u64, size: u64) {
-    let mut mapper = MAPPER.lock();
-    let mut allocator = FRAME_ALLOCATOR.lock();
-    match (mapper.as_mut(), allocator.as_mut()) {
+    match (MAPPER.lock().as_mut(), FRAME_ALLOCATOR.lock().as_mut()) {
         (Some(m), Some(a)) => allocate_paged_heap(start, size, m, a),
-        _ => panic!("Cannot acquire mapper or frame allocator lock!"),
+        _ => panic!("Memory allocator or page frame allocator failed creation!"),
     }
 }
 
@@ -231,21 +244,25 @@ pub extern "C" fn allocate_heap(start: u64, size: u64) {
 #[cold]
 pub extern "C" fn allocate_heap_with_perms(start: u64, size: u64, perms: u64) {
     let perms = PageTableFlags::from_bits_truncate(perms);
-    let mut mapper = MAPPER.lock();
-    let mut allocator = FRAME_ALLOCATOR.lock();
-    match (mapper.as_mut(), allocator.as_mut()) {
+    match (MAPPER.lock().as_mut(), FRAME_ALLOCATOR.lock().as_mut()) {
         (Some(m), Some(a)) => allocate_paged_heap_with_perms(start, size, m, a, perms),
-        _ => panic!("Cannot acquire mapper or frame allocator lock!"),
+        _ => panic!("Memory allocator or page frame allocator failed creation!"),
     }
 }
 
 /// Allocates a paged (virtual) contiguous address range within [start, end]. `end` must be >= `start` and vice-versa.
 #[no_mangle]
 pub extern "C" fn allocate_page_range(start: u64, end: u64) {
-    assert!(end > start, "Memory: end > start!");
-    let mut mapper = MAPPER.lock();
-    let mut allocator = FRAME_ALLOCATOR.lock();
-    match (mapper.as_mut(), allocator.as_mut()) {
+    if end < start {
+        warn!(
+            "attempt to allocate {} with start of {:X} and end of {:X}",
+            end - start,
+            start,
+            end
+        );
+        return;
+    }
+    match (MAPPER.lock().as_mut(), FRAME_ALLOCATOR.lock().as_mut()) {
         (Some(m), Some(a)) => {
             let page_range = {
                 let start = VirtAddr::new(start);
@@ -290,11 +307,17 @@ pub extern "C" fn allocate_page_range(start: u64, end: u64) {
 /// Vol. 3A: System Programming Guide, sec. 4.1.
 #[no_mangle]
 pub extern "C" fn allocate_page_range_with_perms(start: u64, end: u64, permissions: u64) {
-    assert!(end > start, "Memory: end > start!");
+    if end < start {
+        warn!(
+            "attempt to allocate {} with start of {:X} and end of {:X}",
+            end - start,
+            start,
+            end
+        );
+        return;
+    }
     let permissions = PageTableFlags::from_bits_truncate(permissions);
-    let mut mapper = MAPPER.lock();
-    let mut allocator = FRAME_ALLOCATOR.lock();
-    match (mapper.as_mut(), allocator.as_mut()) {
+    match (MAPPER.lock().as_mut(), FRAME_ALLOCATOR.lock().as_mut()) {
         (Some(m), Some(a)) => {
             let page_range = {
                 let start = VirtAddr::new(start);
@@ -332,25 +355,31 @@ pub extern "C" fn allocate_page_range_with_perms(start: u64, end: u64, permissio
     SMUSE.fetch_add(end - start, Ordering::Relaxed);
 }
 
-/// Allocates a physical memory address range within [start, end]. `end must be >= `start` and vice-versa.
+/// Allocates a physical memory address range within [start, end]. `end must be > `start`.
 /// If `force` is specified, the allocation will occur even if the range is not marked as usable (free).
 #[no_mangle]
 pub extern "C" fn allocate_phys_range(start: u64, end: u64, force: bool) -> bool {
-    assert!(end > start, "Memory: end > start!");
-    let m = MMAP.read();
+    if end < start {
+        warn!(
+            "attempt to allocate {} with start of {:X} and end of {:X}",
+            end - start,
+            start,
+            end
+        );
+        return false;
+    }
+    let m = MMAP.get().unwrap();
     let mut ret = true;
     let cnt = m
         .iter()
         .filter(|r| {
-            r.region_type == MemoryRegionType::Usable
+            r.kind == MemoryRegionKind::Usable
                 && (r.start..r.end).contains(&start)
                 && (r.start..r.end).contains(&end)
         })
         .count();
     if cnt > 0 || force {
-        let mut mapper = MAPPER.lock();
-        let mut allocator = FRAME_ALLOCATOR.lock();
-        match (mapper.as_mut(), allocator.as_mut()) {
+        match (MAPPER.lock().as_mut(), FRAME_ALLOCATOR.lock().as_mut()) {
             (Some(m), Some(a)) => {
                 let frame_range = {
                     let start = PhysAddr::new(start);
@@ -391,71 +420,93 @@ pub extern "C" fn allocate_phys_range(start: u64, end: u64, force: bool) -> bool
     }
 }
 
-/// Frees a contiguous range of memory (either virtual or physical). Is a no-op if this range is not allocated. `end must be >= `start` and vice-versa.
+/// Frees a contiguous range of memory (either virtual or physical). Is a no-op if this range is not allocated. `end` must be > `start`.
 #[no_mangle]
-pub extern "C" fn free_range(start: u64, end: u64) {
-    assert!(end > start, "Memory: end > start!");
-    let mut mapper = MAPPER.lock();
-    match mapper.as_mut() {
+pub extern "C" fn free_range(start: u64, end: u64) -> bool {
+    if end < start {
+        warn!(
+            "attempt to allocate {} with start of {:X} and end of {:X}",
+            end - start,
+            start,
+            end
+        );
+        return false;
+    }
+    let mut ret = false;
+    let page_range: PageRangeInclusive<Size4KiB> = {
+        let start = VirtAddr::new(start);
+        let end = VirtAddr::new(end);
+        let start_page = Page::containing_address(start);
+        let end_page = Page::containing_address(end);
+        Page::range_inclusive(start_page, end_page)
+    };
+    match MAPPER.lock().as_mut() {
         Some(m) => {
-            let page_range: PageRangeInclusive<Size4KiB> = {
-                let start = VirtAddr::new(start);
-                let end = VirtAddr::new(end);
-                let start_page = Page::containing_address(start);
-                let end_page = Page::containing_address(end);
-                Page::range_inclusive(start_page, end_page)
-            };
             page_range.for_each(|page| match m.unmap(page) {
                 Ok((_, r)) => {
                     r.flush();
                     MUSE.fetch_sub(1, Ordering::Relaxed);
+                    ret = true;
                 }
-                Err(e) => warn!(
-                    "Cannot unmap physical memory address range {:X}h-{:X}h: {:#?}",
-                    start, end, e
-                ),
+                Err(e) => {
+                    warn!(
+                        "Cannot unmap physical memory address range {:X}h-{:X}h: {:#?}",
+                        start, end, e
+                    );
+                    ret = false;
+                }
             });
         }
-        _ => panic!("Memory allocator or frame allocator are not set"),
+        _ => panic!("Page mapper not initialized!"),
     }
     SMUSE.fetch_sub(end - start, Ordering::Relaxed);
+    ret
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct MemoryRegion {
     pub start: u64,
     pub end: u64,
-    pub region_type: MemoryRegionType,
+    pub kind: MemoryRegionKind,
 }
 
 /// Initializes the internal memory map.
 #[cold]
-pub fn init_memory_map(map: &'static MemoryMap) {
-    let mut mmap = MMAP.write();
-    map.iter().for_each(|region| {
-        mmap.push(MemoryRegion {
-            start: region.range.start_addr(),
-            end: region.range.end_addr(),
-            region_type: region.region_type,
+pub fn init_memory_map(map: &'static MemoryRegions, rsdpaddr: u64) {
+    info!(
+        "Loading free memory region list from memory map at {:p}",
+        &map
+    );
+    MMAP.call_once(|| {
+        let mut mmap: Vec<MemoryRegion, 1024> = Vec::new();
+        map.iter().for_each(|region| {
+            mmap.push(MemoryRegion {
+                start: region.start,
+                end: region.end,
+                kind: region.kind,
+            })
+            .unwrap();
+            STOTAL.fetch_add(region.end - region.start, Ordering::Relaxed);
         });
-        STOTAL.fetch_add(
-            region.range.end_addr() - region.range.start_addr(),
-            Ordering::Relaxed,
-        );
+        mmap
     });
+    info!("Discovered {} bytes of RAM", STOTAL.load(Ordering::Relaxed));
+    info!("RSDP at {:X}", rsdpaddr);
+    RSDP.swap(rsdpaddr, Ordering::Relaxed);
 }
 
 /// Attempts to find a random memory address that is free that allows allocations of the given size.
 #[no_mangle]
 pub extern "C" fn get_free_addr(size: u64) -> u64 {
-    let mut rng = ADDRRNG.lock();
     let region_range: MiniVec<Range<u64>> = MMAP
-        .read()
+        .get()
+        .unwrap()
         .iter()
-        .filter(|r| r.region_type == MemoryRegionType::Usable)
+        .filter(|r| r.kind == MemoryRegionKind::Usable)
         .map(|r| r.start..r.end)
         .collect();
-    let mut pos = rng.next_u64().wrapping_mul(0x7ABD).wrapping_add(0x1B0F)
+    let mut addrrng = ADDRRNG.lock();
+    let mut pos = addrrng.next_u64().wrapping_mul(0x7ABD).wrapping_add(0x1B0F)
         % region_range.iter().map(|r| r.end).max().unwrap()
         - size;
     loop {
@@ -463,7 +514,7 @@ pub extern "C" fn get_free_addr(size: u64) -> u64 {
         if region_range.iter().filter(|r| r.contains(&maxpos)).count() > 0 {
             break;
         }
-        pos = rng.next_u64().wrapping_mul(0x7ABD).wrapping_add(0x1B0F)
+        pos = addrrng.next_u64().wrapping_mul(0x7ABD).wrapping_add(0x1B0F)
             % region_range.iter().map(|r| r.end).max().unwrap()
             - size;
     }
@@ -477,15 +528,16 @@ pub extern "C" fn get_free_addr(size: u64) -> u64 {
 /// Attempts to find a memory address that allows allocations of the given size. Will automatically align the address to the given alignment before returning.
 #[no_mangle]
 pub extern "C" fn get_aligned_free_addr(size: u64, alignment: u64) -> u64 {
-    let mut rng = ADDRRNG.lock();
     let region_range: MiniVec<Range<u64>> = MMAP
-        .read()
+        .get()
+        .unwrap()
         .iter()
-        .filter(|r| r.region_type == MemoryRegionType::Usable)
+        .filter(|r| r.kind == MemoryRegionKind::Usable)
         .map(|r| r.start..r.end)
         .collect();
+    let mut addrrng = ADDRRNG.lock();
     let mut pos = align_up(
-        rng.next_u64().wrapping_mul(0x7ABD).wrapping_add(0x1B0F)
+        addrrng.next_u64().wrapping_mul(0x7ABD).wrapping_add(0x1B0F)
             % region_range.iter().map(|r| r.end).max().unwrap()
             - size,
         alignment,
@@ -496,7 +548,7 @@ pub extern "C" fn get_aligned_free_addr(size: u64, alignment: u64) -> u64 {
             break;
         }
         pos = align_up(
-            rng.next_u64().wrapping_mul(0x7ABD).wrapping_add(0x1B0F)
+            addrrng.next_u64().wrapping_mul(0x7ABD).wrapping_add(0x1B0F)
                 % region_range.iter().map(|r| r.end).max().unwrap()
                 - size,
             alignment,
@@ -507,4 +559,10 @@ pub extern "C" fn get_aligned_free_addr(size: u64, alignment: u64) -> u64 {
         addr.set_bits(47..64, 0);
     }
     addr
+}
+
+/// Gets the address for the RSDP
+#[inline]
+pub fn get_rsdp() -> u64 {
+    RSDP.load(Ordering::Relaxed)
 }

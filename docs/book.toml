@@ -1,0 +1,6 @@
+[book]
+authors = ["Ethin Probst"]
+language = "en"
+multilingual = false
+src = "src"
+title = "Kernel developers manual"

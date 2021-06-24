@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
-use crate::memory::allocate_phys_range;
+use crate::memory::{allocate_phys_range, get_rsdp};
+use acpi::fadt::Fadt;
+use acpi::sdt::Signature;
 use acpi::*;
 use core::ptr::NonNull;
-use lazy_static::lazy_static;
 use log::*;
+use spin::*;
 
 #[repr(C)]
 #[derive(Default, Clone, Copy, Debug)]
@@ -11,12 +13,6 @@ struct AcpiMapper;
 
 impl AcpiHandler for AcpiMapper {
     unsafe fn map_physical_region<T>(&self, addr: usize, size: usize) -> PhysicalMapping<Self, T> {
-        debug!(
-            "Checking memory address range {:X}-{:X} of size {} for ACPI region",
-            addr,
-            (addr + size),
-            size
-        );
         allocate_phys_range(addr as u64, (addr + size) as u64, true);
         PhysicalMapping {
             physical_start: addr,
@@ -30,21 +26,42 @@ impl AcpiHandler for AcpiMapper {
     fn unmap_physical_region<T>(&self, _: &PhysicalMapping<Self, T>) {}
 }
 
-lazy_static! {
-    static ref TABLES: AcpiTables<AcpiMapper> = {
-        let h = AcpiMapper::default();
-        unsafe { AcpiTables::search_for_rsdp_bios(h) }.unwrap()
-    };
+static TABLES: Once<AcpiTables<AcpiMapper>> = Once::new();
+
+/// Initializes the ACPI tables.
+#[cold]
+pub async fn init() {
+    if !TABLES.is_completed() {
+        info!("Initializing ACPI tables");
+        let tables = TABLES.call_once(|| {
+            let h = AcpiMapper::default();
+            unsafe { AcpiTables::from_rsdp(h, get_rsdp() as usize) }.unwrap()
+        });
+        unsafe {
+            if matches!(tables.get_sdt::<Fadt>(Signature::FADT), Ok(_))
+                && matches!(tables.get_sdt::<Fadt>(Signature::FADT).unwrap(), Some(_))
+            {
+                info!("Found FADT");
+                let fadt = tables.get_sdt::<Fadt>(Signature::FADT).unwrap().unwrap();
+                let sci_int = fadt.sci_interrupt;
+                info!("SCI int. is {}", sci_int);
+                let smi_cmd = fadt.smi_cmd_port;
+                info!("SMI command port: {:X}", smi_cmd);
+            }
+        }
+    } else {
+        warn!("Got request to reinitialize acpi; ignoring");
+    }
 }
 
 /// Returns a list of PCI regions.
 #[cold]
 pub fn get_pci_regions() -> Result<PciConfigRegions, AcpiError> {
-    PciConfigRegions::new(&TABLES)
+    PciConfigRegions::new(TABLES.get().unwrap())
 }
 
 /// Returns information about the high precision event timer (HPET)
 #[cold]
 pub fn get_hpet_info() -> Result<HpetInfo, AcpiError> {
-    HpetInfo::new(&TABLES)
+    HpetInfo::new(TABLES.get().unwrap())
 }

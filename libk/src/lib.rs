@@ -5,7 +5,6 @@
 #![feature(abi_x86_interrupt)]
 #![feature(asm)]
 #![feature(option_result_contains)]
-#![feature(type_alias_impl_trait)]
 #![feature(alloc_layout_extra)]
 #![feature(llvm_asm)]
 #![feature(async_closure)]
@@ -30,25 +29,7 @@
     unused_extern_crates,
     unused_import_braces,
     unused_lifetimes,
-    variant_size_differences,
-    ambiguous_associated_items,
-    arithmetic_overflow,
-    conflicting_repr_hints,
-    const_err,
-    ill_formed_attribute_input,
-    incomplete_include,
-    invalid_type_param_default,
-    macro_expanded_macro_exports_accessed_by_absolute_paths,
-    mutable_transmutes,
-    no_mangle_const_items,
-    order_dependent_trait_objects,
-    overflowing_literals,
-    patterns_in_fns_without_body,
-    pub_use_of_private_extern_crate,
-    soft_unstable,
-    unconditional_panic,
-    unknown_crate_types,
-    useless_deprecated
+    variant_size_differences
 )]
 #![deny(warnings, missing_copy_implementations, missing_debug_implementations)]
 #![forbid(clippy::all)]
@@ -57,8 +38,6 @@ extern crate alloc;
 pub mod acpi;
 /// The disk module defines a trait and various enumerations for disk implementations.
 pub mod disk;
-/// The fs module contains support modules for various built-in file systems.
-pub mod fs;
 /// The gdt module contains basic GDT functionality.
 /// When initialized, a separate stack is set up for the kernel to run in to ensure that the
 ///original is not compromised when double faults occur.
@@ -68,21 +47,6 @@ pub mod gdt;
 pub mod interrupts;
 /// The memory module contains functions for managing memory.
 pub mod memory;
-/// The nvme module contains core NvMe support required for future higher-level bootstrapping.
-///
-/// ## Commands
-///
-/// At the core of NVMe communication is the command. A command is submitted in queues, one for submission and one for completion. The NvMe driver handles the creation and deletion of queues.
-///
-/// There are two types of queues: an admin and an I/O queue.
-///
-/// * An admin queue allows administration of an NVMe controller, function, or subsystem. There is only one admin queue pair per controller. The admin queue may have up to 65536 entries.
-/// * An I/O queue allows the submission of NvM I/O commands. There may be up to 65534 I/O queues. Each queue may have up to 65536 entries.
-///
-/// Though the above limits are the absolute maximums, it is unlikely that most controllers will support them. Rather, it is more likely that a controller will support a much lower hard limit of entries in a queue, e.g.: up to 2048 entries per queue, rather than supporting 65536 entries. The higher the maximum entry limit is, the more memory that is consumed. In embedded environemnts or on systems with low amounts of memory, it may be desirable to severely limit the maximum number of queue entries to allow more memory for other tasks.
-///
-/// The maximum entries limit allows for a large degree of parallelism. The NVMe specification allows many applications to submit many commands simultaneously, and then have the controller process all the entries at once. To achieve an even higher level of parallelism, one can have multiple I/O queues. For example, an operating system may have one queue per process priority level such that each process will, with a high degree of certainty, submit a command in an empty queue. To facilitate such systems, NVMe contains a priority mechanism whereby a freshly created queue can tell the controller precisely what priority to allocate to each queue. This is called the arbitration mechanism. The specification defines only one, the round-robin arbitration mechanism, however it is possible that vendors may define others. In the round-robin arbitration system, the highest priority queues are processed first, followed by lower priority ones.
-pub mod nvme;
 /// The pci module contains functions for reading from PCI devices and enumerating PCI buses
 /// via the "brute-force" method.
 /// As we add drivers that require the PCI buss in, the ::probe() function of this module
@@ -100,6 +64,8 @@ pub mod rtc;
     box_pointers
 )]
 pub mod task;
+/// The timer module contains delaying and sleeping functionality
+pub mod timer;
 use block_device as _;
 use linked_list_allocator as _;
 use zerocopy as _;
@@ -120,16 +86,19 @@ pub fn init() {
         }
     );
     let mut executor = Executor::new();
-    executor.spawn(AsyncTask::new(gdt::init()));
-    executor.spawn(AsyncTask::new(interrupts::init_stage2()));
+    executor.spawn(AsyncTask::new(acpi::init()));
+    executor.spawn(AsyncTask::new(timer::setup()));
     executor.spawn(AsyncTask::new(pci::init()));
     executor.spawn(AsyncTask::new(rtc::init()));
     executor.run();
 }
 
-/// This function is designed as a failsafe against memory corruption if we panic.
+/// This function is designed as a failsafe against memory corruption if we panic or suffer a fatal error.
 pub fn idle_forever() -> ! {
+    use core::arch::x86_64::_mm_pause;
     loop {
-        x86_64::instructions::hlt();
+        unsafe {
+            _mm_pause();
+        }
     }
 }

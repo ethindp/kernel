@@ -1,8 +1,7 @@
 use bit_field::BitField;
 use bitflags::bitflags;
-use cpuio::{inb, outb};
 use log::*;
-use x86_64::instructions::interrupts::without_interrupts;
+use x86_64::instructions::{interrupts::without_interrupts, port::Port};
 
 const IDX: u16 = 0x0070;
 const DATA: u16 = 0x0071;
@@ -93,27 +92,31 @@ const VRAM = 1 << 7;
 }
 
 fn read(index: u8) -> u8 {
-    let idx = index | NO_NMI;
+    let mut idx = Port::<u8>::new(IDX);
+    let mut data = Port::<u8>::new(DATA);
     unsafe {
-        outb(idx, IDX);
-        inb(DATA)
+        idx.write(index | NO_NMI);
+        data.read()
     }
 }
 
 fn write(index: u8, val: u8) {
-    let idx = index | NO_NMI;
+    let mut idx = Port::<u8>::new(IDX);
+    let mut data = Port::<u8>::new(DATA);
     unsafe {
-        outb(idx, IDX);
-        outb(val, DATA);
+        idx.write(index | NO_NMI);
+        data.write(val);
     }
 }
 
 fn mask(index: u8, off: u8, on: u8) {
     let index = index | NO_NMI;
+    let mut idx = Port::<u8>::new(IDX);
+    let mut data = Port::<u8>::new(DATA);
     unsafe {
-        outb(index, IDX);
-        let val = inb(DATA);
-        outb((val & !off) | on, DATA);
+        idx.write(index);
+        let val = data.read();
+        data.write((val & !off) | on);
     }
 }
 
