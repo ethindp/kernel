@@ -87,7 +87,6 @@ pub fn init() {
     );
     let mut executor = Executor::new();
     executor.spawn(AsyncTask::new(acpi::init()));
-    executor.spawn(AsyncTask::new(timer::setup()));
     executor.spawn(AsyncTask::new(pci::init()));
     executor.spawn(AsyncTask::new(rtc::init()));
     executor.run();

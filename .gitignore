@@ -2,3 +2,5 @@
 **/target
 **/*.rs.bk
 /qemu.log
+/qemu2.log
+
