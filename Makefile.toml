@@ -48,7 +48,7 @@ fn main() {
 
 [tasks.run]
 command = "qemu-system-x86_64"
-args = ["-drive", "format=raw,file=${CARGO_MAKE_WORKING_DIRECTORY}/target/x86_64-kernel-none/debug/boot-uefi-kernel.img", "-drive", "if=pflash,format=raw,file=OVMF.fd,readonly=on", "-drive", "file=disk.img,if=none,id=NVME01", "-device", "nvme,drive=NVME01,serial=0001", "-m", "20G", "-usb", "-rtc", "clock=host", "-cpu", "max", "-smp", "cpus=8", "-M", "q35", "-name", "kernel", "-s", "-nographic", "-debugcon", "file:qemu.log", "-global", "isa-debugcon.iobase=0x402", "-d", "int", "-D", "qemu2.log", "-no-reboot"]
+args = ["-drive", "format=raw,file=${CARGO_MAKE_WORKING_DIRECTORY}/target/x86_64-kernel-none/debug/boot-uefi-kernel.img", "-drive", "if=pflash,format=raw,file=OVMF.fd,readonly=on", "-drive", "file=disk.img,if=none,id=NVME01", "-device", "nvme,drive=NVME01,serial=0001", "-m", "20G", "-usb", "-rtc", "clock=host", "-cpu", "max", "-smp", "cpus=8", "-M", "q35", "-name", "kernel", "-s", "-nographic", "-debugcon", "file:qemu.log", "-global", "isa-debugcon.iobase=0x402", "-d", "int", "-D", "qemu2.log", "-device", "usb-audio,audiodev=alsa", "-device", "hda-duplex,audiodev=alsa", "-audiodev", "alsa,id=alsa", "-device", "ich9-intel-hda", "-device", "hda-duplex,audiodev=alsa", "-no-shutdown", "-no-reboot"]
 
 [tasks.run_debug]
 command = "qemu-system-x86_64"

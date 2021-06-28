@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 use log::*;
 use spin::Lazy;
+use x86::task::tr;
 use x86_64::instructions::{segmentation::set_cs, tables::load_tss};
 use x86_64::structures::{
     gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector},
@@ -66,12 +67,31 @@ struct Selectors {
 /// Sets up the GDT, separate kernel stack, and TSS.
 #[cold]
 pub fn init() {
+    let oldtr = tr();
     info!("Loading GDT");
+    debug!("Loading GDT at addr {:p}: {:?}", &GDT.0, GDT.0);
     GDT.0.load();
     unsafe {
         info!("Setting CS");
+        debug!(
+            "CS at addr {:p}: {:?}",
+            &GDT.1.code_selector, GDT.1.code_selector
+        );
         set_cs(GDT.1.code_selector);
         info!("Loading TSS");
+        debug!(
+            "TSS at addr {:p}, TSS selector at {:p}: TSS = {:?}, TSS selector = {:?}",
+            &TSS, &GDT.1.tss_selector, TSS, GDT.1.tss_selector
+        );
         load_tss(GDT.1.tss_selector);
     }
+    debug!(
+        "TSS at addr {:p} with TSS selecter at addr {:p} loaded",
+        &TSS, &GDT.1.tss_selector
+    );
+    let newtr = tr();
+    debug!(
+        "Changed TR; old: {:X}, {:?}, new: {:X}, {:?}",
+        oldtr, oldtr, newtr, newtr
+    );
 }

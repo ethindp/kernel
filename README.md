@@ -26,4 +26,18 @@ Note that you'll need Qemu installed.
 
 We currently have no unit tests because for that to work each test would need to be its own mini-kernel. Though I'd like to build some sometime, I'm more focused on testing everything as I go.
 
+## To do and what exists
+
+Please see [this issue](https://github.com/ethindp/kernel/issues/2) for a small list of the tasks that need to get done and that've already been done.
+
+## Goal
+
+This aims to be a small, safe, secure, and fast microkernel OS. The goal is to limit the amount of syscalls as much as possible and to put as much as we can into userspace without degrading performance in any way.
+
+The idea is that drivers run in userspace. When the system wants to do something, it requests a shared memory buffer to the driver in question and sends a request to the driver. The driver executes the request and returns a response, notifying the application. The shared memory buffer remains open so long as the application runs.
+
+A problem arises with the above idea though: TLB shootdowns and flushes. A TLB shootdown is required when the context of the processor is changed.  in some mannerWhen one processor alters memory that has been cached by all the other processors in the system, all the other processors must flush their TLBs so that they can sync with the processor that caused the change. This action occurs many times: every time a process is haulted and a new one needs to run, every time a page table entry is altered, and so on.
+
+Intel and AMD on x86 (as well as systems before their time and even other architectures) have come up with various solutions to this problem to maximize performance and to limit these operations. This includes memory protection keys and process-context identifiers (PCIDs). This kernel aims to use all of the resources that a system implements to minimize TLB shootdowns and costs of context switches and PTE changes.
+
 

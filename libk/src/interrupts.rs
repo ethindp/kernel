@@ -323,8 +323,21 @@ pub fn init_ic() {
 
 /// Loads the IDT
 pub fn init_idt() {
+    use x86_64::instructions::tables::sidt;
+    let oldidtr = sidt();
     info!("Loading IDT");
     IDT.load();
+    debug!("IDT loaded. IDT at {:p}: {:?}", &IDT, IDT);
+    let newidtr = sidt();
+    let oldlimit = oldidtr.limit;
+    let newlimit = newidtr.limit;
+    debug!(
+        "Changed IDT: old: {:X} with limit {:X}, new: {:X} with limit {:X}",
+        oldidtr.base.as_u64(),
+        oldlimit,
+        newidtr.base.as_u64(),
+        newlimit
+    );
 }
 
 // Macro to generate interrupt functions

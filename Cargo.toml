@@ -28,7 +28,7 @@ default-features = false
 version = "0.4.14"
 
 [package.metadata.bootloader]
-kernel-stack-size = "1048576"
+kernel-stack-size = "65536"
 map-physical-memory = true
 map-framebuffer = true
 
