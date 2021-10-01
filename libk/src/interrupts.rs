@@ -25,29 +25,52 @@ pub type InterruptHandler = Box<dyn Fn(InterruptStackFrameValue) + Send + Sync>;
 static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     let mut idt = InterruptDescriptorTable::new();
     // Handle BPs
+    let _ = idt.breakpoint.set_handler_fn(handle_breakpoint);
+    // Handle DFs (on our set-up separate 4K kernel stack)
     unsafe {
         let _ = idt
-            .breakpoint
-            .set_handler_fn(handle_bp)
-            .set_stack_index(gdt::BP_IST_IDX);
-        // Handle DFs (on our set-up separate 4K kernel stack)
-        let _ = idt
             .double_fault
-            .set_handler_fn(handle_df)
+            .set_handler_fn(handle_double_fault)
             .set_stack_index(gdt::DF_IST_IDX);
-        let _ = idt
-            .page_fault
-            .set_handler_fn(handle_pf)
-            .set_stack_index(gdt::PF_IST_IDX);
-        let _ = idt
-            .overflow
-            .set_handler_fn(handle_of)
-            .set_stack_index(gdt::OF_IST_IDX);
     }
-    let _ = idt.bound_range_exceeded.set_handler_fn(handle_br);
-    let _ = idt.invalid_opcode.set_handler_fn(handle_ud);
-    let _ = idt.device_not_available.set_handler_fn(handle_nm);
-    let _ = idt.general_protection_fault.set_handler_fn(handle_gp);
+    let _ = idt.page_fault.set_handler_fn(handle_page_fault);
+    let _ = idt.overflow.set_handler_fn(handle_overflow);
+    let _ = idt
+        .bound_range_exceeded
+        .set_handler_fn(handle_bound_range_exceeded);
+    let _ = idt.invalid_opcode.set_handler_fn(handle_invalid_opcode);
+    let _ = idt
+        .device_not_available
+        .set_handler_fn(handle_device_not_available);
+    let _ = idt
+        .general_protection_fault
+        .set_handler_fn(handle_general_protection_fault);
+    let _ = idt.alignment_check.set_handler_fn(handle_alignment_check);
+    let _ = idt.debug.set_handler_fn(handle_debug);
+    let _ = idt.divide_error.set_handler_fn(handle_divide_error);
+    let _ = idt
+        .non_maskable_interrupt
+        .set_handler_fn(handle_non_maskable_interrupt);
+    let _ = idt.invalid_tss.set_handler_fn(handle_invalid_tss);
+    let _ = idt
+        .segment_not_present
+        .set_handler_fn(handle_segment_not_present);
+    let _ = idt
+        .stack_segment_fault
+        .set_handler_fn(handle_stack_segment_fault);
+    let _ = idt
+        .x87_floating_point
+        .set_handler_fn(handle_x87_floating_point);
+    let _ = idt.machine_check.set_handler_fn(handle_machine_check);
+    let _ = idt
+        .simd_floating_point
+        .set_handler_fn(handle_simd_floating_point);
+    let _ = idt
+        .virtualization
+        .set_handler_fn(handle_virtualization_exception);
+    let _ = idt
+        .security_exception
+        .set_handler_fn(handle_security_exception);
     let _ = idt[32].set_handler_fn(handle_timer);
     let _ = idt[33].set_handler_fn(handle_keyboard);
     let _ = idt[34].set_handler_fn(handle_cascade);
@@ -360,7 +383,7 @@ macro_rules! gen_interrupt_fn {
     };
 }
 
-extern "x86-interrupt" fn handle_bp(stack_frame: InterruptStackFrame) {
+extern "x86-interrupt" fn handle_breakpoint(stack_frame: InterruptStackFrame) {
     // All we do here is notify the user and continue on.
     info!(
         "Hardware breakpoint interrupt received:\n{:#?}",
@@ -369,7 +392,10 @@ extern "x86-interrupt" fn handle_bp(stack_frame: InterruptStackFrame) {
     signal_eoi();
 }
 
-extern "x86-interrupt" fn handle_df(stack_frame: InterruptStackFrame, error_code: u64) -> ! {
+extern "x86-interrupt" fn handle_double_fault(
+    stack_frame: InterruptStackFrame,
+    error_code: u64,
+) -> ! {
     panic!(
         "EXCEPTION: DOUBLE FAULT({})\n{:#?}",
         error_code, stack_frame,
@@ -390,7 +416,10 @@ extern "x86-interrupt" fn handle_rtc(_stack_frame: InterruptStackFrame) {
     }
 }
 
-extern "x86-interrupt" fn handle_pf(frame: InterruptStackFrame, error_code: PageFaultErrorCode) {
+extern "x86-interrupt" fn handle_page_fault(
+    frame: InterruptStackFrame,
+    error_code: PageFaultErrorCode,
+) {
     use crate::idle_forever;
     use x86_64::registers::control::Cr2;
     let addr = Cr2::read();
@@ -430,27 +459,27 @@ extern "x86-interrupt" fn handle_pf(frame: InterruptStackFrame, error_code: Page
     idle_forever();
 }
 
-extern "x86-interrupt" fn handle_of(_: InterruptStackFrame) {
+extern "x86-interrupt" fn handle_overflow(_: InterruptStackFrame) {
     warn!("Can't execute calculation: overflow");
     signal_eoi();
 }
 
-extern "x86-interrupt" fn handle_br(stack: InterruptStackFrame) {
+extern "x86-interrupt" fn handle_bound_range_exceeded(stack: InterruptStackFrame) {
     panic!(
         "Cannot continue: bounds range exceeded.\nStack:\n{:?}",
         stack,
     );
 }
 
-extern "x86-interrupt" fn handle_ud(stack: InterruptStackFrame) {
+extern "x86-interrupt" fn handle_invalid_opcode(stack: InterruptStackFrame) {
     panic!("Cannot continue: invalid opcode!\nStack:\n{:?}", stack,);
 }
 
-extern "x86-interrupt" fn handle_nm(stack: InterruptStackFrame) {
+extern "x86-interrupt" fn handle_device_not_available(stack: InterruptStackFrame) {
     panic!("Can't continue: device unavailable!\nStack:\n{:?}", stack,);
 }
 
-extern "x86-interrupt" fn handle_gp(frame: InterruptStackFrame, ec: u64) {
+extern "x86-interrupt" fn handle_general_protection_fault(frame: InterruptStackFrame, ec: u64) {
     use crate::idle_forever;
     error!("Cannot continue (GP), error code {:X}", ec);
     error!(
@@ -461,6 +490,64 @@ extern "x86-interrupt" fn handle_gp(frame: InterruptStackFrame, ec: u64) {
         frame.stack_pointer.as_u64(),
         frame.stack_segment
     );
+    idle_forever();
+}
+
+extern "x86-interrupt" fn handle_divide_error(frame: InterruptStackFrame) {
+    panic!("Division error: {:?}", frame);
+}
+
+extern "x86-interrupt" fn handle_debug(_: InterruptStackFrame) {
+    info!("Debug exception triggered");
+    signal_eoi();
+}
+
+extern "x86-interrupt" fn handle_non_maskable_interrupt(_: InterruptStackFrame) {
+    signal_eoi();
+}
+
+extern "x86-interrupt" fn handle_invalid_tss(frame: InterruptStackFrame, error_code: u64) {
+    panic!("Invalid TSS: SS {:X}: {:?}", error_code, frame);
+}
+
+extern "x86-interrupt" fn handle_segment_not_present(frame: InterruptStackFrame, error_code: u64) {
+    panic!("Segment not present: segment {:X}: {:?}", error_code, frame);
+}
+
+extern "x86-interrupt" fn handle_stack_segment_fault(frame: InterruptStackFrame, error_code: u64) {
+    panic!("Stack-segment fault: segment {:X}: {:?}", error_code, frame);
+}
+
+extern "x86-interrupt" fn handle_x87_floating_point(frame: InterruptStackFrame) {
+    panic!(
+        "Impossible error: x87-floating-point exception! {:?}",
+        frame
+    );
+}
+
+extern "x86-interrupt" fn handle_alignment_check(frame: InterruptStackFrame, _: u64) {
+    panic!("Alignment check exception: {:?}", frame);
+}
+
+extern "x86-interrupt" fn handle_machine_check(frame: InterruptStackFrame) -> ! {
+    panic!("Machine check exception: {:?}", frame);
+}
+
+extern "x86-interrupt" fn handle_simd_floating_point(_: InterruptStackFrame) {
+    panic!("SIMD FP error");
+}
+
+extern "x86-interrupt" fn handle_virtualization_exception(f: InterruptStackFrame) {
+    panic!("Virtualization exception: {:?}", f);
+}
+
+extern "x86-interrupt" fn handle_security_exception(f: InterruptStackFrame, error_code: u64) {
+    use crate::idle_forever;
+    error!("Security exception");
+    if error_code == 1 {
+        error!("Detected redirection of INIT signal");
+    }
+    error!("Stack frame: {:?}", f);
     idle_forever();
 }
 
