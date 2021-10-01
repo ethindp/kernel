@@ -53,9 +53,11 @@ unsafe fn init_mapper(physical_memory_offset: u64) -> OffsetPageTable<'static> {
         "Retrieving active L4 table with memoffset {:X}",
         physical_memory_offset
     );
-    let (level_4_table, _) = get_active_l4_table(physical_memory_offset);
-    // initialize the mapper
-    OffsetPageTable::new(level_4_table, VirtAddr::new(physical_memory_offset))
+    unsafe {
+        let (level_4_table, _) = get_active_l4_table(physical_memory_offset);
+        // initialize the mapper
+        OffsetPageTable::new(level_4_table, VirtAddr::new(physical_memory_offset))
+    }
 }
 
 /// Allocates a paged heap.
@@ -163,7 +165,7 @@ unsafe fn get_active_l4_table(physical_memory_offset: u64) -> (&'static mut Page
     let phys = table_frame.start_address();
     let virt = VirtAddr::new(phys.as_u64() + physical_memory_offset);
     let page_table_ptr: *mut PageTable = virt.as_mut_ptr();
-    (&mut *page_table_ptr, flags)
+    unsafe { (&mut *page_table_ptr, flags) }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -172,7 +174,7 @@ struct GlobalFrameAllocator;
 impl GlobalFrameAllocator {
     /// Initializes the global frame allocator
     #[cold]
-    pub fn init() -> Self {
+    pub(crate) fn init() -> Self {
         FPOS.store(0, Ordering::Relaxed);
         GlobalFrameAllocator {}
     }
@@ -181,33 +183,47 @@ impl GlobalFrameAllocator {
 unsafe impl FrameAllocator<Size4KiB> for GlobalFrameAllocator {
     #[must_use]
     fn allocate_frame(&mut self) -> Option<PhysFrame> {
-        if MMAP.is_completed() {
-            FPOS.fetch_add(1, Ordering::SeqCst);
-            return MMAP
-                .get()
-                .unwrap()
-                .iter()
-                .map(|r| r.start..r.end)
-                .flat_map(|r| r.step_by(4096))
-                .map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
-                .nth(FPOS.load(Ordering::Relaxed));
-        } else {
-            warn!("Memory allocation attempted when MMAP was not ready");
-            warn!("Waiting for memory map to be ready...");
-            FPOS.fetch_add(1, Ordering::SeqCst);
-            return MMAP
-                .wait()
-                .iter()
-                .map(|r| r.start..r.end)
-                .flat_map(|r| r.step_by(4096))
-                .map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
-                .nth(FPOS.load(Ordering::Relaxed));
+        debug!("falloc: frame alloc requested");
+        FPOS.fetch_add(1, Ordering::SeqCst);
+        let pos = FPOS.load(Ordering::Relaxed);
+        debug!("computed frmptr: {:X}", pos);
+        let mut offset = 4096 * (pos as u64);
+        debug!("computed frmoffset: {:X}", offset);
+        debug!("Waiting on mmap");
+        let mmap = MMAP.wait();
+        debug!("Waited on mmap, region search start");
+        for region in mmap.iter() {
+            if region.start + offset < region.end {
+                debug!(
+                    "Region {:X} + {:X} < {:X}: constructing frame",
+                    region.start, offset, region.end
+                );
+                debug!("Region search done");
+                return Some(PhysFrame::containing_address(PhysAddr::new(
+                    region.start + offset,
+                )));
+            } else {
+                debug!(
+                    "Region {:X} + {:X} > {:X}: continuing allocation search",
+                    region.start, offset, region.end
+                );
+                offset -= region.end - region.start;
+                debug!("computed fptr: {:X}", pos);
+                debug!("computed frmoffset: {:X}", offset);
+                debug!("Region search continue");
+            }
         }
+        None
     }
 }
 
 impl FrameDeallocator<Size4KiB> for GlobalFrameAllocator {
-    unsafe fn deallocate_frame(&mut self, _: PhysFrame) {
+    unsafe fn deallocate_frame(&mut self, frame: PhysFrame) {
+        debug!(
+            "ffree: deallocating frame at addr {:X} of size {:X}",
+            frame.start_address().as_u64(),
+            frame.size()
+        );
         FPOS.fetch_sub(1, Ordering::SeqCst);
     }
 }
@@ -465,9 +481,9 @@ pub extern "C" fn free_range(start: u64, end: u64) -> bool {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct MemoryRegion {
-    pub start: u64,
-    pub end: u64,
-    pub kind: MemoryRegionKind,
+    pub(crate) start: u64,
+    pub(crate) end: u64,
+    pub(crate) kind: MemoryRegionKind,
 }
 
 /// Initializes the internal memory map.
