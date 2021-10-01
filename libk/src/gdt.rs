@@ -2,7 +2,10 @@
 use log::*;
 use spin::Lazy;
 use x86::task::tr;
-use x86_64::instructions::{segmentation::set_cs, tables::load_tss};
+use x86_64::instructions::{
+    segmentation::{Segment, CS},
+    tables::load_tss,
+};
 use x86_64::structures::{
     gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector},
     tss::TaskStateSegment,
@@ -11,35 +14,11 @@ use x86_64::VirtAddr;
 
 /// Double-fault stack index
 pub const DF_IST_IDX: u16 = 0;
-/// Breakpoint stack index.
-pub const BP_IST_IDX: u16 = 1;
-/// Page fault stack index.
-pub const PF_IST_IDX: u16 = 2;
-/// Overflow stack index.
-pub const OF_IST_IDX: u16 = 3;
 
 static TSS: Lazy<TaskStateSegment> = Lazy::new(|| {
     let mut tss = TaskStateSegment::new();
     tss.interrupt_stack_table[DF_IST_IDX as usize] = {
         const STACK_SIZE: usize = 4096;
-        static mut STACK: [u8; STACK_SIZE] = [0; STACK_SIZE];
-        let stack_start = VirtAddr::from_ptr(unsafe { &STACK });
-        stack_start + STACK_SIZE
-    };
-    tss.interrupt_stack_table[BP_IST_IDX as usize] = {
-        const STACK_SIZE: usize = 65536;
-        static mut STACK: [u8; STACK_SIZE] = [0; STACK_SIZE];
-        let stack_start = VirtAddr::from_ptr(unsafe { &STACK });
-        stack_start + STACK_SIZE
-    };
-    tss.interrupt_stack_table[PF_IST_IDX as usize] = {
-        const STACK_SIZE: usize = 262144;
-        static mut STACK: [u8; STACK_SIZE] = [0; STACK_SIZE];
-        let stack_start = VirtAddr::from_ptr(unsafe { &STACK });
-        stack_start + STACK_SIZE
-    };
-    tss.interrupt_stack_table[PF_IST_IDX as usize] = {
-        const STACK_SIZE: usize = 32768;
         static mut STACK: [u8; STACK_SIZE] = [0; STACK_SIZE];
         let stack_start = VirtAddr::from_ptr(unsafe { &STACK });
         stack_start + STACK_SIZE
@@ -77,7 +56,7 @@ pub fn init() {
             "CS at addr {:p}: {:?}",
             &GDT.1.code_selector, GDT.1.code_selector
         );
-        set_cs(GDT.1.code_selector);
+        CS::set_reg(GDT.1.code_selector);
         info!("Loading TSS");
         debug!(
             "TSS at addr {:p}, TSS selector at {:p}: TSS = {:?}, TSS selector = {:?}",
