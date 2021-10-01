@@ -18,20 +18,30 @@
     keyword_idents,
     macro_use_extern_crate,
     meta_variable_misuse,
+    missing_abi,
     missing_docs,
     non_ascii_idents,
+    noop_method_call,
     pointer_structural_match,
+    private_doc_tests,
+    rust_2021_incompatible_closure_captures,
+    rust_2021_incompatible_or_patterns,
+    rust_2021_prefixes_incompatible_syntax,
+    rust_2021_prelude_collisions,
+    semicolon_in_expressions_from_macros,
     single_use_lifetimes,
-    trivial_casts,
     trivial_numeric_casts,
     unaligned_references,
+    unreachable_pub,
+    unsafe_op_in_unsafe_fn,
     unused_crate_dependencies,
     unused_extern_crates,
     unused_import_braces,
     unused_lifetimes,
-    variant_size_differences
+    variant_size_differences,
+    trivial_casts
 )]
-#![deny(warnings, missing_copy_implementations, missing_debug_implementations)]
+#![deny(missing_copy_implementations, missing_debug_implementations, warnings)]
 #![forbid(clippy::all)]
 extern crate alloc;
 /// The acpi module contains acpi initialization routines
@@ -58,11 +68,7 @@ pub mod rtc;
 /// The task module controls cooperative and preemptive multitasking schedulers. The
 /// cooperative scheduler runs in the kernel while the preemptive scheduler will run in
 /// userspace once implemented.
-#[allow(
-    missing_debug_implementations,
-    missing_copy_implementations,
-    box_pointers
-)]
+#[allow(missing_debug_implementations, missing_copy_implementations)]
 pub mod task;
 /// The timer module contains delaying and sleeping functionality
 pub mod timer;
