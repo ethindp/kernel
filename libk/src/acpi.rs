@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-use crate::memory::{allocate_phys_range, get_rsdp};
+use crate::memory::{allocate_phys_range, free_range, get_rsdp};
 use acpi::fadt::Fadt;
 use acpi::sdt::Signature;
 use acpi::*;
@@ -8,22 +8,29 @@ use log::*;
 use spin::*;
 
 #[repr(C)]
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 struct AcpiMapper;
 
 impl AcpiHandler for AcpiMapper {
     unsafe fn map_physical_region<T>(&self, addr: usize, size: usize) -> PhysicalMapping<Self, T> {
         allocate_phys_range(addr as u64, (addr + size) as u64, true);
-        PhysicalMapping {
-            physical_start: addr,
-            virtual_start: NonNull::new(addr as *mut T).unwrap(),
-            region_length: size,
-            mapped_length: size,
-            handler: *self,
+        unsafe {
+            PhysicalMapping::new(
+                addr,
+                NonNull::new(addr as *mut T).unwrap(),
+                size,
+                size,
+                *self,
+            )
         }
     }
 
-    fn unmap_physical_region<T>(&self, _: &PhysicalMapping<Self, T>) {}
+    fn unmap_physical_region<T>(mapping: &PhysicalMapping<Self, T>) {
+        free_range(
+            mapping.physical_start() as u64,
+            (mapping.physical_start() as u64) + (mapping.region_length() as u64),
+        );
+    }
 }
 
 static TABLES: Once<AcpiTables<AcpiMapper>> = Once::new();
@@ -55,7 +62,6 @@ pub async fn init() {
 }
 
 /// Returns a list of PCI regions.
-#[cold]
 pub fn get_pci_regions() -> Result<PciConfigRegions, AcpiError> {
     PciConfigRegions::new(TABLES.get().unwrap())
 }
