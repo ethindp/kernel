@@ -12,10 +12,12 @@ fn calculate_tsc_frequency() -> u64 {
 }
 
 #[inline]
-unsafe fn delay(delay: u64) {
-    let ticks = _rdtsc() + delay;
-    while _rdtsc() <= ticks {
-        _mm_pause();
+fn delay(delay: u64) {
+    let ticks = unsafe { _rdtsc() } + delay;
+    while unsafe { _rdtsc() } <= ticks {
+        unsafe {
+            _mm_pause();
+        }
     }
 }
 
@@ -41,7 +43,5 @@ pub fn sleep(time: Duration) {
         Duration::Micros(d) => d * 1000 * f / 1000000000,
         Duration::Nanos(d) => d * f / 1000000000,
     };
-    unsafe {
-        delay(time);
-    }
+    delay(time);
 }
