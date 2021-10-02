@@ -13,20 +13,30 @@
     keyword_idents,
     macro_use_extern_crate,
     meta_variable_misuse,
+    missing_abi,
+    missing_copy_implementations,
+    missing_debug_implementations,
     non_ascii_idents,
+    noop_method_call,
+    pointer_structural_match,
     private_doc_tests,
+    rust_2021_incompatible_closure_captures,
+    rust_2021_incompatible_or_patterns,
+    rust_2021_prefixes_incompatible_syntax,
+    rust_2021_prelude_collisions,
+    semicolon_in_expressions_from_macros,
     single_use_lifetimes,
     trivial_casts,
     trivial_numeric_casts,
     unaligned_references,
     unreachable_pub,
+    unsafe_op_in_unsafe_fn,
     unused_crate_dependencies,
     unused_import_braces,
     unused_lifetimes,
+    unused_qualifications,
     variant_size_differences,
     warnings,
-    missing_copy_implementations,
-    missing_debug_implementations,
     box_pointers
 )]
 #![forbid(clippy::all)]
@@ -41,7 +51,6 @@ use heapless::String;
 use linked_list_allocator::*;
 use log::*;
 use x86_64::instructions::random::RdRand;
-use x86_64::registers::control::*;
 
 entry_point!(kmain);
 #[global_allocator]
@@ -61,6 +70,7 @@ fn panic(panic_information: &PanicInfo) -> ! {
 
 // Kernel entry point
 fn kmain(boot_info: &'static mut BootInfo) -> ! {
+    x86_64::instructions::interrupts::disable();
     set_logger(&LOGGER).unwrap();
     if cfg!(debug_assertions) {
         set_max_level(LevelFilter::Trace);
@@ -127,24 +137,14 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
             info!("Detected processor: {}", vs);
         }
     }
-    info!("Loading descriptor tables and enabling interrupts");
-    libk::gdt::init();
-    libk::interrupts::init_idt();
-    info!("Enabling SSE");
-    unsafe {
-        let mut cr0 = Cr0::read_raw();
-        let mut cr4 = Cr4::read_raw();
-        cr0 &= !1 << 2;
-        cr0 |= 1 << 1;
-        Cr0::write_raw(cr0);
-        cr4 |= 0x600;
-        Cr4::write_raw(cr4);
-    }
     info!("Initializing memory region list");
     libk::memory::init_memory_map(
         &boot_info.memory_regions,
         boot_info.rsdp_addr.into_option().unwrap(),
     );
+    info!("Loading descriptor tables and enabling interrupts");
+    libk::gdt::init();
+    libk::interrupts::init_idt();
     info!("Initializing virtual memory manager");
     let rdrand = RdRand::new().unwrap();
     let mut start_addr: u64 = 0x0100_0000_0000 + rdrand.get_u64().unwrap();
@@ -158,6 +158,8 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     );
     info!("Configuring interrupt controller");
     libk::interrupts::init_ic();
+    info!("Enabling interrupts");
+    x86_64::instructions::interrupts::enable();
     info!("Initializing internal heap allocator");
     unsafe {
         ALLOCATOR
