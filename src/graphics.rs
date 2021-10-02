@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
+use core::fmt::Arguments as FormatArguments;
 use spin::{mutex::ticket::TicketMutex, Lazy};
 use uart_16550::SerialPort;
 
@@ -93,7 +94,7 @@ pub(crate) fn _print(args: fmt::Arguments) {
 */
 
 #[doc(hidden)]
-pub(crate) fn _sprint(args: ::core::fmt::Arguments) {
+pub(crate) fn _sprint(args: FormatArguments) {
     use core::fmt::Write;
     use x86_64::instructions::interrupts;
     interrupts::without_interrupts(|| {
