@@ -1,5 +1,4 @@
 use bit_field::BitField;
-use bitflags::bitflags;
 use log::*;
 use x86_64::instructions::{interrupts::without_interrupts, port::Port};
 
@@ -41,55 +40,6 @@ const HIMEM_MID: u8 = 0x5C;
 const HIMEM_HI: u8 = 0x5D;
 const BIOS_SMP_CNT: u8 = 0x5F;
 const CURYR: u128 = 2020;
-
-bitflags! {
-struct StatusA: u8 {
-/// Update in progress
-const UIP = 0x80;
-}
-}
-
-bitflags! {
-struct StatusB: u8 {
-/// enable clock setting by freezing updates
-const CLKSET = 1 << 7;
-/// enable periodic interrupt
-const PIE = 1 << 6;
-/// enable alarm interrupt
-const AIE = 1 << 5;
-/// enable update-ended interrupt
-const UEIE = 1 << 4;
-/// enable square wave output
-const SQWOE = 1 << 3;
-/// Data Mode - 0: BCD, 1: Binary
-const DATMD = 1 << 2;
-/// 24/12 hour selection - 1 enables 24 hour mode
-const HR24 = 1 << 1;
-/// Daylight Savings Enable
-const DSTE = 1 << 0;
-}
-}
-
-bitflags! {
-struct StatusC: u8 {
-/// Interrupt request flag =1 when any or all of bits 6-4 are 1 and appropriate enables
-/// (Register B) are set to 1. Generates IRQ 8 when triggered.
-const IRQ = 1 << 7;
-/// Periodic Interrupt flag
-const PIRQ = 1 << 6;
-/// Alarm Interrupt flag
-const AI = 1 << 5;
-/// Update-Ended Interrupt Flag
-const UEI = 1 << 4;
-}
-}
-
-bitflags! {
-struct StatusD: u8 {
-/// Valid RAM - 1 indicates battery power good, 0 if dead or disconnected.
-const VRAM = 1 << 7;
-}
-}
 
 fn read(index: u8) -> u8 {
     let mut idx = Port::<u8>::new(IDX);
@@ -141,7 +91,7 @@ pub async fn init() {
 /// Returns the current time in a tuple of (year, month, day, hour, minute, second, century).
 pub fn current_time() -> (u128, u128, u128, u128, u128, u128, u128) {
     loop {
-        if !StatusA::from_bits_truncate(read(STTSA)).contains(StatusA::UIP) {
+        if !read(STTSA).get_bit(7) {
             break;
         }
     }
@@ -162,7 +112,7 @@ pub fn current_time() -> (u128, u128, u128, u128, u128, u128, u128) {
         lyr = year;
         lcent = century;
         loop {
-            if !StatusA::from_bits_truncate(read(STTSA)).contains(StatusA::UIP) {
+            if !read(STTSA).get_bit(7) {
                 break;
             }
         }
@@ -184,8 +134,8 @@ pub fn current_time() -> (u128, u128, u128, u128, u128, u128, u128) {
             break;
         }
     }
-    let sttsb = StatusB::from_bits(read(STTSB)).unwrap();
-    if !sttsb.contains(StatusB::DATMD) {
+    let sttsb = read(STTSB);
+    if !sttsb.get_bit(2) {
         second = (second & 0x0F) + ((second / 16) * 10);
         minute = (minute & 0x0F) + ((minute / 16) * 10);
         hour = ((hour & 0x0F) + (((hour & 0x70) / 16) * 10)) | (hour & 0x80);
@@ -193,7 +143,7 @@ pub fn current_time() -> (u128, u128, u128, u128, u128, u128, u128) {
         month = (month & 0x0F) + ((month / 16) * 10);
         year = (year & 0x0F) + ((year / 16) * 10);
         century = (century & 0x0F) + ((century / 16) * 10);
-        if sttsb.contains(StatusB::HR24) && hour.get_bit(7) {
+        if sttsb.get_bit(1) && hour.get_bit(7) {
             hour = ((hour & 0x7F) + 12) % 24;
         }
     }
