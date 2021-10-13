@@ -183,47 +183,20 @@ impl GlobalFrameAllocator {
 unsafe impl FrameAllocator<Size4KiB> for GlobalFrameAllocator {
     #[must_use]
     fn allocate_frame(&mut self) -> Option<PhysFrame> {
-        debug!("falloc: frame alloc requested");
         FPOS.fetch_add(1, Ordering::SeqCst);
         let pos = FPOS.load(Ordering::Relaxed);
-        debug!("computed frmptr: {:X}", pos);
-        let mut offset = 4096 * (pos as u64);
-        debug!("computed frmoffset: {:X}", offset);
-        debug!("Waiting on mmap");
-        let mmap = MMAP.wait();
-        debug!("Waited on mmap, region search start");
-        for region in mmap.iter() {
-            if region.start + offset < region.end {
-                debug!(
-                    "Region {:X} + {:X} < {:X}: constructing frame",
-                    region.start, offset, region.end
-                );
-                debug!("Region search done");
-                return Some(PhysFrame::containing_address(PhysAddr::new(
-                    region.start + offset,
-                )));
-            } else {
-                debug!(
-                    "Region {:X} + {:X} > {:X}: continuing allocation search",
-                    region.start, offset, region.end
-                );
-                offset -= region.end - region.start;
-                debug!("computed fptr: {:X}", pos);
-                debug!("computed frmoffset: {:X}", offset);
-                debug!("Region search continue");
-            }
-        }
-        None
+        MMAP.wait()
+            .iter()
+            .filter(|r| r.kind == MemoryRegionKind::Usable)
+            .map(|r| r.start..r.end)
+            .flat_map(|r| r.step_by(4096))
+            .map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
+            .nth(pos)
     }
 }
 
 impl FrameDeallocator<Size4KiB> for GlobalFrameAllocator {
-    unsafe fn deallocate_frame(&mut self, frame: PhysFrame) {
-        debug!(
-            "ffree: deallocating frame at addr {:X} of size {:X}",
-            frame.start_address().as_u64(),
-            frame.size()
-        );
+    unsafe fn deallocate_frame(&mut self, _: PhysFrame) {
         FPOS.fetch_sub(1, Ordering::SeqCst);
     }
 }
