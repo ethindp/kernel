@@ -70,7 +70,6 @@ fn panic(panic_information: &PanicInfo) -> ! {
 
 // Kernel entry point
 fn kmain(boot_info: &'static mut BootInfo) -> ! {
-    x86_64::instructions::interrupts::disable();
     set_logger(&LOGGER).unwrap();
     if cfg!(debug_assertions) {
         set_max_level(LevelFilter::Trace);
@@ -137,7 +136,39 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
             info!("Detected processor: {}", vs);
         }
     }
-    info!("Initializing memory region list");
+    info!("Initializing memory region list using firmware-provided memory map:");
+    info!("| Start | End | Type |");
+    for region in boot_info.memory_regions.iter() {
+        info!(
+            "| {:X} | {:X} | {} |",
+            region.start,
+            region.end,
+            match region.kind {
+                MemoryRegionKind::Usable => "usable",
+                MemoryRegionKind::UnknownUefi(kind) => match kind {
+                    0 => "reserved",
+                    1 => "loader code",
+                    2 => "loader data",
+                    3 => "boot services code",
+                    4 => "boot services data",
+                    5 => "runtime services code",
+                    6 => "runtime services data",
+                    7 => "Usable",
+                    8 => "unusable",
+                    9 => "acpi reclaimable",
+                    10 => "acpi non-volatile",
+                    11 => "mmio",
+                    12 => "port mmio",
+                    13 => "pal code",
+                    14 => "free nvm",
+                    _ => "unknown",
+                },
+                MemoryRegionKind::UnknownBios(_) => "unknown",
+                MemoryRegionKind::Bootloader => "bootloader",
+                _ => "Unknown",
+            }
+        );
+    }
     libk::memory::init_memory_map(
         &boot_info.memory_regions,
         boot_info.rsdp_addr.into_option().unwrap(),
@@ -147,10 +178,18 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     libk::interrupts::init_idt();
     info!("Initializing virtual memory manager");
     let rdrand = RdRand::new().unwrap();
-    let mut start_addr: u64 = 0x0100_0000_0000 + rdrand.get_u64().unwrap();
+    let mut start_addr: u64 = 0x0100_0000_0000_0000 + rdrand.get_u64().unwrap();
+    let orig_start_addr = start_addr;
     start_addr.set_bits(47..64, 0);
+    start_addr.set_bits(0..12, 0);
     let mut end_addr = start_addr + MAX_HEAP_SIZE;
+    let orig_end_addr = end_addr;
     end_addr.set_bits(47..64, 0);
+    end_addr.set_bits(0..12, 0);
+    info!(
+        "Kernel heap location: {:X}..{:X} (was {:X}..{:X} before canonicalization)",
+        start_addr, end_addr, orig_start_addr, orig_end_addr
+    );
     libk::memory::init(
         boot_info.physical_memory_offset.into_option().unwrap(),
         start_addr,
@@ -158,44 +197,11 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     );
     info!("Configuring interrupt controller");
     libk::interrupts::init_ic();
-    info!("Enabling interrupts");
-    x86_64::instructions::interrupts::enable();
     info!("Initializing internal heap allocator");
     unsafe {
         ALLOCATOR
             .lock()
             .init(start_addr as usize, (end_addr - start_addr) as usize);
-    }
-    info!("firmware-provided memory map:");
-    for region in boot_info.memory_regions.iter() {
-        info!(
-            "[{:X}-{:X}]: {}",
-            region.start,
-            region.end,
-            match region.kind {
-                MemoryRegionKind::Usable => "free",
-                MemoryRegionKind::UnknownUefi(kind) => match kind {
-                    0 => "reserved",
-                    1 => "loader code",
-                    2 => "loader data",
-                    3 => "boot services code",
-                    4 => "boot services data",
-                    5 => "runtime services code",
-                    6 => "runtime services data",
-                    8 => "unusable",
-                    9 => "acpi reclaimable",
-                    10 => "acpi non-volatile",
-                    11 => "mmio",
-                    12 => "port mmio",
-                    13 => "pal code",
-                    14 => "free nvm",
-                    _ => "unknown uefi",
-                },
-                MemoryRegionKind::UnknownBios(_) => "unknown bios",
-                MemoryRegionKind::Bootloader => "bootloader",
-                _ => "Unknown",
-            }
-        );
     }
     libk::init();
     libk::idle_forever();
