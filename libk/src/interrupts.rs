@@ -322,14 +322,9 @@ pub fn init_ic() {
         if !feature_info.has_x2apic() {
             info!("Configuring APIC");
             let _ = crate::memory::allocate_phys_range(apic_addr(), apic_addr() + 0x530, true);
-            unsafe {
-                let mut base = rdmsr(IA32_APIC_BASE);
-                base.set_bit(11, true);
-                wrmsr(IA32_APIC_BASE, base);
-            }
             let base: VolAddress<u32, (), Safe> =
                 unsafe { VolAddress::new((apic_addr() + 0x0F0) as usize) };
-            base.write(1 << 8 | 15);
+            base.write(*0u32.set_bits(0..8, 0xFF).set_bit(8, true));
             info!("Apic configured");
         } else {
             info!("Configuring X2APIC");
@@ -423,25 +418,32 @@ extern "x86-interrupt" fn handle_page_fault(
     use crate::idle_forever;
     use x86_64::registers::control::Cr2;
     let addr = Cr2::read();
-    let ec = error_code.bits();
     error!(
         "Page fault: {} while {} memory address {:X}h",
-        if (ec & 1) > 0 {
+        if error_code.contains(PageFaultErrorCode::PROTECTION_VIOLATION) {
             "protection violation"
-        } else if !(ec & 1) > 0 {
+        } else if !error_code.contains(PageFaultErrorCode::PROTECTION_VIOLATION) {
             "page not present"
-        } else if (ec & 1 << 2) > 0 {
+        } else if error_code.contains(PageFaultErrorCode::USER_MODE) {
             "UM priv violation"
-        } else if !(ec & 1 << 2) > 0 {
+        } else if !error_code.contains(PageFaultErrorCode::USER_MODE) {
             "KM priv violation"
-        } else if ec & 1 << 3 > 0 {
+        } else if error_code.contains(PageFaultErrorCode::MALFORMED_TABLE) {
             "PTT read failure"
-        } else if ec & 1 << 4 > 0 {
+        } else if error_code.contains(PageFaultErrorCode::INSTRUCTION_FETCH) {
             "Instruction fetch"
+        } else if error_code.contains(PageFaultErrorCode::PROTECTION_KEY) {
+            "protection key access"
+        } else if error_code.contains(PageFaultErrorCode::SHADOW_STACK) {
+            "shadow stack access"
+        } else if error_code.contains(PageFaultErrorCode::SGX) {
+            "SGX access control violation"
+        } else if error_code.contains(PageFaultErrorCode::RMP) {
+            "RMP violation"
         } else {
             "unknown cause"
         },
-        if ec & 1 << 1 > 0 {
+        if error_code.contains(PageFaultErrorCode::CAUSED_BY_WRITE) {
             "writing to"
         } else {
             "reading from"
