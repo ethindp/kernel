@@ -7,7 +7,7 @@ name = 'kernel'
 version = '0.1.0'
 
 [package.metadata.bootloader]
-kernel-stack-size = "65536"
+kernel-stack-size = "8388608"
 map-physical-memory = true
 map-framebuffer = true
 

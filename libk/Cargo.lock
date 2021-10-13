@@ -4,11 +4,11 @@ version = 3
 
 [[package]]
 name = "acpi"
-version = "3.1.0"
+version = "4.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b824f15619f321aa08e161ca597aec0621c5195be81a6c945f7c4b75d50bd586"
+checksum = "ee817a324f75ec8fa4db9b79ca77dcde7114718d37d3dc7c94f6361c30f7d9ae"
 dependencies = [
- "bit_field 0.10.1",
+ "bit_field",
  "log",
  "rsdp",
 ]
@@ -44,12 +44,6 @@ dependencies = [
 
 [[package]]
 name = "bit_field"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed8765909f9009617974ab6b7d332625b320b33c326b1e9321382ef1999b5d56"
-
-[[package]]
-name = "bit_field"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dcb6dd1c2376d2e096796e234a70e17e94cc2d5d54ff8ce42b28cef1d0d359a4"
@@ -74,9 +68,9 @@ checksum = "d73c55835cc76243c11580a55eff3f31250b00105a744015b8957ed4203fb8ad"
 
 [[package]]
 name = "bootloader"
-version = "0.10.8"
+version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3877bdf198cf7d92863408baee225b3ad6784eaabceb09258a170059e1a11d83"
+checksum = "61ee1938693d0a8a0b8398328d5632254e84ef42c095ef0b585fd903a8e19d20"
 
 [[package]]
 name = "byteorder"
@@ -142,12 +136,13 @@ dependencies = [
 
 [[package]]
 name = "heapless"
-version = "0.7.5"
+version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50530280e9a947b192e3a30a9d7bcead527b22da30ff7cbd334233d820aaf82a"
+checksum = "fe65ef062f1af5b1b189842b0bc45bd671c38e1d22c6aa22e6ada03d01026d53"
 dependencies = [
  "atomic-polyfill",
  "hash32",
+ "spin",
  "stable_deref_trait",
 ]
 
@@ -157,7 +152,7 @@ version = "0.1.0"
 dependencies = [
  "acpi",
  "async-recursion",
- "bit_field 0.10.1",
+ "bit_field",
  "block_device",
  "bootloader",
  "byteorder",
@@ -205,9 +200,9 @@ dependencies = [
 
 [[package]]
 name = "minivec"
-version = "0.3.1"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19b8a6879a75da38f27127eb4773ed1079500b4f0c74f327727460247a99f103"
+checksum = "2485db5de8046822eec8897b7779dce1b27af6a856cde7abd3a23e394f437d94"
 
 [[package]]
 name = "nb"
@@ -393,31 +388,31 @@ dependencies = [
 
 [[package]]
 name = "x86"
-version = "0.41.0"
+version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edcf43654d533a571fe7f7116373098a95ebc01279efdc5038fc45d3b220cb5a"
+checksum = "1e85eb056bbe47f56d75dc0ccc5fe9c12211ed141292f4d7485d2a7c3dedda09"
 dependencies = [
- "bit_field 0.10.1",
+ "bit_field",
  "bitflags",
  "raw-cpuid",
 ]
 
 [[package]]
 name = "x86_64"
-version = "0.14.4"
+version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d95947de37ad0d2d9a4a4dd22e0d042e034e5cbd7ab53edbca0d8035e0a6a64d"
+checksum = "bbc6ed1ed2cd4536b083c34041aff7b84448ee25ac4aa5e9d54802ce226f9815"
 dependencies = [
- "bit_field 0.9.0",
+ "bit_field",
  "bitflags",
  "volatile",
 ]
 
 [[package]]
 name = "zerocopy"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e59ec1d2457bd6c0dd89b50e7d9d6b0b647809bf3f0a59ac85557046950b7b2"
+checksum = "ae0f717764196a220d8c58500e3a3595e2c9054f95d66267f9fd5f6e74ad0fec"
 dependencies = [
  "byteorder",
  "zerocopy-derive",
