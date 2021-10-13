@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
+use crate::memory::{allocate_phys_range, free_range};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use async_recursion::async_recursion;
@@ -157,19 +158,14 @@ pub async fn probe() {
 async fn check_sg(sg: u16) {
     let regions = crate::acpi::get_pci_regions().unwrap();
     let addr = regions.physical_address(sg, 0, 0, 0).unwrap() as usize;
+    allocate_phys_range(addr as u64, (addr as u64) + 0x1000, true);
     let header_type = read_dword(addr, 0x0C).get_bits(16..24);
-    if (header_type & 0x80) == 0 {
+    if !header_type.get_bit(7) {
         check_bus(sg, 0).await;
     } else {
         for function in 0..MAX_FUNCTION {
             match regions.physical_address(sg, 0, 0, function as _) {
-                Some(addr) => {
-                    if read_dword(addr as usize, 0x00).get_bits(0..16) != 0xFFFF {
-                        break;
-                    } else {
-                        check_bus(sg, function as _).await;
-                    }
-                }
+                Some(_) => check_bus(sg, function as _).await,
                 None => break,
             }
         }
@@ -204,6 +200,12 @@ async fn check_function(sg: u16, bus: u8, device: u8, function: u8) {
         .unwrap()
         .physical_address(sg, bus, device, function)
         .unwrap() as usize;
+    allocate_phys_range(addr as u64, (addr as u64) + 0x1000, true);
+    let vid_did = read_dword(addr, 0x00);
+    if vid_did.get_bits(0..16) == 0xFFFF && vid_did.get_bits(16..32) == 0xFFFF {
+        free_range(addr as u64, (addr as u64) + 0x1000);
+        return;
+    }
     let data = read_dword(addr, 0x08);
     if data.get_bits(24..32) == 0x06 && data.get_bits(16..24) == 0x04 {
         info!(
@@ -268,8 +270,8 @@ async fn check_function(sg: u16, bus: u8, device: u8, function: u8) {
         dev.bus,
         dev.device,
         dev.function,
-        classify_class(dev.class.0).unwrap(),
-        classify_subclass(dev.class.0, dev.class.1).unwrap(),
+        classify_class(dev.class.0).unwrap_or("unknown"),
+        classify_subclass(dev.class.0, dev.class.1).unwrap_or("unknown"),
         dev.vendor_id,
         dev.device_id
     );
@@ -279,7 +281,7 @@ async fn check_function(sg: u16, bus: u8, device: u8, function: u8) {
 /// Initializes the PCI subsystem.
 #[cold]
 pub async fn init() {
-    info!("Initiating PCE bus scan");
+    info!("Initiating PCIe bus scan");
     probe().await;
     info!(
         "PCIe scan complete; {} devices found",
@@ -469,81 +471,4 @@ fn classify_subclass(class: u8, subclass: u8) -> Option<&'static str> {
         (0x12, 0x01) => Some("AI Inference Accelerator"),
         (_, _) => None,
     }
-}
-
-#[inline]
-fn classify_program_interface(class: u8, subclass: u8, pi: u8) -> Option<&'static str> {
-    match (class, subclass, pi) {
-(0x01, 0x01, 0x00) => Some("ISA Compatibility mode-only controller"),
-(0x01, 0x01, 0x05) => Some("PCI native mode-only controller"),
-(0x01, 0x01, 0x0a) => Some("ISA Compatibility mode controller, supports both channels switched to PCI native mode"),
-(0x01, 0x01, 0x0f) => Some("PCI native mode controller, supports both channels switched to ISA compatibility mode"),
-(0x01, 0x01, 0x80) => Some("ISA Compatibility mode-only controller, supports bus mastering"),
-(0x01, 0x01, 0x85) => Some("PCI native mode-only controller, supports bus mastering"),
-(0x01, 0x01, 0x8a) => Some("ISA Compatibility mode controller, supports both channels switched to PCI native mode, supports bus mastering"),
-(0x01, 0x01, 0x8f) => Some("PCI native mode controller, supports both channels switched to ISA compatibility mode, supports bus mastering"),
-(0x01, 0x05, 0x20) => Some("ADMA single stepping"),
-(0x01, 0x05, 0x30) => Some("ADMA continuous operation"),
-(0x01, 0x06, 0x00) => Some("Vendor specific"),
-(0x01, 0x06, 0x01) => Some("AHCI 1.0"),
-(0x01, 0x06, 0x02) => Some("Serial Storage Bus"),
-(0x01, 0x07, 0x01) => Some("Serial Storage Bus"),
-(0x01, 0x08, 0x01) => Some("NVMHCI"),
-(0x01, 0x08, 0x02) => Some("NVM Express"),
-(0x03, 0x00, 0x00) => Some("VGA controller"),
-(0x03, 0x00, 0x01) => Some("8514 controller"),
-(0x06, 0x04, 0x00) => Some("Normal decode"),
-(0x06, 0x04, 0x01) => Some("Subtractive decode"),
-(0x06, 0x08, 0x00) => Some("Transparent mode"),
-(0x06, 0x08, 0x01) => Some("Endpoint mode"),
-(0x06, 0x09, 0x40) => Some("Primary bus towards host CPU"),
-(0x06, 0x09, 0x80) => Some("Secondary bus towards host CPU"),
-(0x07, 0x00, 0x00) => Some("8250"),
-(0x07, 0x00, 0x01) => Some("16450"),
-(0x07, 0x00, 0x02) => Some("16550"),
-(0x07, 0x00, 0x03) => Some("16650"),
-(0x07, 0x00, 0x04) => Some("16750"),
-(0x07, 0x00, 0x05) => Some("16850"),
-(0x07, 0x00, 0x06) => Some("16950"),
-(0x07, 0x01, 0x00) => Some("SPP"),
-(0x07, 0x01, 0x01) => Some("BiDir"),
-(0x07, 0x01, 0x02) => Some("ECP"),
-(0x07, 0x01, 0x03) => Some("IEEE1284"),
-(0x07, 0x01, 0xfe) => Some("IEEE1284 Target"),
-(0x07, 0x03, 0x00) => Some("Generic"),
-(0x07, 0x03, 0x01) => Some("Hayes/16450"),
-(0x07, 0x03, 0x02) => Some("Hayes/16550"),
-(0x07, 0x03, 0x03) => Some("Hayes/16650"),
-(0x07, 0x03, 0x04) => Some("Hayes/16750"),
-(0x08, 0x00, 0x00) => Some("8259"),
-(0x08, 0x00, 0x01) => Some("ISA PIC"),
-(0x08, 0x00, 0x02) => Some("EISA PIC"),
-(0x08, 0x00, 0x10) => Some("IO-APIC"),
-(0x08, 0x00, 0x20) => Some("IO(X)-APIC"),
-(0x08, 0x01, 0x00) => Some("8237"),
-(0x08, 0x01, 0x01) => Some("ISA DMA"),
-(0x08, 0x01, 0x02) => Some("EISA DMA"),
-(0x08, 0x02, 0x00) => Some("8254"),
-(0x08, 0x02, 0x01) => Some("ISA Timer"),
-(0x08, 0x02, 0x02) => Some("EISA Timers"),
-(0x08, 0x02, 0x03) => Some("HPET"),
-(0x08, 0x03, 0x00) => Some("Generic"),
-(0x08, 0x03, 0x01) => Some("ISA RTC"),
-(0x08, 0x99, 0x01) => Some("TAP Timing Card"),
-(0x09, 0x04, 0x00) => Some("Generic"),
-(0x09, 0x04, 0x10) => Some("Extended"),
-(0x0c, 0x00, 0x00) => Some("Generic"),
-(0x0c, 0x00, 0x10) => Some("OHCI"),
-(0x0c, 0x03, 0x00) => Some("UHCI"),
-(0x0c, 0x03, 0x10) => Some("OHCI"),
-(0x0c, 0x03, 0x20) => Some("EHCI"),
-(0x0c, 0x03, 0x30) => Some("XHCI"),
-(0x0c, 0x03, 0x40) => Some("USB4 Host Interface"),
-(0x0c, 0x03, 0x80) => Some("Unspecified"),
-(0x0c, 0x03, 0xfe) => Some("USB Device"),
-(0x0c, 0x07, 0x00) => Some("SMIC"),
-(0x0c, 0x07, 0x01) => Some("KCS"),
-(0x0c, 0x07, 0x02) => Some("BT (Block Transfer)"),
-(_, _, _) => None
-}
 }
