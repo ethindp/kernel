@@ -238,6 +238,17 @@ async fn check_function(sg: u16, bus: u8, device: u8, function: u8) {
         data.get_bits(8..16) as _,
     );
     dev.revision_id = data.get_bits(0..8) as _;
+    info!(
+        "{:X}:{:X}:{:X}:{:X}: Found {} ({}) with vendor ID {:X} and device ID {:X}",
+        dev.segment_group,
+        dev.bus,
+        dev.device,
+        dev.function,
+        classify_class(dev.class.0).unwrap_or("unknown"),
+        classify_subclass(dev.class.0, dev.class.1).unwrap_or("unknown"),
+        dev.vendor_id,
+        dev.device_id
+    );
     let data = read_dword(addr, 0x0C);
     dev.header_type = data.get_bits(16..24).get_bits(0..7) as _;
     dev.multifunction = data.get_bits(16..24).get_bit(7);
@@ -263,18 +274,71 @@ async fn check_function(sg: u16, bus: u8, device: u8, function: u8) {
         dev.bars.insert(2, membar1).unwrap();
         dev.bars.insert(3, iobar0).unwrap();
         dev.bars.insert(4, iobar1).unwrap();
+        dev.bars.values_mut().for_each(|bar| {
+            if bar.get_bit(0) {
+                *bar = bar.get_bits(2..(usize::BITS as usize));
+            } else {
+                *bar = bar.get_bits(4..(usize::BITS as usize));
+            }
+        });
     }
-    info!(
-        "{:X}:{:X}:{:X}:{:X}: Found {} ({}) with vendor ID {:X} and device ID {:X}",
-        dev.segment_group,
-        dev.bus,
-        dev.device,
-        dev.function,
-        classify_class(dev.class.0).unwrap_or("unknown"),
-        classify_subclass(dev.class.0, dev.class.1).unwrap_or("unknown"),
-        dev.vendor_id,
-        dev.device_id
-    );
+    if dev.header_type == 0x00 || dev.header_type == 0x01 {
+        // To do: refactor this into a iterator
+        let mut idx = 0;
+        loop {
+            if !dev.bars.contains_key(&idx)
+                || (dev.header_type == 0x00 && idx > 5)
+                || (dev.header_type == 0x01 && idx > 2)
+            {
+                break;
+            }
+            let real_idx = match idx {
+                0 => BAR0,
+                1 => BAR1,
+                2 => BAR2,
+                3 => BAR3,
+                4 => BAR4,
+                5 => BAR5,
+                _ => 0,
+            };
+            let oldbar = read_dword(addr, real_idx);
+            let oldbar2 = if oldbar.get_bits(1..=2) == 0x02 {
+                read_dword(addr, real_idx + 4)
+            } else {
+                0
+            };
+            write_dword(addr, real_idx, u32::MAX);
+            if oldbar.get_bits(1..=2) == 0x02 {
+                write_dword(addr, real_idx + 4, u32::MAX);
+            }
+            let bar = read_dword(addr, real_idx);
+            let bar2 = if oldbar.get_bits(1..=2) == 0x02 {
+                read_dword(addr, real_idx + 4)
+            } else {
+                0
+            };
+            write_dword(addr, real_idx, oldbar);
+            if oldbar.get_bits(1..=2) == 0x02 {
+                write_dword(addr, real_idx + 4, oldbar2);
+            }
+            let mut bar = bar as u64;
+            if oldbar2.get_bits(1..=2) == 0x02 {
+                bar.set_bits(32..64, bar2 as u64);
+            }
+            if bar.get_bit(0) {
+                bar.set_bits(0..2, 0);
+            } else {
+                bar.set_bits(0..4, 0);
+            }
+            let bar = !bar;
+            info!("BAR {:X} consumes {} bytes", idx, 1 << bar.count_zeros());
+            if oldbar.get_bits(1..=2) == 0x02 {
+                idx += 2;
+            } else {
+                idx += 1;
+            }
+        }
+    }
     add_device(dev);
 }
 
@@ -297,17 +361,7 @@ fn calculate_bar_addr(dev: &PciDevice, addr: u32) -> usize {
             0 => (bar1 & 0xFFFF_FFF0) as usize,
             1 => (bar1 & 0xFFF0) as usize,
             2 => {
-                let bar2 = read_dword(
-                    dev.phys_addr as _,
-                    match addr {
-                        BAR0 => BAR1,
-                        BAR1 => BAR2,
-                        BAR2 => BAR3,
-                        BAR3 => BAR4,
-                        BAR4 => BAR5,
-                        _ => 0,
-                    },
-                );
+                let bar2 = read_dword(dev.phys_addr as _, addr + 4);
                 (((bar1 as u64) & 0xFFFF_FFF0) + (((bar2 as u64) & 0xFFFF_FFFF) << 32)) as usize
             }
             _ => bar1 as usize,
