@@ -13,7 +13,7 @@ struct AcpiMapper;
 
 impl AcpiHandler for AcpiMapper {
     unsafe fn map_physical_region<T>(&self, addr: usize, size: usize) -> PhysicalMapping<Self, T> {
-        allocate_phys_range(addr as u64, (addr + size) as u64, true);
+        allocate_phys_range(addr as u64, (addr + size) as u64, true, None);
         unsafe {
             PhysicalMapping::new(
                 addr,

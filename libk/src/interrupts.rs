@@ -321,7 +321,8 @@ pub fn init_ic() {
         let feature_info = id.get_feature_info().unwrap();
         if !feature_info.has_x2apic() {
             info!("Configuring APIC");
-            let _ = crate::memory::allocate_phys_range(apic_addr(), apic_addr() + 0x530, true);
+            let _ =
+                crate::memory::allocate_phys_range(apic_addr(), apic_addr() + 0x530, true, None);
             let base: VolAddress<u32, (), Safe> =
                 unsafe { VolAddress::new((apic_addr() + 0x0F0) as usize) };
             base.write(*0u32.set_bits(0..8, 0xFF).set_bit(8, true));

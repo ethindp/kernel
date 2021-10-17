@@ -9,6 +9,7 @@ use log::*;
 use spin::{mutex::ticket::TicketMutex, Lazy};
 use voladdress::*;
 use x86::random;
+use x86_64::structures::paging::page_table::PageTableFlags;
 
 const MAX_FUNCTION: usize = 8;
 const MAX_DEVICE: usize = 32;
@@ -32,8 +33,8 @@ const BAR3: u32 = 0x1C;
 const BAR4: u32 = 0x20;
 const BAR5: u32 = 0x24;
 const CARDBUS_CIS: u32 = 0x28;
-const SS_VENDOR_ID: u32 = 0x2C;
-const SS_ID: u32 = 0x2E;
+const SUBSYS_VENDOR_ID: u32 = 0x2C;
+const SUBSYS_ID: u32 = 0x2E;
 const ROM_ADDR: u32 = 0x30;
 const CAP_LIST: u32 = 0x34;
 const INT_LINE: u32 = 0x3C;
@@ -45,36 +46,36 @@ const IO_BASE: u32 = 0x1C;
 const IO_LIMIT: u32 = 0x1D;
 const SEC_STATUS: u32 = 0x1E;
 const MEM_BASE: u32 = 0x20;
-const MEM_LMT: u32 = 0x22;
+const MEM_LIMIT: u32 = 0x22;
 const PREF_MEM_BASE: u32 = 0x24;
-const PREF_MEM_LMT: u32 = 0x26;
+const PREF_MEM_LIMIT: u32 = 0x26;
 const PREF_MEM_BASE_UPPER32: u32 = 0x28;
-const PREF_MEM_LMT_UPPER32: u32 = 0x2C;
+const PREF_MEM_LIMIT_UPPER32: u32 = 0x2C;
 const IO_BASE_UPPER16: u32 = 0x30;
-const IO_LMT_UPPER32: u32 = 0x32;
+const IO_LIMIT_UPPER32: u32 = 0x32;
 const ROM_ADDR1: u32 = 0x38;
 const BRIDGE_CTL: u32 = 0x3E;
-const CB_CAP_LST: u32 = 0x14;
+const CB_CAP_LIST: u32 = 0x14;
 const CB_SEC_STATUS: u32 = 0x16;
 const CB_PRIM_BUS: u32 = 0x18;
 const CB_CARD_BUS: u32 = 0x19;
 const CB_SUB_BUS: u32 = 0x1A;
 const CB_LAT_TMR: u32 = 0x1B;
 const CB_MEMBASE0: u32 = 0x1C;
-const CB_MEMLMT0: u32 = 0x20;
+const CB_MEMLIMIT0: u32 = 0x20;
 const CB_MEMBASE1: u32 = 0x24;
-const CB_MEMLMT1: u32 = 0x28;
+const CB_MEMLIMIT1: u32 = 0x28;
 const CB_IO_BASE0: u32 = 0x2C;
 const CB_IO_BASE0_HI: u32 = 0x2E;
-const CB_IO_LMT0: u32 = 0x30;
-const CB_IO_LMT0_HI: u32 = 0x32;
+const CB_IO_LIMIT0: u32 = 0x30;
+const CB_IO_LIMIT0_HI: u32 = 0x32;
 const CB_IO_BASE1: u32 = 0x34;
 const CB_IO_BASE1_HI: u32 = 0x36;
-const CB_IO_LMT1: u32 = 0x38;
-const CB_IO_LMT1_HI: u32 = 0x3A;
+const CB_IO_LIMIT1: u32 = 0x38;
+const CB_IO_LIMIT1_HI: u32 = 0x3A;
 const CB_BR_CTL: u32 = 0x3E;
-const CB_SS_VNDR_ID: u32 = 0x40;
-const CB_SS_ID: u32 = 0x42;
+const CB_SUBSYS_VENDOR_ID: u32 = 0x40;
+const CB_SUBSYS_ID: u32 = 0x42;
 const CB_LEG_MODE_BASE: u32 = 0x44;
 
 static PCI_DEVICES: Lazy<TicketMutex<Vec<PciDevice>>> = Lazy::new(|| TicketMutex::new(Vec::new()));
@@ -115,8 +116,8 @@ pub struct PciDevice {
     /// function of the device and, in some cases, a specific register-level programming
     /// interface.
     pub class: (u8, u8, u8),
-    /// Base address registers (BARs)
-    pub bars: LinearMap<u8, usize, 6>,
+    /// Base address registers (BARs). Also holds limits for BAR ranges in tuple element 1.
+    pub bars: LinearMap<u8, (u64, u64), 6>,
     /// Contains a unique device ID. Device drivers may use this (e.g.: to allow interrupt->driver
     /// communication).
     pub unique_dev_id: u64,
@@ -128,12 +129,14 @@ fn add_device(device: PciDevice) {
     PCI_DEVICES.lock().push(device);
 }
 
+#[inline]
 fn read_dword(phys_addr: usize, addr: u32) -> u32 {
     let cfgspace: VolAddress<u32, Safe, ()> =
         unsafe { VolAddress::new(phys_addr + (addr as usize)) };
     cfgspace.read()
 }
 
+#[inline]
 fn write_dword(phys_addr: usize, addr: u32, value: u32) {
     let cfgspace: VolAddress<u32, (), Safe> =
         unsafe { VolAddress::new(phys_addr + (addr as usize)) };
@@ -155,10 +158,11 @@ pub async fn probe() {
 }
 
 #[async_recursion]
+#[inline]
 async fn check_sg(sg: u16) {
     let regions = crate::acpi::get_pci_regions().unwrap();
     let addr = regions.physical_address(sg, 0, 0, 0).unwrap() as usize;
-    allocate_phys_range(addr as u64, (addr as u64) + 0x1000, true);
+    allocate_phys_range(addr as u64, (addr as u64) + 0x1000, true, None);
     let header_type = read_dword(addr, 0x0C).get_bits(16..24);
     if !header_type.get_bit(7) {
         check_bus(sg, 0).await;
@@ -173,6 +177,7 @@ async fn check_sg(sg: u16) {
 }
 
 #[async_recursion]
+#[inline]
 async fn check_bus(sg: u16, bus: u8) {
     let regions = crate::acpi::get_pci_regions().unwrap();
     for device in (0..MAX_DEVICE)
@@ -183,6 +188,7 @@ async fn check_bus(sg: u16, bus: u8) {
 }
 
 #[async_recursion]
+#[inline]
 async fn check_device(sg: u16, bus: u8, device: u8) {
     let regions = crate::acpi::get_pci_regions().unwrap();
     for function in (0..MAX_FUNCTION).filter(|function| {
@@ -195,12 +201,13 @@ async fn check_device(sg: u16, bus: u8, device: u8) {
 }
 
 #[async_recursion]
+#[inline]
 async fn check_function(sg: u16, bus: u8, device: u8, function: u8) {
     let addr = crate::acpi::get_pci_regions()
         .unwrap()
         .physical_address(sg, bus, device, function)
         .unwrap() as usize;
-    allocate_phys_range(addr as u64, (addr as u64) + 0x1000, true);
+    allocate_phys_range(addr as u64, (addr as u64) + 0x1000, true, None);
     let vid_did = read_dword(addr, 0x00);
     if vid_did.get_bits(0..16) == 0xFFFF && vid_did.get_bits(16..32) == 0xFFFF {
         free_range(addr as u64, (addr as u64) + 0x1000);
@@ -253,90 +260,89 @@ async fn check_function(sg: u16, bus: u8, device: u8, function: u8) {
     dev.header_type = data.get_bits(16..24).get_bits(0..7) as _;
     dev.multifunction = data.get_bits(16..24).get_bit(7);
     dev.bars = LinearMap::new();
-    if dev.header_type == 0x00 {
-        dev.bars.insert(0, calculate_bar_addr(&dev, BAR0)).unwrap();
-        dev.bars.insert(1, calculate_bar_addr(&dev, BAR1)).unwrap();
-        dev.bars.insert(2, calculate_bar_addr(&dev, BAR2)).unwrap();
-        dev.bars.insert(3, calculate_bar_addr(&dev, BAR3)).unwrap();
-        dev.bars.insert(4, calculate_bar_addr(&dev, BAR4)).unwrap();
-        dev.bars.insert(5, calculate_bar_addr(&dev, BAR5)).unwrap();
-    } else if dev.header_type == 0x01 {
-        dev.bars.insert(0, calculate_bar_addr(&dev, BAR0)).unwrap();
-        dev.bars.insert(1, calculate_bar_addr(&dev, BAR1)).unwrap();
-    } else if dev.header_type == 0x02 {
-        let cbbar = read_dword(addr, BAR0) as usize;
-        let membar0 = *read_dword(addr, 0x1C).set_bits(32..64, read_dword(addr, 0x20)) as usize;
-        let membar1 = *read_dword(addr, 0x24).set_bits(32..64, read_dword(addr, 0x28)) as usize;
-        let iobar0 = *read_dword(addr, 0x2C).set_bits(32..64, read_dword(addr, 0x30)) as usize;
-        let iobar1 = *read_dword(addr, 0x34).set_bits(32..64, read_dword(addr, 0x38)) as usize;
-        dev.bars.insert(0, cbbar).unwrap();
-        dev.bars.insert(1, membar0).unwrap();
-        dev.bars.insert(2, membar1).unwrap();
-        dev.bars.insert(3, iobar0).unwrap();
-        dev.bars.insert(4, iobar1).unwrap();
-        dev.bars.values_mut().for_each(|bar| {
-            if bar.get_bit(0) {
-                *bar = bar.get_bits(2..(usize::BITS as usize));
+    let mut idx = 0;
+    let mut inc = 0;
+    loop {
+        idx += inc;
+        if (dev.header_type == 0x00 && idx > 5)
+            || (dev.header_type == 0x01 && idx > 1)
+            || (dev.header_type == 0x02 && idx > 0)
+        {
+            break;
+        }
+        let real_idx = match idx {
+            0 => BAR0,
+            1 => BAR1,
+            2 => BAR2,
+            3 => BAR3,
+            4 => BAR4,
+            5 => BAR5,
+            _ => 0,
+        };
+        let oldbar = read_dword(addr, real_idx);
+        if oldbar == 0x00 {
+            inc = 1;
+            continue;
+        }
+        let oldbar2 = if !oldbar.get_bit(0) && oldbar.get_bits(1..=2) == 0x02 {
+            read_dword(addr, real_idx + 4)
+        } else {
+            0
+        };
+        write_dword(addr, real_idx, u32::MAX);
+        if !oldbar.get_bit(0) && oldbar.get_bits(1..=2) == 0x02 {
+            write_dword(addr, real_idx + 4, u32::MAX);
+        }
+        let mut bar = read_dword(addr, real_idx);
+        let bar2 = if !oldbar.get_bit(0) && oldbar.get_bits(1..=2) == 0x02 {
+            read_dword(addr, real_idx + 4)
+        } else {
+            0
+        };
+        write_dword(addr, real_idx, oldbar);
+        if bar2 != 0x00 {
+            write_dword(addr, real_idx + 4, oldbar2);
+        }
+        if bar2 == 0x00 {
+            let mut bar = if !oldbar.get_bit(0) {
+                *bar.set_bits(0..4, 0)
             } else {
-                *bar = bar.get_bits(4..(usize::BITS as usize));
-            }
-        });
-    }
-    if dev.header_type == 0x00 || dev.header_type == 0x01 {
-        // To do: refactor this into a iterator
-        let mut idx = 0;
-        loop {
-            if !dev.bars.contains_key(&idx)
-                || (dev.header_type == 0x00 && idx > 5)
-                || (dev.header_type == 0x01 && idx > 2)
-            {
-                break;
-            }
-            let real_idx = match idx {
-                0 => BAR0,
-                1 => BAR1,
-                2 => BAR2,
-                3 => BAR3,
-                4 => BAR4,
-                5 => BAR5,
-                _ => 0,
+                *bar.set_bits(0..2, 0)
             };
-            let oldbar = read_dword(addr, real_idx);
-            let oldbar2 = if oldbar.get_bits(1..=2) == 0x02 {
-                read_dword(addr, real_idx + 4)
-            } else {
-                0
-            };
-            write_dword(addr, real_idx, u32::MAX);
-            if oldbar.get_bits(1..=2) == 0x02 {
-                write_dword(addr, real_idx + 4, u32::MAX);
-            }
-            let bar = read_dword(addr, real_idx);
-            let bar2 = if oldbar.get_bits(1..=2) == 0x02 {
-                read_dword(addr, real_idx + 4)
-            } else {
-                0
-            };
-            write_dword(addr, real_idx, oldbar);
-            if oldbar.get_bits(1..=2) == 0x02 {
-                write_dword(addr, real_idx + 4, oldbar2);
-            }
-            let mut bar = bar as u64;
-            if oldbar2.get_bits(1..=2) == 0x02 {
-                bar.set_bits(32..64, bar2 as u64);
-            }
-            if bar.get_bit(0) {
-                bar.set_bits(0..2, 0);
-            } else {
-                bar.set_bits(0..4, 0);
-            }
-            let bar = !bar;
-            info!("BAR {:X} consumes {} bytes", idx, 1 << bar.count_zeros());
-            if oldbar.get_bits(1..=2) == 0x02 {
-                idx += 2;
-            } else {
-                idx += 1;
-            }
+            bar = (!bar) + 1;
+            dev.bars.insert(idx, (oldbar as u64, bar as u64)).unwrap();
+            debug!("Barcheck: {:X}, {:X}", bar, bar as u64);
+            allocate_phys_range(
+                oldbar as u64,
+                (oldbar as u64) + (bar as u64),
+                true,
+                Some(
+                    PageTableFlags::WRITE_THROUGH
+                        | PageTableFlags::WRITABLE
+                        | PageTableFlags::NO_CACHE,
+                ),
+            );
+        } else {
+            let mut bar = (bar2 as u64) << 32 | (bar as u64);
+            let oldbar = (oldbar2 as u64) << 32 | (oldbar as u64);
+            bar.set_bits(0..4, 0);
+            bar = (!bar) + 1;
+            dev.bars.insert(idx, (oldbar, bar)).unwrap();
+            allocate_phys_range(
+                oldbar,
+                oldbar + bar,
+                true,
+                Some(
+                    PageTableFlags::WRITE_THROUGH
+                        | PageTableFlags::WRITABLE
+                        | PageTableFlags::NO_CACHE,
+                ),
+            );
+        }
+        if oldbar.get_bits(1..=2) == 0x02 {
+            inc = 2;
+        } else {
+            inc = 1;
         }
     }
     add_device(dev);

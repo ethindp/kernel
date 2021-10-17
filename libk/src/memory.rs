@@ -67,8 +67,12 @@ pub fn allocate_paged_heap(
     size: u64,
     mapper: &mut impl Mapper<Size4KiB>,
     frame_allocator: &mut impl FrameAllocator<Size4KiB>,
+    perms: Option<PageTableFlags>,
 ) {
-    debug!("Allocating heap in paged memory with start of {:X}", start);
+    debug!(
+        "Allocating heap in paged memory with start of {:X}, size {:X}",
+        start, size
+    );
     // Construct a page range
     let page_range = {
         // Calculate start and end
@@ -97,53 +101,17 @@ pub fn allocate_paged_heap(
             Some(f) => f,
             None => panic!("Can't allocate frame!"),
         };
-        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
+        let flags = if let Some(flags) = perms {
+            PageTableFlags::PRESENT | flags
+        } else {
+            PageTableFlags::PRESENT | PageTableFlags::WRITABLE
+        };
         let frame2 = frame;
         debug!("Requesting mapping of page with flags {:X}", flags);
         unsafe {
             match mapper.map_to(page, frame, flags, frame_allocator) {
                 Ok(f) => {
                     debug!("Map complete, flushing TLB");
-                    f.flush();
-                    MUSE.fetch_add(1, Ordering::Relaxed);
-                }
-                Err(e) => panic!(
-                    "Cannot allocate frame range {:X}h-{:X}h: {:?}",
-                    frame2.start_address().as_u64(),
-                    frame2.start_address().as_u64() + frame2.size(),
-                    e
-                ),
-            }
-        }
-    });
-    SMUSE.fetch_add(size, Ordering::Relaxed);
-}
-
-/// Allocates a paged heap with the specified permissions.
-#[cold]
-pub fn allocate_paged_heap_with_perms(
-    start: u64,
-    size: u64,
-    mapper: &mut impl Mapper<Size4KiB>,
-    frame_allocator: &mut impl FrameAllocator<Size4KiB>,
-    permissions: PageTableFlags,
-) {
-    let page_range = {
-        let heap_start = VirtAddr::new(start);
-        let heap_end = heap_start + size - 1u64;
-        let heap_start_page = Page::containing_address(heap_start);
-        let heap_end_page = Page::containing_address(heap_end);
-        Page::range_inclusive(heap_start_page, heap_end_page)
-    };
-    page_range.for_each(|page| {
-        let frame = match frame_allocator.allocate_frame() {
-            Some(f) => f,
-            None => panic!("Can't allocate frame!"),
-        };
-        let frame2 = frame;
-        unsafe {
-            match mapper.map_to(page, frame, permissions, frame_allocator) {
-                Ok(f) => {
                     f.flush();
                     MUSE.fetch_add(1, Ordering::Relaxed);
                 }
@@ -210,38 +178,14 @@ pub fn init(physical_memory_offset: u64, start_addr: u64, size: u64) {
     *allocator = Some(GlobalFrameAllocator::init());
     let end_addr = start_addr + size;
     match (mapper.as_mut(), allocator.as_mut()) {
-        (Some(m), Some(a)) => allocate_paged_heap(start_addr, end_addr - start_addr, m, a),
-        _ => panic!("Memory allocator or page frame allocator failed creation!"),
-    }
-}
-
-/// Allocates a heap starting at `start` and being of size `size`.
-#[no_mangle]
-#[cold]
-pub extern "C" fn allocate_heap(start: u64, size: u64) {
-    match (MAPPER.lock().as_mut(), FRAME_ALLOCATOR.lock().as_mut()) {
-        (Some(m), Some(a)) => allocate_paged_heap(start, size, m, a),
-        _ => panic!("Memory allocator or page frame allocator failed creation!"),
-    }
-}
-
-/// Allocates a heap starting at `start` and having size `size` with the given permissions.
-/// For a list of permissions, see the AMD64 Architecture Programmer’s Manual, vol. 2: System
-/// Programming, sec. 5.4, or the Intel 64 and IA-32 Architectures Software Developer’s Manual,
-/// Vol. 3A: System Programming Guide, sec. 4.1.
-#[no_mangle]
-#[cold]
-pub extern "C" fn allocate_heap_with_perms(start: u64, size: u64, perms: u64) {
-    let perms = PageTableFlags::from_bits_truncate(perms);
-    match (MAPPER.lock().as_mut(), FRAME_ALLOCATOR.lock().as_mut()) {
-        (Some(m), Some(a)) => allocate_paged_heap_with_perms(start, size, m, a, perms),
+        (Some(m), Some(a)) => allocate_paged_heap(start_addr, end_addr - start_addr, m, a, None),
         _ => panic!("Memory allocator or page frame allocator failed creation!"),
     }
 }
 
 /// Allocates a paged (virtual) contiguous address range within [start, end]. `end` must be >= `start` and vice-versa.
-#[no_mangle]
-pub extern "C" fn allocate_page_range(start: u64, end: u64) {
+/// If `perms` is not `None`, allows specification of custom privileges for the range. The `P` (present) bit is always set.
+pub fn allocate_page_range(start: u64, end: u64, perms: Option<PageTableFlags>) {
     if end < start {
         warn!(
             "attempt to allocate {} with start of {:X} and end of {:X}",
@@ -265,7 +209,11 @@ pub extern "C" fn allocate_page_range(start: u64, end: u64) {
                     Some(f) => f,
                     None => panic!("Can't allocate frame!"),
                 };
-                let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
+                let flags = if let Some(flags) = perms {
+                    PageTableFlags::PRESENT | flags
+                } else {
+                    PageTableFlags::PRESENT | PageTableFlags::WRITABLE
+                };
                 unsafe {
                     match m.map_to(page, frame, flags, a) {
                         Ok(r) => {
@@ -290,64 +238,15 @@ pub extern "C" fn allocate_page_range(start: u64, end: u64) {
     SMUSE.fetch_add(end - start, Ordering::Relaxed);
 }
 
-/// Allocates a paged (virtual) contiguous range of memory within [start, end] with the given permissions. `end must be >= `start` and vice-versa.
-/// For a list of permissions, see the AMD64 Architecture Programmer’s Manual, vol. 2: System
-/// Programming, sec. 5.4, or the Intel 64 and IA-32 Architectures Software Developer’s Manual,
-/// Vol. 3A: System Programming Guide, sec. 4.1.
-#[no_mangle]
-pub extern "C" fn allocate_page_range_with_perms(start: u64, end: u64, permissions: u64) {
-    if end < start {
-        warn!(
-            "attempt to allocate {} with start of {:X} and end of {:X}",
-            end - start,
-            start,
-            end
-        );
-        return;
-    }
-    let permissions = PageTableFlags::from_bits_truncate(permissions);
-    match (MAPPER.lock().as_mut(), FRAME_ALLOCATOR.lock().as_mut()) {
-        (Some(m), Some(a)) => {
-            let page_range = {
-                let start = VirtAddr::new(start);
-                let end = VirtAddr::new(end);
-                let start_page = Page::containing_address(start);
-                let end_page = Page::containing_address(end);
-                Page::range_inclusive(start_page, end_page)
-            };
-            page_range.for_each(|page| {
-                let frame = match a.allocate_frame() {
-                    Some(f) => f,
-                    None => panic!("Can't allocate frame!"),
-                };
-                unsafe {
-                    match m.map_to(page, frame, permissions, a) {
-                        Ok(r) => {
-                            r.flush();
-                            MUSE.fetch_add(1, Ordering::Relaxed);
-                        }
-                        Err(e) => match e {
-                            MapToError::PageAlreadyMapped(_) => (),
-                            MapToError::FrameAllocationFailed => panic!(
-                                "Cannot map frame at addr {:X} of size {}: no more frames",
-                                frame.clone().start_address(),
-                                frame.size()
-                            ),
-                            MapToError::ParentEntryHugePage => (),
-                        },
-                    }
-                }
-            });
-        }
-        _ => panic!("Memory allocator or frame allocator are not set"),
-    }
-    SMUSE.fetch_add(end - start, Ordering::Relaxed);
-}
-
-/// Allocates a physical memory address range within [start, end]. `end must be > `start`.
+/// Allocates a physical memory address range within [start, end]. `end` must be > `start`.
 /// If `force` is specified, the allocation will occur even if the range is not marked as usable (free).
-#[no_mangle]
-pub extern "C" fn allocate_phys_range(start: u64, end: u64, force: bool) -> bool {
+/// If `perms` is not `None`, custom permissions can be specified for this memory range. The `P` (present) bit is always set.
+pub fn allocate_phys_range(
+    start: u64,
+    end: u64,
+    force: bool,
+    perms: Option<PageTableFlags>,
+) -> bool {
     if end < start {
         warn!(
             "attempt to allocate {} with start of {:X} and end of {:X}",
@@ -378,9 +277,13 @@ pub extern "C" fn allocate_phys_range(start: u64, end: u64, force: bool) -> bool
                     PhysFrame::range_inclusive(start_frame, end_frame)
                 };
                 frame_range.for_each(|frame| {
-                    let flags = PageTableFlags::PRESENT
-                        | PageTableFlags::WRITABLE
-                        | PageTableFlags::NO_CACHE;
+                    let flags = if let Some(flags) = perms {
+                        PageTableFlags::PRESENT | flags
+                    } else {
+                        PageTableFlags::PRESENT
+                            | PageTableFlags::WRITABLE
+                            | PageTableFlags::NO_CACHE
+                    };
                     unsafe {
                         match m.identity_map(frame, flags, a) {
                             Ok(r) => {
@@ -410,8 +313,7 @@ pub extern "C" fn allocate_phys_range(start: u64, end: u64, force: bool) -> bool
 }
 
 /// Frees a contiguous range of memory (either virtual or physical). Is a no-op if this range is not allocated. `end` must be > `start`.
-#[no_mangle]
-pub extern "C" fn free_range(start: u64, end: u64) -> bool {
+pub fn free_range(start: u64, end: u64) -> bool {
     if end < start {
         warn!(
             "attempt to allocate {} with start of {:X} and end of {:X}",
