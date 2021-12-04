@@ -3,7 +3,74 @@ skip_core_tasks = true
 reduce_output = true
 
 [tasks.default]
-run_task = { name = ["format", "build", "run"] }
+run_task = { name = ["check_pciids", "format", "build", "run"] }
+
+[tasks.check_pciids]
+script_runner = "@rust"
+script='''
+//!```cargo
+//![dependencies]
+//!compression={version = "*", features=["gzip"]}
+//!sha2="*"
+//!curl="*"
+//!```
+use curl::easy::Easy;
+use compression::prelude::*;
+use sha2::{Sha256, Digest};
+use std::fs::{read, write};
+use std::path::Path;
+
+fn main() {
+    println!("Checking for PCI ID repository");
+    let mut bytes = Vec::new();
+    let path = format!("{}/libk/pci.ids.gz", env!("CARGO_MAKE_WORKING_DIRECTORY"));
+    let path = path.as_str();
+    if Path::new(path.clone()).exists() {
+        println!("Found existing PCI IDs repository");
+        let current_repo = read(path).expect("Cannot open existing PCI IDs repository").iter().cloned().decode(&mut GZipDecoder::new()).collect::<Result<Vec<_>, _>>().expect("Cannot decompress existing PCI IDs repository");
+        println!("Existing PCI IDs repository is {} bytes", current_repo.len());
+        println!("Checking for PCI ID repository updates");
+        let mut easy = Easy::new();
+        easy.url("https://pci-ids.ucw.cz/v2.2/pci.ids.gz").expect("Cannot set URL of curl easy instance");
+        {
+            let mut transfer = easy.transfer();
+            transfer.write_function(|data| {
+                    bytes.extend_from_slice(data);
+                    Ok(data.len())
+                }).expect("Cannot set write function for download");
+            transfer.perform().expect("Cannot download PCI IDs repository");
+        }
+        let new_bytes = bytes.iter().cloned().decode(&mut GZipDecoder::new()).collect::<Result<Vec<_>, _>>().expect("Cannot decompress new repository bytes");
+        println!("Latest PCI IDs repository is {} bytes", new_bytes.len());
+        let mut hasher1 = Sha256::new();
+        let mut hasher2 = Sha256::new();
+        hasher1.update(new_bytes);
+        hasher2.update(current_repo);
+        let new_hash = hasher1.finalize();
+        let current_hash = hasher2.finalize();
+        if current_hash != new_hash {
+            println!("PCI IDs repository updated, dumping ({} bytes)", bytes.len());
+            write(path.clone(), bytes.clone()).expect("Cannot dump new PCI IDs repository");
+        } else {
+            println!("PCI IDs repository is up to date");
+        }
+    } else {
+        println!("Downloading latest PCI IDs repository because it does not already exist");
+        let mut easy = Easy::new();
+        easy.url("https://pci-ids.ucw.cz/v2.2/pci.ids.gz").expect("Cannot set URL of curl easy instance");
+        {
+            let mut transfer = easy.transfer();
+            transfer.write_function(|data| {
+                    bytes.extend_from_slice(data);
+                    Ok(data.len())
+                }).expect("Cannot set write function for download");
+            transfer.perform().expect("Cannot download PCI IDs repository");
+        }
+        write(path.clone(), bytes.clone()).expect("Cannot dump new PCI IDs repository");
+        println!("Downloaded latest repository ({}bytes)", bytes.len());
+    }
+}
+'''
 
 [tasks.format]
 command = "cargo"
@@ -48,7 +115,11 @@ dependencies=["build"]
 
 [tasks.run_debug]
 command = "qemu-system-x86_64"
+<<<<<<< HEAD
 args = ["-drive", "format=raw,file=${CARGO_MAKE_WORKING_DIRECTORY}/target/x86_64-kernel-none/debug/boot-uefi-kernel.img", "-drive", "if=pflash,format=raw,file=OVMF.fd,readonly=on", "-drive", "file=disk-nvme.img,if=none,id=NVME01", "-device", "nvme,drive=NVME01,serial=0001", "-drive", "id=disk,file=disk-sata.img,if=none", "-device", "ahci,id=ahci", "-device", "ide-hd,drive=disk,bus=ahci.0", "-usb", "-rtc", "clock=host", "-cpu", "host", "-smp", "cpus=8", "-M", "q35", "-name", "kernel", "-nographic", "-debugcon", "file:qemu.log", "-global", "isa-debugcon.iobase=0x402", "-d", "int", "-D", "qemu2.log", "-device", "usb-audio,audiodev=alsa", "-audiodev", "alsa,id=alsa", "-device", "ich9-intel-hda", "-device", "hda-duplex,audiodev=alsa", "-no-shutdown", "-no-reboot", "-device", "qemu-xhci", "-device", "virtio-net,netdev=nic", "-netdev", "user,hostname=kernel,id=nic", "-device", "virtio-balloon", "-device", "virtio-serial-pci", "-device", "virtio-rng-pci,rng=rng0", "-object", "rng-random,id=rng0,filename=/dev/urandom", "-device", "virtio-gpu", "--enable-kvm", "-s", "-S"]
+=======
+args = ["-drive", "format=raw,file=${CARGO_MAKE_WORKING_DIRECTORY}/target/x86_64-kernel-none/debug/boot-uefi-kernel.img", "-drive", "if=pflash,format=raw,file=OVMF.fd,readonly=on", "-drive", "file=disk-nvme.qcow2,if=none,id=NVME01", "-device", "nvme,drive=NVME01,serial=0001", "-drive", "id=disk,file=disk-sata.qcow2,if=none", "-device", "ahci,id=ahci", "-device", "ide-hd,drive=disk,bus=ahci.0", "-usb", "-rtc", "clock=host", "-cpu", "host", "-smp", "cpus=8", "-M", "q35", "-name", "kernel", "-nographic", "-debugcon", "file:qemu.log", "-global", "isa-debugcon.iobase=0x402", "-d", "int", "-D", "qemu2.log", "-device", "usb-audio,audiodev=alsa", "-audiodev", "alsa,id=alsa", "-device", "ich9-intel-hda", "-device", "hda-duplex,audiodev=alsa", "-no-shutdown", "-no-reboot", "-device", "qemu-xhci", "--enable-kvm", "-s", "-S"]
+>>>>>>> 0ae1f76 (Update deps and regenerate disks to prepare for disk drivers; makefile now)
 dependencies = ["build"]
 
 [tasks.check_kernel]

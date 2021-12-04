@@ -3,4 +3,5 @@
 **/*.rs.bk
 /qemu.log
 /qemu2.log
+/libk/pci.ids.gz
 
