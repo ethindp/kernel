@@ -26,10 +26,13 @@ fn main() {
     )
     .unwrap();
     writeln!(o, "match class {{").unwrap();
-    (0..u8::MAX)
+    for class in (0..u8::MAX)
         .filter(|i| idsdb.get_class(i).is_ok())
         .map(|i| idsdb.get_class(&i).unwrap())
-        .for_each(|class| writeln!(o, "{} => Some(\"{}\"),", class.id, class.name).unwrap());
+        .collect::<Vec<_>>()
+    {
+        writeln!(o, "{} => Some(\"{}\"),", class.id, class.name).unwrap();
+    }
     writeln!(o, "_ => None,").unwrap();
     writeln!(o, "}}\n}}\n").unwrap();
     writeln!(
@@ -38,49 +41,49 @@ fn main() {
     )
     .unwrap();
     writeln!(o, "match (class, subclass) {{").unwrap();
-    for i in 0..u8::MAX {
-        for j in 0..u8::MAX {
-            if let Ok(class) = idsdb.get_class(&i) {
-                if let Ok(subclass) = class.get_subclass(&j) {
-                    writeln!(
-                        o,
-                        "({}, {}) => Some(\"{}\"),",
-                        class.id, subclass.id, subclass.name
-                    )
-                    .unwrap();
-                } else {
-                    continue;
-                }
-            } else {
-                continue;
-            }
+    for class in (0..u8::MAX)
+        .filter(|i| idsdb.get_class(i).is_ok())
+        .map(|i| idsdb.get_class(&i).unwrap())
+        .collect::<Vec<_>>()
+    {
+        for subclass in (0..u8::MAX)
+            .filter(|j| class.get_subclass(j).is_ok())
+            .map(|j| class.get_subclass(&j).unwrap())
+            .collect::<Vec<_>>()
+        {
+            writeln!(
+                o,
+                "({}, {}) => Some(\"{}\"),",
+                class.id, subclass.id, subclass.name
+            )
+            .unwrap();
         }
     }
     writeln!(o, "(_, _) => None,").unwrap();
     writeln!(o, "}}\n}}\n").unwrap();
     writeln!(o, "#[inline]\nconst fn classify_prog_if(class: u8, subclass: u8, interface: u8) -> Option<&'static str> {{").unwrap();
     writeln!(o, "match (class, subclass, interface) {{").unwrap();
-    for i in 0..u8::MAX {
-        for j in 0..u8::MAX {
-            for k in 0..u8::MAX {
-                if let Ok(class) = idsdb.get_class(&i) {
-                    if let Ok(subclass) = class.get_subclass(&j) {
-                        if let Ok(interface) = subclass.get_prog_interface(&k) {
-                            writeln!(
-                                o,
-                                "({}, {}, {}) => Some(\"{}\"),",
-                                class.id, subclass.id, interface.id, interface.name
-                            )
-                            .unwrap();
-                        } else {
-                            continue;
-                        }
-                    } else {
-                        continue;
-                    }
-                } else {
-                    continue;
-                }
+    for class in (0..u8::MAX)
+        .filter(|i| idsdb.get_class(i).is_ok())
+        .map(|i| idsdb.get_class(&i).unwrap())
+        .collect::<Vec<_>>()
+    {
+        for subclass in (0..u8::MAX)
+            .filter(|j| class.get_subclass(j).is_ok())
+            .map(|j| class.get_subclass(&j).unwrap())
+            .collect::<Vec<_>>()
+        {
+            for interface in (0..u8::MAX)
+                .filter(|k| subclass.get_prog_interface(k).is_ok())
+                .map(|k| subclass.get_prog_interface(&k).unwrap())
+                .collect::<Vec<_>>()
+            {
+                writeln!(
+                    o,
+                    "({}, {}, {}) => Some(\"{}\"),",
+                    class.id, subclass.id, interface.id, interface.name
+                )
+                .unwrap();
             }
         }
     }

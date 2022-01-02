@@ -82,7 +82,7 @@ dependencies = ["format"]
 
 [tasks.build_kernel]
 command = "cargo"
-args = ["build", "-Zbuild-std=core,compiler_builtins,alloc", "-Zbuild-std-features=compiler-builtins-mem", "--target", "x86_64-kernel-none.json"]
+args = ["build", "-Zbuild-std=core,compiler_builtins,alloc", "-Zbuild-std-features=compiler-builtins-mem", "--target", "x86_64-unknown-none"]
 
 [tasks.build_bootloader]
 script_runner = "@rust"
@@ -103,31 +103,32 @@ fn main() {
     let cwd = var("CARGO_MAKE_WORKING_DIRECTORY").expect("CARGO_MAKE_WORKING_DIRECTORY not set");
     let mut builder_command = Command::new("cargo");
     builder_command.current_dir(bootloader_location);
-    builder_command.args(&["builder", "--kernel-manifest", &(cwd.clone() + "/Cargo.toml"), "--kernel-binary", &(cwd.clone() + "/target/x86_64-kernel-none/debug/kernel"), "--target-dir", &(cwd.clone() + "/target"), "--out-dir", &(cwd.clone() + "/target/x86_64-kernel-none/debug")]);
+    builder_command.args(&["builder", "--kernel-manifest", &(cwd.clone() + "/Cargo.toml"), "--kernel-binary", &(cwd.clone() + "/target/x86_64-unknown-none/debug/kernel"), "--target-dir", &(cwd.clone() + "/target"), "--out-dir", &(cwd.clone() + "/target/x86_64-unknown-none/debug")]);
     builder_command.status().expect("Failed to run cargo builder");
 }
 '''
 
 [tasks.run]
 command = "qemu-system-x86_64"
-args = ["-drive", "format=raw,file=${CARGO_MAKE_WORKING_DIRECTORY}/target/x86_64-kernel-none/debug/boot-uefi-kernel.img", "-drive", "if=pflash,format=raw,file=OVMF.fd,readonly=on", "-drive", "file=disk-nvme.img,if=none,id=NVME01", "-device", "nvme,drive=NVME01,serial=0001", "-drive", "id=disk,file=disk-sata.img,if=none", "-device", "ahci,id=ahci", "-device", "ide-hd,drive=disk,bus=ahci.0", "-usb", "-rtc", "clock=host", "-cpu", "host", "-smp", "cpus=8", "-M", "q35", "-name", "kernel", "-nographic", "-debugcon", "file:qemu.log", "-global", "isa-debugcon.iobase=0x402", "-d", "int", "-D", "qemu2.log", "-device", "usb-audio,audiodev=alsa", "-audiodev", "alsa,id=alsa", "-device", "ich9-intel-hda", "-device", "hda-duplex,audiodev=alsa", "-no-shutdown", "-no-reboot", "-device", "qemu-xhci", "-device", "virtio-net,netdev=nic", "-netdev", "user,hostname=kernel,id=nic", "-device", "virtio-balloon", "-device", "virtio-serial-pci", "-device", "virtio-rng-pci,rng=rng0", "-object", "rng-random,id=rng0,filename=/dev/urandom", "-device", "virtio-gpu", "--enable-kvm"]
+args = ["-enable-kvm", "-machine", "q35,smm=off,vmport=off", "-cpu", "host,kvm=on", "-m", "8G", "-device", "virtio-balloon", "-nographic", "-device", "qemu-xhci,id=input", "-device", "usb-kbd,bus=input.0", "-device", "usb-tablet,bus=input.0", "-audiodev", "pa,id=audio0,out.mixing-engine=off,out.stream-name=kernel,in.stream-name=kernel", "-device", "intel-hda", "-device", "hda-duplex,audiodev=audio0", "-rtc", "base=localtime,clock=host,driftfix=slew", "-drive", "format=raw,file=${CARGO_MAKE_WORKING_DIRECTORY}/target/x86_64-unknown-none/debug/boot-uefi-kernel.img", "-drive", "if=pflash,format=raw,file=/usr/share/OVMF/x64/OVMF_CODE.fd,readonly=on", "-drive", "file=disk-nvme.qcow2,if=none,id=NVME01", "-device", "nvme,drive=NVME01,serial=0001", "-drive", "id=disk,file=disk-sata.qcow2,if=none", "-device", "ahci,id=ahci", "-device", "ide-hd,drive=disk,bus=ahci.0",  "-debugcon", "file:qemu.log", "-global", "isa-debugcon.iobase=0x402", "-d", "int", "-D", "qemu2.log", "-device", "qemu-xhci,id=audio", "-device", "usb-audio,audiodev=usbaudio,bus=audio.0", "-audiodev", "pa,id=usbaudio,out.mixing-engine=off,out.stream-name=kernel-alsa,in.stream-name=kernel-alsa", "-device", "virtio-net,netdev=nic", "-netdev", "user,hostname=kernel,id=nic",  "-device", "virtio-rng-pci,rng=rng0", "-object", "rng-random,id=rng0,filename=/dev/urandom", "-device", "virtio-gpu", "-global", "driver=cfi.pflash01,property=secure,value=on", "-no-reboot"]
+dependencies=["build"]
+
+[tasks.run_gdb]
+command = "qemu-system-x86_64"
+args = ["-machine", "q35,smm=off,vmport=off", "-cpu", "max,kvm=off", "-m", "8G", "-device", "virtio-balloon", "-nographic", "-device", "qemu-xhci,id=input", "-device", "usb-kbd,bus=input.0", "-device", "usb-tablet,bus=input.0", "-audiodev", "pa,id=audio0,out.mixing-engine=off,out.stream-name=kernel,in.stream-name=kernel", "-device", "intel-hda", "-device", "hda-duplex,audiodev=audio0", "-rtc", "base=localtime,clock=host,driftfix=slew", "-drive", "format=raw,file=${CARGO_MAKE_WORKING_DIRECTORY}/target/x86_64-unknown-none/debug/boot-uefi-kernel.img", "-drive", "if=pflash,format=raw,file=/usr/share/OVMF/x64/OVMF_CODE.fd,readonly=on", "-drive", "file=disk-nvme.qcow2,if=none,id=NVME01", "-device", "nvme,drive=NVME01,serial=0001", "-drive", "id=disk,file=disk-sata.qcow2,if=none", "-device", "ahci,id=ahci", "-device", "ide-hd,drive=disk,bus=ahci.0",  "-debugcon", "file:qemu.log", "-global", "isa-debugcon.iobase=0x402", "-d", "int", "-D", "qemu2.log", "-device", "qemu-xhci,id=audio", "-device", "usb-audio,audiodev=usbaudio,bus=audio.0", "-audiodev", "pa,id=usbaudio,out.mixing-engine=off,out.stream-name=kernel-alsa,in.stream-name=kernel-alsa", "-device", "virtio-net,netdev=nic", "-netdev", "user,hostname=kernel,id=nic",  "-device", "virtio-rng-pci,rng=rng0", "-object", "rng-random,id=rng0,filename=/dev/urandom", "-device", "virtio-gpu", "-global", "driver=cfi.pflash01,property=secure,value=on", "-no-reboot", "-no-shutdown", "-s", "-S"]
 dependencies=["build"]
 
 [tasks.run_debug]
 command = "qemu-system-x86_64"
-<<<<<<< HEAD
-args = ["-drive", "format=raw,file=${CARGO_MAKE_WORKING_DIRECTORY}/target/x86_64-kernel-none/debug/boot-uefi-kernel.img", "-drive", "if=pflash,format=raw,file=OVMF.fd,readonly=on", "-drive", "file=disk-nvme.img,if=none,id=NVME01", "-device", "nvme,drive=NVME01,serial=0001", "-drive", "id=disk,file=disk-sata.img,if=none", "-device", "ahci,id=ahci", "-device", "ide-hd,drive=disk,bus=ahci.0", "-usb", "-rtc", "clock=host", "-cpu", "host", "-smp", "cpus=8", "-M", "q35", "-name", "kernel", "-nographic", "-debugcon", "file:qemu.log", "-global", "isa-debugcon.iobase=0x402", "-d", "int", "-D", "qemu2.log", "-device", "usb-audio,audiodev=alsa", "-audiodev", "alsa,id=alsa", "-device", "ich9-intel-hda", "-device", "hda-duplex,audiodev=alsa", "-no-shutdown", "-no-reboot", "-device", "qemu-xhci", "-device", "virtio-net,netdev=nic", "-netdev", "user,hostname=kernel,id=nic", "-device", "virtio-balloon", "-device", "virtio-serial-pci", "-device", "virtio-rng-pci,rng=rng0", "-object", "rng-random,id=rng0,filename=/dev/urandom", "-device", "virtio-gpu", "--enable-kvm", "-s", "-S"]
-=======
-args = ["-drive", "format=raw,file=${CARGO_MAKE_WORKING_DIRECTORY}/target/x86_64-kernel-none/debug/boot-uefi-kernel.img", "-drive", "if=pflash,format=raw,file=OVMF.fd,readonly=on", "-drive", "file=disk-nvme.qcow2,if=none,id=NVME01", "-device", "nvme,drive=NVME01,serial=0001", "-drive", "id=disk,file=disk-sata.qcow2,if=none", "-device", "ahci,id=ahci", "-device", "ide-hd,drive=disk,bus=ahci.0", "-usb", "-rtc", "clock=host", "-cpu", "host", "-smp", "cpus=8", "-M", "q35", "-name", "kernel", "-nographic", "-debugcon", "file:qemu.log", "-global", "isa-debugcon.iobase=0x402", "-d", "int", "-D", "qemu2.log", "-device", "usb-audio,audiodev=alsa", "-audiodev", "alsa,id=alsa", "-device", "ich9-intel-hda", "-device", "hda-duplex,audiodev=alsa", "-no-shutdown", "-no-reboot", "-device", "qemu-xhci", "--enable-kvm", "-s", "-S"]
->>>>>>> 0ae1f76 (Update deps and regenerate disks to prepare for disk drivers; makefile now)
-dependencies = ["build"]
+args = ["-machine", "q35,smm=off,vmport=off", "-cpu", "max,kvm=off", "-m", "8G", "-device", "virtio-balloon", "-nographic", "-device", "qemu-xhci,id=input", "-device", "usb-kbd,bus=input.0", "-device", "usb-tablet,bus=input.0", "-audiodev", "pa,id=audio0,out.mixing-engine=off,out.stream-name=kernel,in.stream-name=kernel", "-device", "intel-hda", "-device", "hda-duplex,audiodev=audio0", "-rtc", "base=localtime,clock=host,driftfix=slew", "-drive", "format=raw,file=${CARGO_MAKE_WORKING_DIRECTORY}/target/x86_64-unknown-none/debug/boot-uefi-kernel.img", "-drive", "if=pflash,format=raw,file=/usr/share/OVMF/x64/OVMF_CODE.fd,readonly=on", "-drive", "file=disk-nvme.qcow2,if=none,id=NVME01", "-device", "nvme,drive=NVME01,serial=0001", "-drive", "id=disk,file=disk-sata.qcow2,if=none", "-device", "ahci,id=ahci", "-device", "ide-hd,drive=disk,bus=ahci.0",  "-debugcon", "file:qemu.log", "-global", "isa-debugcon.iobase=0x402", "-d", "int", "-D", "qemu2.log", "-device", "qemu-xhci,id=audio", "-device", "usb-audio,audiodev=usbaudio,bus=audio.0", "-audiodev", "pa,id=usbaudio,out.mixing-engine=off,out.stream-name=kernel-alsa,in.stream-name=kernel-alsa", "-device", "virtio-net,netdev=nic", "-netdev", "user,hostname=kernel,id=nic",  "-device", "virtio-rng-pci,rng=rng0", "-object", "rng-random,id=rng0,filename=/dev/urandom", "-device", "virtio-gpu", "-global", "driver=cfi.pflash01,property=secure,value=on", "-no-reboot", "-no-shutdown", "-s"]
+dependencies=["build"]
 
 [tasks.check_kernel]
 command = "cargo"
-args = ["check", "-Zbuild-std=core,compiler_builtins,alloc", "-Zbuild-std-features=compiler-builtins-mem", "--target", "x86_64-kernel-none.json"]
+args = ["check", "-Zbuild-std=core,compiler_builtins,alloc", "-Zbuild-std-features=compiler-builtins-mem", "--target", "x86_64-unknown-none"]
 
 [tasks.clippy_kernel]
 command = "cargo"
-args = ["clippy", "-Zbuild-std=core,compiler_builtins,alloc", "-Zbuild-std-features=compiler-builtins-mem", "--target", "x86_64-kernel-none.json"]
+args = ["clippy", "-Zbuild-std=core,compiler_builtins,alloc", "-Zbuild-std-features=compiler-builtins-mem", "--target", "x86_64-unknown-none"]
 
 

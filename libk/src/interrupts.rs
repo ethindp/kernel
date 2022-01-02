@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
+use crate::acpi::get_hpet_info;
 use crate::gdt;
 use alloc::boxed::Box;
 use bit_field::BitField;
@@ -9,12 +10,12 @@ use minivec::MiniVec;
 use raw_cpuid::*;
 use spin::{Lazy, RwLock};
 use voladdress::*;
-use x86::apic::x2apic::*;
-use x86::msr::*;
 use x86_64::{
+    instructions::hlt,
     registers::model_specific::Msr,
-    structures::idt::PageFaultErrorCode,
-    structures::idt::{InterruptDescriptorTable, InterruptStackFrame, InterruptStackFrameValue},
+    structures::idt::{
+        InterruptDescriptorTable, InterruptStackFrame, InterruptStackFrameValue, PageFaultErrorCode,
+    },
 };
 
 /// Types to contain IRQ functions and interrupt handlers
@@ -320,17 +321,16 @@ pub fn init_ic() {
         let id = CpuId::new();
         let feature_info = id.get_feature_info().unwrap();
         if !feature_info.has_x2apic() {
-            info!("Configuring APIC");
-            let _ =
-                crate::memory::allocate_phys_range(apic_addr(), apic_addr() + 0x530, true, None);
-            let base: VolAddress<u32, (), Safe> =
-                unsafe { VolAddress::new((apic_addr() + 0x0F0) as usize) };
-            base.write(*0u32.set_bits(0..8, 0xFF).set_bit(8, true));
-            info!("Apic configured");
+            panic!("X2APIC is required, but system only has XAPIC");
         } else {
             info!("Configuring X2APIC");
-            let mut x2apic = X2APIC::new();
-            x2apic.attach();
+            let mut ia32_apic_base = Msr::new(0x01B);
+            unsafe {
+                let mut apic_base = ia32_apic_base.read();
+                apic_base.set_bit(10, true);
+                apic_base.set_bit(11, true);
+                ia32_apic_base.write(apic_base);
+            }
             info!("X2apic configured");
         }
     } else {
@@ -790,15 +790,11 @@ fn apic_addr() -> u64 {
     unsafe { apicbase.read().get_bits(12..52) }
 }
 
+#[inline]
 fn signal_eoi() {
-    if X2APIC.load(Ordering::Relaxed) {
-        unsafe {
-            wrmsr(IA32_X2APIC_EOI, 0);
-        }
-    } else if APIC.load(Ordering::Relaxed) {
-        let addr: VolAddress<u32, (), Safe> =
-            unsafe { VolAddress::new((apic_addr() + 0xB0) as usize) };
-        addr.write(0);
+    let mut eoi = Msr::new(0x80B);
+    unsafe {
+        eoi.write(0);
     }
 }
 
@@ -807,54 +803,50 @@ pub fn get_tick_count() -> u64 {
     TICK_COUNT.load(Ordering::SeqCst)
 }
 
-/// Sleeps for the given duration of microseconds.
+/// Sleeps for the given duration of nanoseconds.
 pub fn sleep_for(duration: u64) {
-    if X2APIC.load(Ordering::Relaxed) {
-        use x86::msr::*;
-        let mut bits = unsafe { rdmsr(IA32_X2APIC_LVT_TIMER) };
-        bits.set_bit(16, true);
-        unsafe {
-            wrmsr(IA32_X2APIC_DIV_CONF, 0b111);
-            wrmsr(IA32_X2APIC_INIT_COUNT, duration);
-            wrmsr(IA32_X2APIC_LVT_TIMER, bits);
-        }
-        while unsafe { rdmsr(IA32_X2APIC_CUR_COUNT) } != 0 {
-            x86_64::instructions::hlt();
-        }
-        bits.set_bit(16, false);
-        unsafe {
-            wrmsr(IA32_X2APIC_LVT_TIMER, bits);
-        }
-    } else if APIC.load(Ordering::Relaxed) {
-        let (lvt_timer, init_cnt, div_conf, cur_cnt): (
-            VolAddress<u32, Safe, Safe>,
-            VolAddress<u32, Safe, Safe>,
-            VolAddress<u32, Safe, Safe>,
-            VolAddress<u32, Safe, Safe>,
-        ) = (
-            unsafe { VolAddress::new((apic_addr() + 0x320) as usize) },
-            unsafe { VolAddress::new((apic_addr() + 0x380) as usize) },
-            unsafe { VolAddress::new((apic_addr() + 0x3E0) as usize) },
-            unsafe { VolAddress::new((apic_addr() + 0x390) as usize) },
+    let hpet_info = get_hpet_info().unwrap();
+    let intsts: VolAddress<u64, Safe, Safe> =
+        unsafe { VolAddress::new(hpet_info.base_address + 0x20) };
+    if duration < (hpet_info.clock_tick_unit as u64) {
+        warn!(
+            "Duration {} is less than minimum clock tick duration for HPET of {}; adjusting delay to {}",
+            duration,
+            hpet_info.clock_tick_unit,
+            (hpet_info.clock_tick_unit as u64) + duration
         );
-        let mut bits = lvt_timer.read();
-        bits.set_bit(16, true);
-        lvt_timer.write(bits);
-        div_conf.write(0b111);
-        init_cnt.write(duration.get_bits(0..32) as u32);
-        while cur_cnt.read() != 0 {
-            continue;
-        }
-        bits.set_bit(16, false);
-        lvt_timer.write(bits);
-    } else {
-        let mut count = get_tick_count();
-        let end = count + duration;
-        while count != end {
-            count = get_tick_count();
-            x86_64::instructions::hlt();
-        }
     }
+    // Set HPET timer 0 in non-periodic mode
+    let t0cfg: VolAddress<usize, Safe, Safe> =
+        unsafe { VolAddress::new(hpet_info.base_address + (0x20 * 0) + 0x100) };
+    let mut cfg = t0cfg.read();
+    let oldcfg = cfg;
+    if cfg.get_bit(4) {
+        cfg.set_bit(3, true);
+    }
+    cfg.set_bit(2, true);
+    cfg.set_bit(1, true);
+    cfg.set_bit(8, false);
+    t0cfg.write(cfg);
+    let t0comp: VolAddress<u64, Safe, Safe> =
+        unsafe { VolAddress::new(hpet_info.base_address + (0x20 * 0) + 0x108) };
+    let duration = if duration < (hpet_info.clock_tick_unit as u64) {
+        t0comp.read() + (hpet_info.clock_tick_unit as u64) + duration
+    } else {
+        t0comp.read() + duration
+    };
+    t0comp.write(duration);
+    loop {
+        if intsts.read().get_bit(0) {
+            let mut int = intsts.read();
+            int.set_bit(0, true);
+            intsts.write(int);
+            break;
+        }
+        hlt();
+    }
+    // Restore original timer configuration
+    t0cfg.write(oldcfg);
 }
 
 /// Registers the given interrupt handler at the given interrupt. Note that this must be an interrupt

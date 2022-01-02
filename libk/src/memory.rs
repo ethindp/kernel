@@ -9,16 +9,13 @@ use minivec::MiniVec;
 use rand_core::{RngCore, SeedableRng};
 use rand_hc::Hc128Rng;
 use spin::{mutex::ticket::TicketMutex, Lazy, Once};
-use x86::random;
 use x86_64::{
     addr::align_up,
+    instructions::random::RdRand,
     registers::control::*,
-    structures::paging::mapper::MapToError,
-    structures::paging::page::PageRangeInclusive,
-    structures::paging::OffsetPageTable,
     structures::paging::{
-        FrameAllocator, FrameDeallocator, Mapper, Page, PageTable, PageTableFlags, PhysFrame,
-        Size4KiB,
+        mapper::MapToError, page::PageRangeInclusive, FrameAllocator, FrameDeallocator, Mapper,
+        OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB,
     },
     PhysAddr, VirtAddr,
 };
@@ -32,10 +29,17 @@ static FRAME_ALLOCATOR: Lazy<TicketMutex<Option<GlobalFrameAllocator>>> =
 static MMAP: Once<Vec<MemoryRegion, 1024>> = Once::new();
 static ADDRRNG: Lazy<TicketMutex<Hc128Rng>> = Lazy::new(|| {
     TicketMutex::new({
+        let rand = RdRand::new().unwrap();
         let mut seed = [0u8; 32];
-        unsafe {
-            random::rdseed_slice(&mut seed);
-        }
+        let seeds = [
+            rand.get_u64().unwrap().to_ne_bytes(),
+            rand.get_u64().unwrap().to_ne_bytes(),
+            rand.get_u64().unwrap().to_ne_bytes(),
+            rand.get_u64().unwrap().to_ne_bytes(),
+        ];
+        seed.iter_mut()
+            .zip(seeds.iter().flatten())
+            .for_each(|(i, j)| *i = *j);
         Hc128Rng::from_seed(seed)
     })
 });

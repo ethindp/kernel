@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
 use crate::memory::{allocate_phys_range, free_range, get_rsdp};
 use acpi::fadt::Fadt;
+use acpi::hpet::*;
 use acpi::sdt::Signature;
 use acpi::*;
+use bit_field::BitField;
 use core::ptr::NonNull;
 use log::*;
 use spin::*;
+use voladdress::*;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
@@ -56,6 +59,46 @@ pub async fn init() {
                 info!("SMI command port: {:X}", smi_cmd);
             }
         }
+        if let Ok(hpet_info) = get_hpet_info() {
+            let _ = allocate_phys_range(
+                hpet_info.base_address as u64,
+                (hpet_info.base_address as u64) + 0x3FF,
+                true,
+                None,
+            );
+            let hpet_cfg: VolAddress<u64, Safe, Safe> =
+                unsafe { VolAddress::new(hpet_info.base_address) };
+            let caps = hpet_cfg.read();
+            info!(
+                "Found HPET at addr {:X}, rev. id {:X}",
+                hpet_info.base_address,
+                caps.get_bits(0..8)
+            );
+            info!("Clock period: {} femptoseconds", caps.get_bits(32..64));
+            info!("Vendor ID: {:X}", caps.get_bits(16..32));
+            if !caps.get_bit(13) {
+                panic!("HPET main counter is not 64 bits wide");
+            }
+            if (0..caps.get_bits(8..16) as usize)
+                .map(|tmr| unsafe {
+                    VolAddress::<u64, Safe, Safe>::new(
+                        hpet_info.base_address + (0x20 * tmr) + 0x100,
+                    )
+                })
+                .all(|cfg| cfg.read().get_bit(5))
+            {
+                panic!("Not all HPET timers are 64 bits wide!");
+            }
+            info!("Enabling HPET");
+            let cfg: VolAddress<u64, Safe, Safe> =
+                unsafe { VolAddress::new(hpet_info.base_address + 0x10) };
+            let mut cur_cfg = cfg.read();
+            cur_cfg.set_bit(1, true);
+            cur_cfg.set_bit(0, true);
+            cfg.write(cur_cfg);
+        } else {
+            panic!("HPET not supported, but HPET required");
+        }
     } else {
         warn!("Got request to reinitialize acpi; ignoring");
     }
@@ -67,7 +110,6 @@ pub fn get_pci_regions() -> Result<PciConfigRegions, AcpiError> {
 }
 
 /// Returns information about the high precision event timer (HPET)
-#[cold]
 pub fn get_hpet_info() -> Result<HpetInfo, AcpiError> {
     HpetInfo::new(TABLES.get().unwrap())
 }

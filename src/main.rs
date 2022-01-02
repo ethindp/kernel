@@ -3,7 +3,6 @@
 #![no_main]
 #![feature(alloc_error_handler)]
 #![feature(proc_macro_hygiene)]
-#![feature(asm)]
 #![forbid(
     absolute_paths_not_starting_with_crate,
     anonymous_parameters,
@@ -20,10 +19,6 @@
     noop_method_call,
     pointer_structural_match,
     private_doc_tests,
-    rust_2021_incompatible_closure_captures,
-    rust_2021_incompatible_or_patterns,
-    rust_2021_prefixes_incompatible_syntax,
-    rust_2021_prelude_collisions,
     semicolon_in_expressions_from_macros,
     single_use_lifetimes,
     trivial_casts,
@@ -45,11 +40,9 @@ mod graphics;
 use bit_field::BitField;
 use bootloader::boot_info::*;
 use bootloader::*;
-use core::arch::x86_64::{__cpuid, __cpuid_count};
 use core::panic::PanicInfo;
-use heapless::String;
-use linked_list_allocator::*;
 use log::*;
+use slab_allocator_rs::*;
 use x86_64::instructions::random::RdRand;
 
 entry_point!(kmain);
@@ -69,6 +62,7 @@ fn panic(panic_information: &PanicInfo) -> ! {
 }
 
 // Kernel entry point
+#[no_mangle]
 fn kmain(boot_info: &'static mut BootInfo) -> ! {
     set_logger(&LOGGER).unwrap();
     if cfg!(debug_assertions) {
@@ -90,118 +84,29 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     );
     info!("Compiled with {}, {} build", RUSTC_VER, PROFILE.unwrap());
     info!("Initialization started");
-    info!("CPU identification and configuration initiated");
-    unsafe {
-        let mut res = __cpuid_count(0, 0);
-        let vs = {
-            let mut buf: String<12> = String::new();
-            let ebx = u32::to_le_bytes(res.ebx);
-            let edx = u32::to_le_bytes(res.edx);
-            let ecx = u32::to_le_bytes(res.ecx);
-            // Reassemble vendor string
-            for i in ebx.iter() {
-                buf.push(*i as char).unwrap();
-            }
-            for i in edx.iter() {
-                buf.push(*i as char).unwrap();
-            }
-            for i in ecx.iter() {
-                buf.push(*i as char).unwrap();
-            }
-            buf
-        };
-        res = __cpuid(0x80000000);
-        if res.eax > 0x80000000 {
-            let bs = {
-                let mut buf: String<128> = String::new();
-                for i in 0x80000002u32..0x80000005u32 {
-                    let res = __cpuid(i);
-                    for i in u32::to_le_bytes(res.eax).iter() {
-                        buf.push(*i as char).unwrap();
-                    }
-                    for i in u32::to_le_bytes(res.ebx).iter() {
-                        buf.push(*i as char).unwrap();
-                    }
-                    for i in u32::to_le_bytes(res.ecx).iter() {
-                        buf.push(*i as char).unwrap();
-                    }
-                    for i in u32::to_le_bytes(res.edx).iter() {
-                        buf.push(*i as char).unwrap();
-                    }
-                }
-                buf
-            };
-            info!("Detected processor: {} {}", vs, bs);
-        } else {
-            info!("Detected processor: {}", vs);
-        }
-    }
-    info!("Initializing memory region list using firmware-provided memory map:");
-    info!("| Start | End | Type |");
-    for region in boot_info.memory_regions.iter() {
-        info!(
-            "| {:X} | {:X} | {} |",
-            region.start,
-            region.end,
-            match region.kind {
-                MemoryRegionKind::Usable => "usable",
-                MemoryRegionKind::UnknownUefi(kind) => match kind {
-                    0 => "reserved",
-                    1 => "loader code",
-                    2 => "loader data",
-                    3 => "boot services code",
-                    4 => "boot services data",
-                    5 => "runtime services code",
-                    6 => "runtime services data",
-                    7 => "Usable",
-                    8 => "unusable",
-                    9 => "acpi reclaimable",
-                    10 => "acpi non-volatile",
-                    11 => "mmio",
-                    12 => "port mmio",
-                    13 => "pal code",
-                    14 => "free nvm",
-                    _ => "unknown",
-                },
-                MemoryRegionKind::UnknownBios(_) => "unknown",
-                MemoryRegionKind::Bootloader => "bootloader",
-                _ => "Unknown",
-            }
-        );
-    }
+    info!("Initializing interrupt subsystem");
+    libk::gdt::init();
+    libk::interrupts::init_idt();
+    libk::interrupts::init_ic();
+    info!("Initializing memory management subsystem");
     libk::memory::init_memory_map(
         &boot_info.memory_regions,
         boot_info.rsdp_addr.into_option().unwrap(),
     );
-    info!("Loading descriptor tables and enabling interrupts");
-    libk::gdt::init();
-    libk::interrupts::init_idt();
-    info!("Initializing virtual memory manager");
     let rdrand = RdRand::new().unwrap();
     let mut start_addr: u64 = 0x0100_0000_0000_0000 + rdrand.get_u64().unwrap();
-    let orig_start_addr = start_addr;
     start_addr.set_bits(47..64, 0);
     start_addr.set_bits(0..12, 0);
     let mut end_addr = start_addr + MAX_HEAP_SIZE;
-    let orig_end_addr = end_addr;
     end_addr.set_bits(47..64, 0);
     end_addr.set_bits(0..12, 0);
-    info!(
-        "Kernel heap location: {:X}..{:X} (was {:X}..{:X} before canonicalization)",
-        start_addr, end_addr, orig_start_addr, orig_end_addr
-    );
     libk::memory::init(
         boot_info.physical_memory_offset.into_option().unwrap(),
         start_addr,
         MAX_HEAP_SIZE,
     );
-    info!("Configuring interrupt controller");
-    libk::interrupts::init_ic();
-    info!("Initializing internal heap allocator");
     unsafe {
-        ALLOCATOR
-            .lock()
-            .init(start_addr as usize, (end_addr - start_addr) as usize);
+        ALLOCATOR.init(start_addr as usize, (end_addr - start_addr) as usize);
     }
     libk::init();
     libk::idle_forever();

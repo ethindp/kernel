@@ -3,7 +3,6 @@
 
 #![no_std]
 #![feature(abi_x86_interrupt)]
-#![feature(asm)]
 #![feature(option_result_contains)]
 #![feature(alloc_layout_extra)]
 #![feature(llvm_asm)]
@@ -24,10 +23,6 @@
     noop_method_call,
     pointer_structural_match,
     private_doc_tests,
-    rust_2021_incompatible_closure_captures,
-    rust_2021_incompatible_or_patterns,
-    rust_2021_prefixes_incompatible_syntax,
-    rust_2021_prelude_collisions,
     semicolon_in_expressions_from_macros,
     single_use_lifetimes,
     trivial_numeric_casts,
@@ -46,24 +41,16 @@
 extern crate alloc;
 /// The acpi module contains acpi initialization routines
 pub mod acpi;
-/// The disk module defines a trait and various enumerations for disk implementations.
-pub mod disk;
 /// The gdt module contains basic GDT functionality.
-/// When initialized, a separate stack is set up for the kernel to run in to ensure that the
-///original is not compromised when double faults occur.
 pub mod gdt;
 /// The interrupts module contains functions to set up the IDT.
 /// It also utilizes full AIO support for keyboards and other devices.
 pub mod interrupts;
 /// The memory module contains functions for managing memory.
 pub mod memory;
-/// The pci module contains functions for reading from PCI devices and enumerating PCI buses
-/// via the "brute-force" method.
-/// As we add drivers that require the PCI buss in, the ::probe() function of this module
-/// will be extended to load those drivers when the probe is in progress. This will then
-/// create a "brute-force and configure" method.
+/// The pci module contains functions for reading from PCI devices and enumerating PCI buses.
 pub mod pci;
-/// The rtc module contains RTC initialization code
+/// The rtc modue/le contains RTC initialization code
 pub mod rtc;
 /// The task module controls cooperative and preemptive multitasking schedulers. The
 /// cooperative scheduler runs in the kernel while the preemptive scheduler will run in
@@ -72,9 +59,6 @@ pub mod rtc;
 pub mod task;
 /// The timer module contains delaying and sleeping functionality
 pub mod timer;
-use block_device as _;
-use linked_list_allocator as _;
-use zerocopy as _;
 
 /// Initializes the kernel and sets up required functionality.
 #[cold]

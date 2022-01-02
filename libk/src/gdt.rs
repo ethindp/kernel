@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 use log::*;
 use spin::Lazy;
-use x86::task::tr;
 use x86_64::instructions::{
     segmentation::{Segment, CS},
     tables::load_tss,
@@ -46,7 +45,6 @@ struct Selectors {
 /// Sets up the GDT, separate kernel stack, and TSS.
 #[cold]
 pub fn init() {
-    let oldtr = unsafe { tr() };
     info!("Loading GDT");
     debug!("Loading GDT at addr {:p}: {:?}", &GDT.0, GDT.0);
     GDT.0.load();
@@ -67,10 +65,5 @@ pub fn init() {
     debug!(
         "TSS at addr {:p} with TSS selecter at addr {:p} loaded",
         &TSS, &GDT.1.tss_selector
-    );
-    let newtr = unsafe { tr() };
-    debug!(
-        "Changed TR; old: {:X}, {:?}, new: {:X}, {:?}",
-        oldtr, oldtr, newtr, newtr
     );
 }
