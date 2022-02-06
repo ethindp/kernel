@@ -9,8 +9,9 @@ resolver="2"
 
 [package.metadata.bootloader]
 kernel-stack-size = "8388608"
-map-physical-memory = true
+map-physical-memory = false
 map-framebuffer = true
+aslr = true
 
 [build-dependencies]
 build_details = "0.1.2"
@@ -21,6 +22,7 @@ rustc_version = "0.4.0"
 bit_field = "0.10.1"
 spin = "0.9.2"
 slab_allocator_rs = "1.0.1"
+bootloader = "0.10.12"
 
 [dependencies.libk]
 path = 'libk'
@@ -53,7 +55,9 @@ opt-level = 3
 riscv = "0.7.0"
 
 [target.x86_64-unknown-none.dependencies]
-uart_16550 = "0.2.15"
-x86_64 = { version = "0.14.7", features = ["const_fn", "inline_asm", "abi_x86_interrupt", "nightly"] }
-bootloader = "0.10.10"
+uart_16550 = "0.2.16"
+x86_64 = { version = "0.14.8", features = ["const_fn", "inline_asm", "abi_x86_interrupt", "nightly"] }
+
+
+[features]
 

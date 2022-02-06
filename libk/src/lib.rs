@@ -5,7 +5,6 @@
 #![feature(abi_x86_interrupt)]
 #![feature(option_result_contains)]
 #![feature(alloc_layout_extra)]
-#![feature(llvm_asm)]
 #![feature(async_closure)]
 #![allow(dead_code)]
 #![forbid(

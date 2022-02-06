@@ -82,7 +82,13 @@ dependencies = ["format"]
 
 [tasks.build_kernel]
 command = "cargo"
-args = ["build", "-Zbuild-std=core,compiler_builtins,alloc", "-Zbuild-std-features=compiler-builtins-mem", "--target", "x86_64-unknown-none"]
+args = [
+    "build",
+    "-Zbuild-std=core,compiler_builtins,alloc",
+    "-Zbuild-std-features=compiler-builtins-mem",
+    "--target",
+    "x86_64-unknown-none"
+]
 
 [tasks.build_bootloader]
 script_runner = "@rust"

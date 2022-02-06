@@ -38,14 +38,12 @@
 extern crate alloc;
 mod graphics;
 use bit_field::BitField;
-use bootloader::boot_info::*;
 use bootloader::*;
 use core::panic::PanicInfo;
 use log::*;
 use slab_allocator_rs::*;
 use x86_64::instructions::random::RdRand;
 
-entry_point!(kmain);
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
 static LOGGER: Logger = Logger;
