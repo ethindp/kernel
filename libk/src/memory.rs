@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 use bit_field::BitField;
-use bootloader::boot_info::*;
 use core::ops::Range;
 use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use heapless::Vec;
@@ -9,6 +8,7 @@ use minivec::MiniVec;
 use rand_core::{RngCore, SeedableRng};
 use rand_hc::Hc128Rng;
 use spin::{mutex::ticket::TicketMutex, Lazy, Once};
+use stivale_boot::v2::*;
 use x86_64::{
     addr::align_up,
     instructions::random::RdRand,
@@ -30,17 +30,14 @@ static MMAP: Once<Vec<MemoryRegion, 1024>> = Once::new();
 static ADDRRNG: Lazy<TicketMutex<Hc128Rng>> = Lazy::new(|| {
     TicketMutex::new({
         let rand = RdRand::new().unwrap();
-        let mut seed = [0u8; 32];
-        let seeds = [
-            rand.get_u64().unwrap().to_ne_bytes(),
-            rand.get_u64().unwrap().to_ne_bytes(),
-            rand.get_u64().unwrap().to_ne_bytes(),
-            rand.get_u64().unwrap().to_ne_bytes(),
-        ];
+        let mut seed = [0u8; 32768];
+        let seeds = (0..1024)
+            .map(|_| rand.get_u64().unwrap().to_ne_bytes())
+            .collect::<Vec<[u8; 8], 1024>>();
         seed.iter_mut()
             .zip(seeds.iter().flatten())
             .for_each(|(i, j)| *i = *j);
-        Hc128Rng::from_seed(seed)
+        Hc128Rng::from_seed(*blake3::hash(&seed).as_bytes())
     })
 });
 static MUSE: AtomicU64 = AtomicU64::new(0);
@@ -60,7 +57,10 @@ unsafe fn init_mapper(physical_memory_offset: u64) -> OffsetPageTable<'static> {
     unsafe {
         let (level_4_table, _) = get_active_l4_table(physical_memory_offset);
         // initialize the mapper
-        OffsetPageTable::new(level_4_table, VirtAddr::new(physical_memory_offset))
+        OffsetPageTable::new(
+            level_4_table,
+            VirtAddr::new_truncate(physical_memory_offset),
+        )
     }
 }
 
@@ -80,7 +80,7 @@ pub fn allocate_paged_heap(
     // Construct a page range
     let page_range = {
         // Calculate start and end
-        let heap_start = VirtAddr::new(start);
+        let heap_start = VirtAddr::new_truncate(start);
         let heap_end = heap_start + size - 1u64;
         let heap_start_page = Page::containing_address(heap_start);
         let heap_end_page = Page::containing_address(heap_end);
@@ -110,7 +110,6 @@ pub fn allocate_paged_heap(
         } else {
             PageTableFlags::PRESENT | PageTableFlags::WRITABLE
         };
-        let frame2 = frame;
         debug!("Requesting mapping of page with flags {:X}", flags);
         unsafe {
             match mapper.map_to(page, frame, flags, frame_allocator) {
@@ -119,12 +118,15 @@ pub fn allocate_paged_heap(
                     f.flush();
                     MUSE.fetch_add(1, Ordering::Relaxed);
                 }
-                Err(e) => panic!(
-                    "Cannot allocate frame range {:X}h-{:X}h: {:?}",
-                    frame2.start_address().as_u64(),
-                    frame2.start_address().as_u64() + frame2.size(),
-                    e
-                ),
+                Err(e) => match e {
+                    MapToError::PageAlreadyMapped(_) => (),
+                    MapToError::FrameAllocationFailed => panic!(
+                        "Cannot map frame at addr {:X} of size {}: no more frames",
+                        frame.clone().start_address(),
+                        frame.size()
+                    ),
+                    MapToError::ParentEntryHugePage => (),
+                },
             }
         }
     });
@@ -135,7 +137,7 @@ pub fn allocate_paged_heap(
 unsafe fn get_active_l4_table(physical_memory_offset: u64) -> (&'static mut PageTable, Cr3Flags) {
     let (table_frame, flags) = Cr3::read();
     let phys = table_frame.start_address();
-    let virt = VirtAddr::new(phys.as_u64() + physical_memory_offset);
+    let virt = VirtAddr::new_truncate(phys.as_u64() + physical_memory_offset);
     let page_table_ptr: *mut PageTable = virt.as_mut_ptr();
     unsafe { (&mut *page_table_ptr, flags) }
 }
@@ -159,10 +161,10 @@ unsafe impl FrameAllocator<Size4KiB> for GlobalFrameAllocator {
         let pos = FPOS.load(Ordering::Relaxed);
         MMAP.wait()
             .iter()
-            .filter(|r| r.kind == MemoryRegionKind::Usable)
+            .filter(|r| r.kind == StivaleMemoryMapEntryType::Usable)
             .map(|r| r.start..r.end)
             .flat_map(|r| r.step_by(4096))
-            .map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
+            .map(|addr| PhysFrame::containing_address(PhysAddr::new_truncate(addr)))
             .nth(pos)
     }
 }
@@ -202,8 +204,8 @@ pub fn allocate_page_range(start: u64, end: u64, perms: Option<PageTableFlags>) 
     match (MAPPER.lock().as_mut(), FRAME_ALLOCATOR.lock().as_mut()) {
         (Some(m), Some(a)) => {
             let page_range = {
-                let start = VirtAddr::new(start);
-                let end = VirtAddr::new(end);
+                let start = VirtAddr::new_truncate(start);
+                let end = VirtAddr::new_truncate(end);
                 let start_page = Page::containing_address(start);
                 let end_page = Page::containing_address(end);
                 Page::range_inclusive(start_page, end_page)
@@ -265,7 +267,7 @@ pub fn allocate_phys_range(
     let cnt = m
         .iter()
         .filter(|r| {
-            r.kind == MemoryRegionKind::Usable
+            r.kind == StivaleMemoryMapEntryType::Usable
                 && (r.start..r.end).contains(&start)
                 && (r.start..r.end).contains(&end)
         })
@@ -274,8 +276,8 @@ pub fn allocate_phys_range(
         match (MAPPER.lock().as_mut(), FRAME_ALLOCATOR.lock().as_mut()) {
             (Some(m), Some(a)) => {
                 let frame_range = {
-                    let start = PhysAddr::new(start);
-                    let end = PhysAddr::new(end);
+                    let start = PhysAddr::new_truncate(start);
+                    let end = PhysAddr::new_truncate(end);
                     let start_frame = PhysFrame::<Size4KiB>::containing_address(start);
                     let end_frame = PhysFrame::<Size4KiB>::containing_address(end);
                     PhysFrame::range_inclusive(start_frame, end_frame)
@@ -301,7 +303,7 @@ pub fn allocate_phys_range(
                                     frame.clone().start_address(),
                                     frame.size()
                                 ),
-                                MapToError::ParentEntryHugePage => ret = false,
+                                MapToError::ParentEntryHugePage => (),
                             },
                         }
                     }
@@ -329,8 +331,8 @@ pub fn free_range(start: u64, end: u64) -> bool {
     }
     let mut ret = false;
     let page_range: PageRangeInclusive<Size4KiB> = {
-        let start = VirtAddr::new(start);
-        let end = VirtAddr::new(end);
+        let start = VirtAddr::new_truncate(start);
+        let end = VirtAddr::new_truncate(end);
         let start_page = Page::containing_address(start);
         let end_page = Page::containing_address(end);
         Page::range_inclusive(start_page, end_page)
@@ -358,16 +360,16 @@ pub fn free_range(start: u64, end: u64) -> bool {
     ret
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug)]
 struct MemoryRegion {
     pub(crate) start: u64,
     pub(crate) end: u64,
-    pub(crate) kind: MemoryRegionKind,
+    pub(crate) kind: StivaleMemoryMapEntryType,
 }
 
 /// Initializes the internal memory map.
 #[cold]
-pub fn init_memory_map(map: &'static MemoryRegions, rsdpaddr: u64) {
+pub fn init_memory_map(map: &[StivaleMemoryMapEntry], rsdpaddr: u64) {
     info!(
         "Loading free memory region list from memory map at {:p}",
         &map
@@ -376,12 +378,12 @@ pub fn init_memory_map(map: &'static MemoryRegions, rsdpaddr: u64) {
         let mut mmap: Vec<MemoryRegion, 1024> = Vec::new();
         map.iter().for_each(|region| {
             mmap.push(MemoryRegion {
-                start: region.start,
-                end: region.end,
-                kind: region.kind,
+                start: region.base,
+                end: region.end_address(),
+                kind: region.entry_type(),
             })
             .unwrap();
-            STOTAL.fetch_add(region.end - region.start, Ordering::Relaxed);
+            STOTAL.fetch_add(region.end_address() - region.base, Ordering::Relaxed);
         });
         mmap
     });
@@ -397,7 +399,7 @@ pub extern "C" fn get_free_addr(size: u64) -> u64 {
         .get()
         .unwrap()
         .iter()
-        .filter(|r| r.kind == MemoryRegionKind::Usable)
+        .filter(|r| r.kind == StivaleMemoryMapEntryType::Usable)
         .map(|r| r.start..r.end)
         .collect();
     let mut addrrng = ADDRRNG.lock();
@@ -427,7 +429,7 @@ pub extern "C" fn get_aligned_free_addr(size: u64, alignment: u64) -> u64 {
         .get()
         .unwrap()
         .iter()
-        .filter(|r| r.kind == MemoryRegionKind::Usable)
+        .filter(|r| r.kind == StivaleMemoryMapEntryType::Usable)
         .map(|r| r.start..r.end)
         .collect();
     let mut addrrng = ADDRRNG.lock();

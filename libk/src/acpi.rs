@@ -16,6 +16,13 @@ struct AcpiMapper;
 
 impl AcpiHandler for AcpiMapper {
     unsafe fn map_physical_region<T>(&self, addr: usize, size: usize) -> PhysicalMapping<Self, T> {
+        debug!("Mapping {:X}, size {}", addr, size);
+        if addr.get_bits(48..64) != 0 {
+            panic!(
+                "Bits 48 .. 64 are {:X} and must be cleared",
+                addr.get_bits(48..64)
+            );
+        }
         allocate_phys_range(addr as u64, (addr + size) as u64, true, None);
         unsafe {
             PhysicalMapping::new(

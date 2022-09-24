@@ -46,24 +46,9 @@ struct Selectors {
 #[cold]
 pub fn init() {
     info!("Loading GDT");
-    debug!("Loading GDT at addr {:p}: {:?}", &GDT.0, GDT.0);
     GDT.0.load();
     unsafe {
-        info!("Setting CS");
-        debug!(
-            "CS at addr {:p}: {:?}",
-            &GDT.1.code_selector, GDT.1.code_selector
-        );
         CS::set_reg(GDT.1.code_selector);
-        info!("Loading TSS");
-        debug!(
-            "TSS at addr {:p}, TSS selector at {:p}: TSS = {:?}, TSS selector = {:?}",
-            &TSS, &GDT.1.tss_selector, TSS, GDT.1.tss_selector
-        );
         load_tss(GDT.1.tss_selector);
     }
-    debug!(
-        "TSS at addr {:p} with TSS selecter at addr {:p} loaded",
-        &TSS, &GDT.1.tss_selector
-    );
 }

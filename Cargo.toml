@@ -7,29 +7,22 @@ name = 'kernel'
 version = '0.1.0'
 resolver="2"
 
-[package.metadata.bootloader]
-kernel-stack-size = "8388608"
-map-physical-memory = false
-map-framebuffer = true
-aslr = true
-
 [build-dependencies]
 build_details = "0.1.2"
 build_script_file_gen = "0.6.1"
 rustc_version = "0.4.0"
 
 [dependencies]
-bit_field = "0.10.1"
-spin = "0.9.2"
+spin = "0.9.4"
 slab_allocator_rs = "1.0.1"
-bootloader = "0.10.12"
+stivale-boot = "0.3.1"
 
 [dependencies.libk]
 path = 'libk'
 
 [dependencies.log]
-default-features =false
-version = "0.4.14"
+default-features = false
+version = "0.4.17"
 
 [profile.dev]
 codegen-units = 2048
@@ -52,11 +45,11 @@ opt-level = 3
 [target.riscv64gc-unknown-none-elf]
 
 [target.riscv64gc-unknown-none-elf.dependencies]
-riscv = "0.7.0"
+riscv = "0.8.0"
 
 [target.x86_64-unknown-none.dependencies]
-uart_16550 = "0.2.16"
-x86_64 = { version = "0.14.8", features = ["const_fn", "inline_asm", "abi_x86_interrupt", "nightly"] }
+uart_16550 = "0.2.18"
+x86_64 = { version = "0.14.10", features = ["const_fn", "inline_asm", "abi_x86_interrupt", "nightly"] }
 
 
 [features]

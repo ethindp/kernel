@@ -147,12 +147,6 @@ fn add_device(device: PciDevice) {
 #[track_caller]
 #[inline]
 fn read_dword(phys_addr: usize, addr: u32) -> u32 {
-    assert_eq!(
-        (phys_addr + (addr as usize)) % 4,
-        0,
-        "{} is not 4 byte aligned",
-        phys_addr + (addr as usize)
-    );
     let cfgspace: VolAddress<u32, Safe, ()> =
         unsafe { VolAddress::new(phys_addr + (addr as usize)) };
     cfgspace.read()
@@ -161,12 +155,6 @@ fn read_dword(phys_addr: usize, addr: u32) -> u32 {
 #[track_caller]
 #[inline]
 fn write_dword(phys_addr: usize, addr: u32, value: u32) {
-    assert_eq!(
-        (phys_addr + (addr as usize)) % 4,
-        0,
-        "{} is not 4 byte aligned",
-        phys_addr + (addr as usize)
-    );
     let cfgspace: VolAddress<u32, (), Safe> =
         unsafe { VolAddress::new(phys_addr + (addr as usize)) };
     cfgspace.write(value);
