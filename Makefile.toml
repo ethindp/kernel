@@ -103,7 +103,7 @@ script = '''
 //!```cargo
 //![dependencies]
 //!```
-#![feature(path_try_exists)]
+#![feature(fs_try_exists)]
 use std::env::var;
 use std::fs::{copy, create_dir_all, try_exists, write};
 
@@ -122,10 +122,10 @@ MENU_FONT_SCALE=2x2
 EDITOR_ENABLED=no
 VERBOSE=yes
 SERIAL=yes
-RANDOMIZE_MEMORY=yes
+RANDOMIZE_MEMORY=no
 :Kernel
 PROTOCOL=stivale2
-KASLR=yes
+KASLR=no
 KERNEL_PATH=boot:///EFI/BOOT/kernel
 "#).expect("Can't write limine.cfg");
 }
