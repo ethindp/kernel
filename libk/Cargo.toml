@@ -9,8 +9,8 @@ spin = { version = "0.9.4", features = ["ticket_mutex"] }
 x86_64 = "0.14.10"
 voladdress = "1.0.2"
 async-recursion = "1.0.0"
-stivale-boot = "0.3.1"
 blake3 = { version = "1.3.1", default-features = false, features = ["no_avx2", "no_sse41", "no_avx512", "no_sse2", "no_neon"] }
+limine = "0.1.8"
 
 [dependencies.byteorder]
 default-features = false

@@ -8,7 +8,7 @@ use minivec::MiniVec;
 use rand_core::{RngCore, SeedableRng};
 use rand_hc::Hc128Rng;
 use spin::{mutex::ticket::TicketMutex, Lazy, Once};
-use stivale_boot::v2::*;
+use limine::*;
 use x86_64::{
     addr::align_up,
     instructions::random::RdRand,
@@ -364,12 +364,12 @@ pub fn free_range(start: u64, end: u64) -> bool {
 struct MemoryRegion {
     pub(crate) start: u64,
     pub(crate) end: u64,
-    pub(crate) kind: StivaleMemoryMapEntryType,
+    pub(crate) kind: LimineMemoryMapEntryType,
 }
 
 /// Initializes the internal memory map.
 #[cold]
-pub fn init_memory_map(map: &[StivaleMemoryMapEntry], rsdpaddr: u64) {
+pub fn init_memory_map(map: &[LimineMemmapEntry], rsdpaddr: LimineRsdpResponse) {
     info!(
         "Loading free memory region list from memory map at {:p}",
         &map
@@ -379,17 +379,17 @@ pub fn init_memory_map(map: &[StivaleMemoryMapEntry], rsdpaddr: u64) {
         map.iter().for_each(|region| {
             mmap.push(MemoryRegion {
                 start: region.base,
-                end: region.end_address(),
-                kind: region.entry_type(),
+                end: region.base + region.len,
+                kind: region.type,
             })
             .unwrap();
-            STOTAL.fetch_add(region.end_address() - region.base, Ordering::Relaxed);
+            STOTAL.fetch_add(region.base + region.len, Ordering::Relaxed);
         });
         mmap
     });
     info!("Discovered {} bytes of RAM", STOTAL.load(Ordering::Relaxed));
-    info!("RSDP at {:X}", rsdpaddr);
-    RSDP.swap(rsdpaddr, Ordering::Relaxed);
+    info!("RSDP at {}", rsdpaddr.to_str().unwrap());
+    RSDP.swap(rsdpaddr.as_ptr() as u64, Ordering::Relaxed);
 }
 
 /// Attempts to find a random memory address that is free that allows allocations of the given size.

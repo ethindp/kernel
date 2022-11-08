@@ -15,7 +15,7 @@ rustc_version = "0.4.0"
 [dependencies]
 spin = "0.9.4"
 slab_allocator_rs = "1.0.1"
-stivale-boot = "0.3.1"
+limine = "0.1.8"
 
 [dependencies.libk]
 path = 'libk'
@@ -40,12 +40,6 @@ codegen-units = 1
 lto = true
 opt-level = 3
 
-[target]
-
-[target.riscv64gc-unknown-none-elf]
-
-[target.riscv64gc-unknown-none-elf.dependencies]
-riscv = "0.8.0"
 
 [target.x86_64-unknown-none.dependencies]
 uart_16550 = "0.2.18"

@@ -239,7 +239,7 @@ dependencies = [
  "bare-metal 1.0.0",
  "cfg-if",
  "cortex-m",
- "riscv 0.7.0",
+ "riscv",
 ]
 
 [[package]]
@@ -330,12 +330,11 @@ dependencies = [
  "build_details",
  "build_script_file_gen",
  "libk",
+ "limine",
  "log",
- "riscv 0.8.0",
  "rustc_version 0.4.0",
  "slab_allocator_rs",
  "spin 0.9.4",
- "stivale-boot",
  "uart_16550",
  "x86_64",
 ]
@@ -365,6 +364,7 @@ dependencies = [
  "compression",
  "crossbeam-queue",
  "heapless",
+ "limine",
  "log",
  "minivec",
  "pciids",
@@ -372,10 +372,15 @@ dependencies = [
  "rand_hc 0.3.1",
  "raw-cpuid",
  "spin 0.9.4",
- "stivale-boot",
  "voladdress",
  "x86_64",
 ]
+
+[[package]]
+name = "limine"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eac64618e505bab2387986e5b1014f5d344130d609685bbd8b71a10af3ee599d"
 
 [[package]]
 name = "lock_api"
@@ -713,17 +718,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "riscv"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e2856a701069e2d262b264750d382407d272d5527f7a51d3777d1805b4e2d3c"
-dependencies = [
- "bare-metal 1.0.0",
- "bit_field",
- "embedded-hal",
-]
-
-[[package]]
 name = "riscv-target"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -841,15 +835,6 @@ name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
-
-[[package]]
-name = "stivale-boot"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "abe78be933167bda8c05b88e35823c29452fbb51aa632a82e376a75726cf25a8"
-dependencies = [
- "bitflags",
-]
 
 [[package]]
 name = "syn"

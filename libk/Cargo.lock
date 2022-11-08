@@ -4,9 +4,9 @@ version = 3
 
 [[package]]
 name = "acpi"
-version = "4.1.0"
+version = "4.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55237649c6e747ea67e5ed45125af5e6a35ea1250c5e44995eb6049a955bd004"
+checksum = "654f48ab3178632ea535be1765073b990895cb62f70a7e5671975d7150c26d15"
 dependencies = [
  "bit_field",
  "log",
@@ -207,9 +207,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-queue"
-version = "0.3.5"
+version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f25d8400f4a7a5778f0e4e52384a48cbd9b5c495d110786187fc750075277a2"
+checksum = "1cd42583b04998a5363558e5f9291ee5a5ff6b49944332103f251e7479a82aa7"
 dependencies = [
  "cfg-if",
  "crossbeam-utils",
@@ -269,9 +269,9 @@ dependencies = [
 
 [[package]]
 name = "heapless"
-version = "0.7.12"
+version = "0.7.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80d9655b43f21008d1d6f6ae33ba8bfbaf1ef954f19ea3023e1bcf8e06b4e909"
+checksum = "db04bc24a18b9ea980628ecf00e6c0264f3c1426dac36c00cb49b6fbad8b0743"
 dependencies = [
  "atomic-polyfill",
  "hash32",
@@ -299,6 +299,7 @@ dependencies = [
  "compression",
  "crossbeam-queue",
  "heapless",
+ "limine",
  "log",
  "minivec",
  "pciids",
@@ -306,10 +307,15 @@ dependencies = [
  "rand_hc",
  "raw-cpuid",
  "spin",
- "stivale-boot",
  "voladdress",
  "x86_64",
 ]
+
+[[package]]
+name = "limine"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eac64618e505bab2387986e5b1014f5d344130d609685bbd8b71a10af3ee599d"
 
 [[package]]
 name = "lock_api"
@@ -468,9 +474,9 @@ dependencies = [
 
 [[package]]
 name = "raw-cpuid"
-version = "10.3.0"
+version = "10.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "738bc47119e3eeccc7e94c4a506901aea5e7b4944ecd0829cbebf4af04ceda12"
+checksum = "a6823ea29436221176fe662da99998ad3b4db2c7f31e7b6f5fe43adccd6320bb"
 dependencies = [
  "bitflags",
 ]
@@ -587,9 +593,9 @@ dependencies = [
 
 [[package]]
 name = "spin"
-version = "0.9.3"
+version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c530c2b0d0bf8b69304b39fe2001993e267461948b890cd037d8ad4293fa1a0d"
+checksum = "7f6002a767bff9e83f8eeecf883ecb8011875a21ae8da43bffb817a57e78cc09"
 dependencies = [
  "lock_api",
 ]
@@ -599,15 +605,6 @@ name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
-
-[[package]]
-name = "stivale-boot"
-version = "0.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3984cf9eb06b3115126ca13dffce8e45bc0f9a444391467c814b086acf50836d"
-dependencies = [
- "bitflags",
-]
 
 [[package]]
 name = "syn"
@@ -673,9 +670,9 @@ dependencies = [
 
 [[package]]
 name = "x86_64"
-version = "0.14.9"
+version = "0.14.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "958cd5cb28e720db2f59ee9dc4235b5f82a183d079fb0e6caf43ad074cfdc66a"
+checksum = "100555a863c0092238c2e0e814c1096c1e5cf066a309c696a87e907b5f8c5d69"
 dependencies = [
  "bit_field",
  "bitflags",
