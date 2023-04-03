@@ -319,7 +319,7 @@ dependencies = [
  "atomic-polyfill",
  "hash32",
  "rustc_version 0.4.0",
- "spin 0.9.4",
+ "spin 0.9.8",
  "stable_deref_trait",
 ]
 
@@ -334,7 +334,7 @@ dependencies = [
  "riscv 0.8.0",
  "rustc_version 0.4.0",
  "slab_allocator_rs",
- "spin 0.9.4",
+ "spin 0.9.8",
  "stivale-boot",
  "uart_16550",
  "x86_64",
@@ -371,7 +371,7 @@ dependencies = [
  "rand_core 0.6.3",
  "rand_hc 0.3.1",
  "raw-cpuid",
- "spin 0.9.4",
+ "spin 0.9.8",
  "stivale-boot",
  "voladdress",
  "x86_64",
@@ -818,7 +818,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7feef020acba64b15b8be968cce2aad496650725550177528f7c113a2b79c21e"
 dependencies = [
  "buddy_system_allocator",
- "spin 0.9.4",
+ "spin 0.9.8",
 ]
 
 [[package]]
@@ -829,9 +829,9 @@ checksum = "13287b4da9d1207a4f4929ac390916d64eacfe236a487e9a9f5b3be392be5162"
 
 [[package]]
 name = "spin"
-version = "0.9.4"
+version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f6002a767bff9e83f8eeecf883ecb8011875a21ae8da43bffb817a57e78cc09"
+checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
 dependencies = [
  "lock_api",
 ]
