@@ -13,7 +13,7 @@ build_script_file_gen = "0.6.1"
 rustc_version = "0.4.0"
 
 [dependencies]
-spin = "0.9.4"
+spin = "0.9.8"
 slab_allocator_rs = "1.0.1"
 stivale-boot = "0.3.1"
 
